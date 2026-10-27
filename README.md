@@ -9,7 +9,7 @@ sees ciphertext: no accounts, no trackers, no IP logging.
 - Self-hostable with Docker Compose and Caddy
 - Reproducible builds
 
-Status: early development (phase 1, foundation).
+Status: early development (phase 2: browser encryption, share links, download limits, chunked uploads).
 
 ## Development
 
