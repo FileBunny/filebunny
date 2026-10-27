@@ -8,6 +8,9 @@
     "noUncheckedIndexedAccess": true,
     "isolatedModules": true,
     "verbatimModuleSyntax": true,
+    // Imports name the .ts file, so the same modules run in Node's tests.
+    "allowImportingTsExtensions": true,
+    "noEmit": true,
     "types": ["vite/client"]
   },
   "include": ["src/**/*.ts", "src/**/*.svelte", "vite.config.ts"]

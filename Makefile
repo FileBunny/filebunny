@@ -25,8 +25,11 @@ test-backend:
 	cd backend && go vet ./...
 	cd backend && CGO_ENABLED=1 go test -race ./...
 
+# The gpg interoperability tests skip without gpg; CI sets
+# FILEBUNNY_REQUIRE_GPG=1 so they cannot be skipped there.
 test-frontend: frontend/node_modules
 	cd frontend && npm run check
+	cd frontend && npm test
 
 # `go run pkg@version` ignores go.mod; force the module's toolchain.
 vuln:

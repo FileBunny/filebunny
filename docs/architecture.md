@@ -18,6 +18,31 @@ flowchart LR
 | SQLite | One row per file: ID, hash of the delete token, size, created, expires, download limit and count |
 | Disk | One file per upload in `data/blobs/<id>`, written via `data/tmp/` and an atomic rename |
 
+## Encryption
+
+All encryption happens in the browser with OpenPGP.js
+(`frontend/src/lib/crypto.ts`). The output must open with GnuPG 2.4, which
+does not support RFC 9580 (v6 packets, SEIPDv2/AEAD), so:
+
+| Choice | Value | Why |
+|---|---|---|
+| Encryption packet | SEIPDv1 with MDC (`aeadProtect: false`) | Readable by every gpg version |
+| Cipher | AES-256 | |
+| Password S2K | Iterated and salted (no Argon2) | gpg 2.4 compatible |
+| Compression | None | No compression oracle, simpler |
+| Literal data | Text: format `u`, no file name. File: format `b` with the file name. Date always 0 | The name is encrypted, the server never sees it; no timestamp leaks |
+| Recipient key IDs | Hidden (wildcard, like `gpg --throw-keyids`) | The server cannot link a message to a key on a keyserver |
+
+Files are encrypted as a stream, so memory use does not grow with the file
+size. Decryption checks the MDC over the whole message before anything is
+shown, so the browser holds the ciphertext and plaintext of one file in
+memory (fine at 100 MiB). A message without a file name is shown as text,
+as with `echo … | gpg --encrypt`. Decrypted text is never rendered as HTML;
+decrypted file names are stripped of directories and control characters.
+
+`frontend/tests/gpg.test.ts` checks both directions against `gpg` with
+the test keys in `testdata/keys` (CI requires gpg).
+
 ## Request flow
 
 **Upload** — `POST /api/v1/files`
