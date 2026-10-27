@@ -1,0 +1,199 @@
+/* Minimal styling until the design in phase 9. */
+:root {
+  --fg: #1d1d1f;
+  --muted: #5f6368;
+  --bg: #fafafa;
+  --surface: #ffffff;
+  --border: #d0d4d9;
+  --accent: #2d6a4f;
+  --accent-fg: #ffffff;
+  --danger: #b3261e;
+  color-scheme: light dark;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --fg: #e8eaed;
+    --muted: #a0a4a8;
+    --bg: #161718;
+    --surface: #202124;
+    --border: #3c4043;
+    --accent: #74c69d;
+    --accent-fg: #0b2116;
+    --danger: #f2b8b5;
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--fg);
+  font-family: system-ui, sans-serif;
+  line-height: 1.5;
+}
+
+#app {
+  max-width: 44rem;
+  margin: 0 auto;
+  padding: 1.5rem 1rem 3rem;
+}
+
+header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.25rem 1rem;
+  margin-bottom: 1.5rem;
+}
+
+.brand {
+  font-size: 1.4rem;
+  font-weight: 700;
+  color: var(--fg);
+  text-decoration: none;
+}
+
+.tagline,
+.note,
+footer {
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+footer {
+  margin-top: 3rem;
+}
+
+h1 {
+  font-size: 1.5rem;
+}
+
+a {
+  color: var(--accent);
+}
+
+fieldset {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  padding: 1rem;
+  margin: 0 0 1rem;
+}
+
+legend {
+  font-weight: 600;
+  padding: 0 0.25rem;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  margin: 0.5rem 0;
+  flex: 1;
+}
+
+.row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.row > input {
+  flex: 1;
+  min-width: 12rem;
+}
+
+.choice {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 1.5rem;
+}
+
+input[type='text'],
+input[type='password'],
+textarea,
+select {
+  font: inherit;
+  color: inherit;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 0.45rem 0.6rem;
+  width: 100%;
+}
+
+.row > input {
+  width: auto;
+}
+
+textarea,
+code,
+pre {
+  font-family: ui-monospace, monospace;
+  font-size: 0.85rem;
+}
+
+button,
+.button {
+  font: inherit;
+  display: inline-block;
+  cursor: pointer;
+  padding: 0.45rem 1rem;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--fg);
+  text-decoration: none;
+}
+
+button:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-fg);
+  font-weight: 600;
+}
+
+.danger {
+  border-color: var(--danger);
+  color: var(--danger);
+}
+
+.error {
+  color: var(--danger);
+}
+
+progress {
+  width: 100%;
+  height: 0.75rem;
+  margin: 0.5rem 0;
+}
+
+pre {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 0.75rem;
+  overflow-x: auto;
+}
+
+pre.message {
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.key {
+  border-left: 3px solid var(--accent);
+  padding: 0.25rem 0.75rem;
+  margin: 0.5rem 0;
+}

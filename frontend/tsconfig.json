@@ -10,6 +10,7 @@
     "verbatimModuleSyntax": true,
     // Imports name the .ts file, so the same modules run in Node's tests.
     "allowImportingTsExtensions": true,
+    "erasableSyntaxOnly": true,
     "noEmit": true,
     "types": ["vite/client"]
   },
