@@ -1,24 +1,31 @@
 # FileBunny behind Caddy. Set FILEBUNNY_DOMAIN (e.g. filebunny.eu);
 # the default "localhost" uses Caddy's local CA for development.
 #
-# Privacy: there is deliberately no `log` directive in the site block, so
-# Caddy writes no access log. Never add one: access logs contain client IPs.
+# Privacy (see docs/security-review.md):
+# - There is deliberately no `log` directive in the site block, so Caddy
+#   writes no access log. Never add one: access logs contain client IPs.
+# - Caddy's error log includes the request (client IP, headers with the
+#   delete token, URI with the file ID); the filter below removes those.
 {
 	admin off
 	log {
 		level WARN
+		format filter {
+			request>remote_ip delete
+			request>remote_port delete
+			request>client_ip delete
+			request>headers delete
+			request>uri delete
+			request>tls delete
+		}
 	}
 }
 
 {$FILEBUNNY_DOMAIN:localhost} {
 	header {
 		Strict-Transport-Security "max-age=31536000"
-		Content-Security-Policy "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; font-src 'self'; manifest-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'"
 		X-Content-Type-Options "nosniff"
-		X-Frame-Options "DENY"
 		Referrer-Policy "no-referrer"
-		Permissions-Policy "camera=(), microphone=(), geolocation=(), interest-cohort=()"
-		Cross-Origin-Opener-Policy "same-origin"
 		-Server
 	}
 
@@ -28,6 +35,7 @@
 		request_body {
 			max_size 110MiB
 		}
+		# The backend sets its own CSP and framing headers.
 		reverse_proxy backend:8080 {
 			# The backend must never see client addresses.
 			header_up -X-Forwarded-For
@@ -37,6 +45,12 @@
 	}
 
 	handle {
+		header {
+			Content-Security-Policy "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; font-src 'self'; manifest-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'"
+			X-Frame-Options "DENY"
+			Permissions-Policy "camera=(), microphone=(), geolocation=(), interest-cohort=()"
+			Cross-Origin-Opener-Policy "same-origin"
+		}
 		encode zstd gzip
 		root * /srv
 		try_files {path} /index.html
