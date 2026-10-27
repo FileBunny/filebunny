@@ -72,6 +72,22 @@ backend with defaults.
 
 Durations use Go syntax (`30m`, `24h`); `7d` is not valid, use `168h`.
 
+## Downloadable single HTML file
+
+`make single` builds `frontend/dist-single/filebunny.html`: the whole app
+(script and styles inline, with a CSP by hash) in one file that people can
+save and open from disk, so they do not depend on the JavaScript your
+server sends each time. It talks to the API at `VITE_FILEBUNNY_API`
+(default `https://filebunny.eu`, see `frontend/.env.single`). For your own
+instance:
+
+```sh
+cd frontend && VITE_FILEBUNNY_API=https://files.example.org npm run build:single
+```
+
+The backend allows CORS for `Origin: null` only, which is what such a page
+sends. Share and delete links made from the file point to that origin.
+
 ## Privacy checklist
 
 FileBunny stores no IP addresses. Keep it that way on your server:

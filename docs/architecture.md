@@ -43,6 +43,23 @@ decrypted file names are stripped of directories and control characters.
 `frontend/tests/gpg.test.ts` checks both directions against `gpg` with
 the test keys in `testdata/keys` (CI requires gpg).
 
+## Frontend
+
+Svelte without a router library. Routes live in the URL fragment
+(`#/d/<id>`, `#/delete/<id>/<token>`), so the same links work on the site
+and in the single HTML file opened from `file://`, and the fragment (with
+the delete token) is never sent to the server. The app is built as one
+script and one stylesheet, without lazy-loaded chunks or workers, so
+`make single` can inline everything into one file with a CSP by hash.
+
+- **Send:** encrypt the stream, upload in one request if the ciphertext
+  fits in one chunk (8 MiB), otherwise as a chunked upload with retries.
+- **Download:** `HEAD` first, so opening the link (or a link preview bot)
+  does not use up a download. After the user clicks, the ciphertext is
+  downloaded once and kept in the page, so a wrong password can be retried.
+  Text is shown as text, files are offered with `<a download>` from a
+  `blob:` URL of type `application/octet-stream`.
+
 ## Request flow
 
 **Upload** — `POST /api/v1/files`

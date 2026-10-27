@@ -72,3 +72,38 @@ func TestSecurityHeaders(t *testing.T) {
 		t.Errorf("unknown route: status %d", rec.Code)
 	}
 }
+
+func TestCORSOnlyForNullOrigin(t *testing.T) {
+	e := newTestEnv(t)
+
+	// Preflight from a page opened from disk.
+	rec := e.do("OPTIONS", "/api/v1/uploads", nil,
+		"Origin", "null", "Access-Control-Request-Method", "POST", "Access-Control-Request-Headers", "authorization")
+	h := rec.Header()
+	if rec.Code != http.StatusNoContent || h.Get("Access-Control-Allow-Origin") != "null" ||
+		!strings.Contains(h.Get("Access-Control-Allow-Methods"), "PUT") ||
+		!strings.Contains(h.Get("Access-Control-Allow-Headers"), "Authorization") {
+		t.Fatalf("preflight: %d %v", rec.Code, h)
+	}
+	if h.Get("Access-Control-Allow-Credentials") != "" {
+		t.Error("credentials must never be allowed")
+	}
+
+	rec = e.do("POST", "/api/v1/files", strings.NewReader("x"), "Origin", "null")
+	if rec.Code != http.StatusCreated || rec.Header().Get("Access-Control-Allow-Origin") != "null" ||
+		!strings.Contains(rec.Header().Get("Access-Control-Expose-Headers"), "Downloads-Remaining") {
+		t.Errorf("upload from null origin: %d %v", rec.Code, rec.Header())
+	}
+
+	// Any real origin, or none: no CORS headers, and no preflight answer.
+	for _, origin := range []string{"https://evil.example", "https://filebunny.eu", ""} {
+		rec := e.do("OPTIONS", "/api/v1/uploads", nil, "Origin", origin, "Access-Control-Request-Method", "POST")
+		if rec.Header().Get("Access-Control-Allow-Origin") != "" || rec.Code == http.StatusNoContent {
+			t.Errorf("origin %q: preflight %d %v", origin, rec.Code, rec.Header())
+		}
+		rec = e.do("POST", "/api/v1/files", strings.NewReader("x"), "Origin", origin)
+		if rec.Header().Get("Access-Control-Allow-Origin") != "" {
+			t.Errorf("origin %q got CORS headers", origin)
+		}
+	}
+}

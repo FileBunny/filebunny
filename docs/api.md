@@ -6,7 +6,14 @@ interprets them. Errors are JSON: `{"error": "<message>"}`.
 Every API response carries `Content-Security-Policy: default-src 'none';
 frame-ancestors 'none'; sandbox`, `X-Content-Type-Options: nosniff`,
 `Referrer-Policy: no-referrer` and `Cross-Origin-Resource-Policy:
-same-origin`. There are no CORS headers.
+same-origin` and `Vary: Origin`.
+
+**CORS** is only answered for `Origin: null`, which is what the
+downloadable single HTML file sends when opened from disk:
+`Access-Control-Allow-Origin: null`, methods `GET, HEAD, POST, PUT,
+DELETE`, headers `Authorization, Content-Type`, exposed headers
+`Downloads-Remaining, Expires-At`. Credentials are never allowed (the API
+has no cookies). Requests from any other origin get no CORS headers.
 
 ## Upload
 

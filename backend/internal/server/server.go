@@ -55,7 +55,7 @@ func New(cfg config.Config, st *store.Store, log *slog.Logger) *Server {
 	s.mux.HandleFunc("PUT /api/v1/uploads/{id}", s.handleChunk)
 	s.mux.HandleFunc("POST /api/v1/uploads/{id}/complete", s.handleCompleteUpload)
 	s.mux.HandleFunc("DELETE /api/v1/uploads/{id}", s.handleAbortUpload)
-	s.handler = securityHeaders(s.mux)
+	s.handler = securityHeaders(nullOriginCORS(s.mux))
 	return s
 }
 
