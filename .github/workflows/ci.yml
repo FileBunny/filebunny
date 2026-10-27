@@ -9,9 +9,11 @@ on:
 permissions:
   contents: read
 
+# Superseded pull request runs are cancelled; every push to main gets a
+# complete run.
 concurrency:
   group: ci-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
   # Use exactly the Go version from backend/go.mod; never download another.
