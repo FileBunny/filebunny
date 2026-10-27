@@ -56,6 +56,7 @@ func run(log *slog.Logger) error {
 	srv := &http.Server{
 		Addr:              cfg.Listen,
 		Handler:           server.New(cfg, st, log),
+		ErrorLog:          server.ErrorLog(log),
 		ReadHeaderTimeout: 10 * time.Second,
 		IdleTimeout:       60 * time.Second,
 	}

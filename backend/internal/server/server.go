@@ -19,11 +19,12 @@ import (
 
 // Server serves the HTTP API.
 type Server struct {
-	cfg   config.Config
-	store *store.Store
-	log   *slog.Logger
-	now   func() time.Time
-	mux   *http.ServeMux
+	cfg     config.Config
+	store   *store.Store
+	log     *slog.Logger
+	now     func() time.Time
+	mux     *http.ServeMux
+	handler http.Handler
 }
 
 // New returns a Server with all routes registered.
@@ -33,11 +34,12 @@ func New(cfg config.Config, st *store.Store, log *slog.Logger) *Server {
 	s.mux.HandleFunc("POST /api/v1/files", s.handleUpload)
 	s.mux.HandleFunc("GET /api/v1/files/{id}", s.handleDownload)
 	s.mux.HandleFunc("DELETE /api/v1/files/{id}", s.handleDelete)
+	s.handler = securityHeaders(s.mux)
 	return s
 }
 
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	s.mux.ServeHTTP(w, r)
+	s.handler.ServeHTTP(w, r)
 }
 
 func (s *Server) handleHealth(w http.ResponseWriter, _ *http.Request) {
