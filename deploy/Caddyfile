@@ -1,0 +1,45 @@
+# FileBunny behind Caddy. Set FILEBUNNY_DOMAIN (e.g. filebunny.eu);
+# the default "localhost" uses Caddy's local CA for development.
+#
+# Privacy: there is deliberately no `log` directive in the site block, so
+# Caddy writes no access log. Never add one: access logs contain client IPs.
+{
+	admin off
+	log {
+		level WARN
+	}
+}
+
+{$FILEBUNNY_DOMAIN:localhost} {
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		Content-Security-Policy "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; font-src 'self'; manifest-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+		Referrer-Policy "no-referrer"
+		Permissions-Policy "camera=(), microphone=(), geolocation=(), interest-cohort=()"
+		Cross-Origin-Opener-Policy "same-origin"
+		-Server
+	}
+
+	handle /api/* {
+		# The backend enforces the real limit and answers with JSON;
+		# this only stops absurd bodies early.
+		request_body {
+			max_size 110MiB
+		}
+		reverse_proxy backend:8080 {
+			# The backend must never see client addresses.
+			header_up -X-Forwarded-For
+			header_up -X-Real-IP
+			header_up -Forwarded
+		}
+	}
+
+	handle {
+		encode zstd gzip
+		root * /srv
+		try_files {path} /index.html
+		file_server
+	}
+}
