@@ -10,10 +10,16 @@ fake_ip=203.0.113.7
 curl=(curl -sk --max-time 10 -H "X-Forwarded-For: $fake_ip" -H "X-Real-IP: $fake_ip")
 fail() { echo "FAIL: $*"; exit 1; }
 
+echo "waiting for $base"
+reachable=
 for _ in $(seq 30); do
-	"${curl[@]}" -o /dev/null "$base/" && break
+	if "${curl[@]}" --max-time 2 -o /dev/null "$base/"; then
+		reachable=1
+		break
+	fi
 	sleep 1
 done
+[[ -n $reachable ]] || fail "$base not reachable after 30 tries (stack running? a host firewall blocking Docker bridges?)"
 
 echo "frontend headers"
 headers=$("${curl[@]}" -D - -o /dev/null "$base/")
