@@ -13,6 +13,7 @@ import (
 
 	"github.com/FileBunny/filebunny/backend/internal/config"
 	"github.com/FileBunny/filebunny/backend/internal/server"
+	"github.com/FileBunny/filebunny/backend/internal/store"
 )
 
 func main() {
@@ -29,12 +30,18 @@ func run(log *slog.Logger) error {
 		return err
 	}
 
+	st, err := store.Open(cfg.DataDir)
+	if err != nil {
+		return err
+	}
+	defer st.Close()
+
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
 	srv := &http.Server{
 		Addr:              cfg.Listen,
-		Handler:           server.New(log),
+		Handler:           server.New(cfg, st, log),
 		ReadHeaderTimeout: 10 * time.Second,
 		IdleTimeout:       60 * time.Second,
 	}
