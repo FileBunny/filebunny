@@ -60,6 +60,17 @@ test('readPublicKeys shows fingerprint and refuses private keys', async () => {
   await assert.rejects(readPublicKeys('not a key'));
 });
 
+test('key files are read as armored or binary bytes', async () => {
+  const armored = new TextEncoder().encode(testKey('alice.sec.asc'));
+  const key = await readPrivateKey(armored, '');
+  assert.equal(formatFingerprint(key.getFingerprint()), alice);
+  assert.ok(await readPrivateKey(key.write(), ''));
+  const [info] = await readPublicKeys(new TextEncoder().encode(testKey('alice.pub.asc')));
+  assert.equal(info?.fingerprint, alice);
+  const [binary] = await readPublicKeys(info!.key.write());
+  assert.equal(binary?.fingerprint, alice);
+});
+
 test('readPrivateKey needs the right passphrase', async () => {
   await assert.rejects(readPrivateKey(testKey('bob.sec.asc'), 'wrong'));
 });

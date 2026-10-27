@@ -98,10 +98,21 @@ export type KeyInfo = {
 };
 
 /**
+ * Key files (.asc, .gpg) come in as bytes, but are often ASCII-armored.
+ * Armored bytes are decoded to text so OpenPGP.js reads them as armor.
+ */
+function armoredOrBinary(input: string | Uint8Array): string | Uint8Array {
+  if (typeof input === 'string') return input;
+  const text = new TextDecoder().decode(input);
+  return text.includes('-----BEGIN PGP') ? text : input;
+}
+
+/**
  * Reads one or more public keys (armored or binary). Private keys are
  * refused, so a user who pastes the wrong block learns about it.
  */
-export async function readPublicKeys(input: string | Uint8Array): Promise<KeyInfo[]> {
+export async function readPublicKeys(file: string | Uint8Array): Promise<KeyInfo[]> {
+  const input = armoredOrBinary(file);
   const keys =
     typeof input === 'string'
       ? await openpgp.readKeys({ armoredKeys: input })
@@ -128,7 +139,8 @@ export async function readPublicKeys(input: string | Uint8Array): Promise<KeyInf
  * Reads a private key and unlocks it with the passphrase if it has one. The
  * key stays in memory in this page only.
  */
-export async function readPrivateKey(input: string | Uint8Array, passphrase: string): Promise<openpgp.PrivateKey> {
+export async function readPrivateKey(file: string | Uint8Array, passphrase: string): Promise<openpgp.PrivateKey> {
+  const input = armoredOrBinary(file);
   const key =
     typeof input === 'string'
       ? await openpgp.readPrivateKey({ armoredKey: input })
