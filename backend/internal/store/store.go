@@ -146,6 +146,8 @@ func (s *Store) Put(ctx context.Context, r io.Reader, now, expiresAt time.Time) 
 
 	id := newRandom(idBytes)
 	token := newRandom(tokenBytes)
+	// The database stores whole seconds; return what Get will return.
+	now, expiresAt = now.Truncate(time.Second), expiresAt.Truncate(time.Second)
 	f := File{ID: id, Size: size, CreatedAt: now, ExpiresAt: expiresAt}
 
 	if err := os.Rename(tmpName, s.blobPath(id)); err != nil {
