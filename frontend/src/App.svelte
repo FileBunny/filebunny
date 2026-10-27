@@ -5,8 +5,8 @@
 
 <main>
   <h1>{name}</h1>
-  <p>Versleutel in je browser met OpenPGP en deel anoniem.</p>
-  <p class="status">In ontwikkeling.</p>
+  <p>Encrypt in your browser with OpenPGP, share anonymously.</p>
+  <p class="status">In development.</p>
 </main>
 
 <style>

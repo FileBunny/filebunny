@@ -103,8 +103,9 @@ overhead on a 100 MB file. Only the SHA-256 of the delete token is stored.
 
 ## Conventions
 
-- Code, comments, commit messages and identifiers in English; the UI is
-  Dutch and English (phase 9).
+- **Everything public is in English**: code, comments, identifiers, docs,
+  commit messages, branch names (e.g. `phase-2`), PR and issue text, and
+  the UI. Dutch comes later as a UI translation only (phase 9).
 - Go: `gofmt`, standard library first, errors wrapped with context, no
   panics in handlers. Tests use `httptest` and `t.TempDir()`; inject the
   clock (`Server.now`) instead of sleeping, or use `testing/synctest`.
@@ -118,6 +119,5 @@ overhead on a 100 MB file. Only the SHA-256 of the delete token is stored.
 
 ## Roadmap
 
-Phases come from the planning notes (Obsidian vault, `filebunny/Planning`).
 Phase 1 (foundation) is this code. Next: phase 2, browser encryption,
 share links with download limits, chunked upload for large files.
