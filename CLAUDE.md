@@ -10,10 +10,13 @@ ciphertext.
   in the browser (OpenPGP.js). Never add server-side decryption, key handling
   or content inspection.
 - **No client IP addresses anywhere**: not in app logs, not in the database,
-  not in Caddy logs. Never log `r.RemoteAddr` or forwarding headers. Caddy
-  strips `X-Forwarded-For`/`X-Real-IP`/`Forwarded` and has no access log;
-  don't add one. `TestNoClientAddressInLogs` must keep passing; extend it for
-  new endpoints. Rate limiting (phase 7) will use a hashed IP with a salt
+  not in Caddy logs. Never log `r.RemoteAddr`, forwarding headers, file IDs
+  or tokens. Always log through `internal/logging` (redacts addresses as a
+  safety net, not as permission). Caddy strips
+  `X-Forwarded-For`/`X-Real-IP`/`Forwarded`, has no access log (don't add
+  one) and filters request details from its error log.
+  `TestNoClientAddressInLogs` and `scripts/smoke-test.sh` must keep passing;
+  extend them for new endpoints. Rate limiting (phase 7) will use a hashed IP with a salt
   that rotates daily, never the raw address.
 - **Nothing from the client becomes a path.** Blobs are named by a
   server-generated random ID (128 bits, base64url). Validate IDs with
@@ -24,6 +27,13 @@ ciphertext.
 - **Reproducible builds.** Don't add anything that makes output depend on
   the build path, time or host (timestamps, `-buildvcs`, non-deterministic
   file names). `make repro` must pass.
+- **Never render user or decrypted content as HTML.** No `{@html}`,
+  `innerHTML` or `eval` in the frontend.
+- **Every new resource limit needs a cap.** Anonymous clients must not be
+  able to exhaust disk, memory, connections or time (see the quota,
+  `MaxBytesReader` and stall timeouts in `server.go`).
+- **Outgoing requests (later phases) need SSRF protection**; see
+  `docs/security-review.md` before adding any.
 - **Minimal dependencies.** Backend: standard library plus
   `modernc.org/sqlite` (pure Go, no cgo). Ask before adding any dependency,
   in either part.
@@ -44,11 +54,14 @@ ciphertext.
 backend/cmd/filebunny     main: config, startup cleanup, server, shutdown
 backend/internal/config   FILEBUNNY_* environment variables
 backend/internal/store    blobs + SQLite; migrations as a list, tracked by PRAGMA user_version
-backend/internal/server   HTTP handlers, security headers, IP redaction
+backend/internal/server   HTTP handlers, quota, stall timeouts, security headers
+backend/internal/logging  slog logger that redacts IP addresses
 backend/internal/cleanup  periodic removal of expired files
 frontend/                 Vite + Svelte app
-deploy/Caddyfile          TLS, CSP, /api proxy
+deploy/Caddyfile          TLS, CSP, /api proxy, log filter
 scripts/repro-check.sh    builds twice, compares hashes
+scripts/smoke-test.sh     end-to-end test of the Compose stack, incl. log privacy
+docs/                     architecture, API, self-hosting, security review
 ```
 
 ## Build and test
@@ -58,6 +71,7 @@ make test       # gofmt, go vet, go test -race, svelte-check
 make vuln       # govulncheck
 make repro      # reproducibility check (backend + frontend)
 make build      # bin/filebunny + frontend/dist
+docker compose up -d --build && scripts/smoke-test.sh   # end to end
 make run        # backend on :8080, data in ./data
 make dev        # Vite dev server, proxies /api to :8080
 docker compose up --build    # full stack on https://localhost
@@ -72,24 +86,20 @@ Backend build flags (keep `Makefile`, `Dockerfile` and
 `scripts/repro-check.sh` in sync):
 `CGO_ENABLED=0 go build -trimpath -buildvcs=false -ldflags="-s -w -buildid="`
 
-## API (v1)
+## Documentation
 
-| Method | Path | Notes |
-|---|---|---|
-| `POST` | `/api/v1/files?expires=24h` | Raw ciphertext body. Returns `id`, `delete_token`, `size`, `expires_at`. 413 above `FILEBUNNY_MAX_SIZE` |
-| `GET` | `/api/v1/files/{id}` | Streams the blob. 404 when unknown or expired |
-| `DELETE` | `/api/v1/files/{id}` | `Authorization: Bearer <delete_token>` |
-| `GET` | `/healthz` | Not exposed through Caddy |
+Keep these up to date in the same commit as the change:
 
-Only the SHA-256 of the delete token is stored. The size limit applies to
-ciphertext: 100 MiB leaves room for the OpenPGP overhead on a 100 MB file.
+| File | Contents |
+|---|---|
+| `docs/api.md` | Every endpoint, parameter and status code |
+| `docs/architecture.md` | Components, request flow, what is stored, threat model |
+| `docs/self-hosting.md` | Install, all `FILEBUNNY_*` variables, privacy checklist |
+| `docs/security-review.md` | Findings, residual risks, requirements for later phases |
+| `SECURITY.md` | How to report vulnerabilities |
 
-## Configuration
-
-`FILEBUNNY_LISTEN` (`:8080`), `FILEBUNNY_DATA_DIR` (`./data`),
-`FILEBUNNY_MAX_SIZE` (bytes, `104857600`), `FILEBUNNY_DEFAULT_EXPIRY` (`24h`),
-`FILEBUNNY_MAX_EXPIRY` (`168h`), `FILEBUNNY_CLEANUP_INTERVAL` (`1m`).
-Compose: `FILEBUNNY_DOMAIN` (`localhost`).
+The size limit applies to ciphertext: 100 MiB leaves room for the OpenPGP
+overhead on a 100 MB file. Only the SHA-256 of the delete token is stored.
 
 ## Conventions
 
@@ -98,6 +108,7 @@ Compose: `FILEBUNNY_DOMAIN` (`localhost`).
 - Go: `gofmt`, standard library first, errors wrapped with context, no
   panics in handlers. Tests use `httptest` and `t.TempDir()`; inject the
   clock (`Server.now`) instead of sleeping, or use `testing/synctest`.
+- Security fixes get a regression test (see `server/security_test.go`).
 - Handlers return JSON errors as `{"error": "..."}` and never echo internal
   error details to the client.
 - Schema changes: append to `migrations` in `store.go`; never edit an

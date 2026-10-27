@@ -19,11 +19,21 @@ automatically), Node.js 24+, Docker.
 ```sh
 make test        # backend + frontend checks
 make build       # backend binary + frontend bundle
-make repro       # verify that the backend build is reproducible
-docker compose up --build
+make vuln        # govulncheck
+make repro       # verify that backend and frontend builds are reproducible
+docker compose up -d --build && scripts/smoke-test.sh
 ```
 
 See [CLAUDE.md](CLAUDE.md) for conventions.
+
+## Documentation
+
+- [Architecture and threat model](docs/architecture.md): what is stored,
+  what FileBunny does and does not protect against
+- [API](docs/api.md)
+- [Self-hosting](docs/self-hosting.md)
+- [Security review](docs/security-review.md)
+- [Reporting a vulnerability](SECURITY.md)
 
 ## License
 
