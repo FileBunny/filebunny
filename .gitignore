@@ -1,0 +1,18 @@
+# Build output
+/bin/
+/dist/
+frontend/dist/
+frontend/node_modules/
+
+# Local data
+/data/
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+
+# Editors / OS
+.idea/
+.vscode/
+.DS_Store
+.env
