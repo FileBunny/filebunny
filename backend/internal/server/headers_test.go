@@ -1,42 +1,13 @@
 package server
 
 import (
-	"bytes"
 	"encoding/json"
 	"io"
-	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 )
-
-func TestRedactIPs(t *testing.T) {
-	for _, in := range []string{
-		"http: TLS handshake error from 203.0.113.7:51234: EOF",
-		"http: panic serving [2001:db8::1]:443: boom",
-		"connection from 2001:db8:85a3::8a2e:370:7334 closed",
-		"peer ::ffff:198.51.100.2 reset",
-	} {
-		out := RedactIPs(in)
-		for _, leak := range []string{"203.0.113", "2001:db8", "198.51.100", "8a2e"} {
-			if strings.Contains(out, leak) {
-				t.Errorf("%q -> %q still contains %q", in, out, leak)
-			}
-		}
-		if !strings.Contains(out, "[redacted]") {
-			t.Errorf("%q -> %q: nothing redacted", in, out)
-		}
-	}
-}
-
-func TestErrorLogRedacts(t *testing.T) {
-	var buf bytes.Buffer
-	ErrorLog(slog.New(slog.NewTextHandler(&buf, nil))).Printf("http: TLS handshake error from %s: EOF", "203.0.113.7:51234")
-	if strings.Contains(buf.String(), "203.0.113.7") {
-		t.Errorf("address leaked: %s", buf.String())
-	}
-}
 
 // TestNoClientAddressInLogs runs every endpoint, including error paths, and
 // checks that the client address never reaches the log.
@@ -80,7 +51,8 @@ func TestSecurityHeaders(t *testing.T) {
 		h := rec.Header()
 		if h.Get("X-Content-Type-Options") != "nosniff" ||
 			h.Get("Referrer-Policy") != "no-referrer" ||
-			!strings.Contains(h.Get("Content-Security-Policy"), "default-src 'none'") {
+			!strings.Contains(h.Get("Content-Security-Policy"), "default-src 'none'") ||
+			!strings.Contains(h.Get("Content-Security-Policy"), "sandbox") {
 			t.Errorf("%s: missing security headers: %v", target, h)
 		}
 	}

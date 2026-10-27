@@ -99,10 +99,10 @@ func TestDelete(t *testing.T) {
 	ctx := context.Background()
 	f, token := put(t, s, "x", t0.Add(time.Hour))
 
-	if err := s.Delete(ctx, f.ID, "wrong"); !errors.Is(err, ErrForbidden) {
+	if err := s.Delete(ctx, f.ID, "wrong", t0); !errors.Is(err, ErrForbidden) {
 		t.Errorf("wrong token: err = %v", err)
 	}
-	if err := s.Delete(ctx, f.ID, token); err != nil {
+	if err := s.Delete(ctx, f.ID, token, t0); err != nil {
 		t.Fatal(err)
 	}
 	if _, _, err := s.Get(ctx, f.ID, t0); !errors.Is(err, ErrNotFound) {
@@ -111,7 +111,7 @@ func TestDelete(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(dir, "blobs", f.ID)); !os.IsNotExist(err) {
 		t.Errorf("blob still on disk: %v", err)
 	}
-	if err := s.Delete(ctx, f.ID, token); !errors.Is(err, ErrNotFound) {
+	if err := s.Delete(ctx, f.ID, token, t0); !errors.Is(err, ErrNotFound) {
 		t.Errorf("second delete: err = %v", err)
 	}
 }
@@ -190,3 +190,28 @@ func TestPutReaderError(t *testing.T) {
 type errReader struct{}
 
 func (errReader) Read([]byte) (int, error) { return 0, errors.New("connection reset") }
+
+func TestDeleteExpiredFileIsNotFound(t *testing.T) {
+	s, _ := openTest(t)
+	f, token := put(t, s, "x", t0.Add(time.Hour))
+	if err := s.Delete(context.Background(), f.ID, token, t0.Add(time.Hour)); !errors.Is(err, ErrNotFound) {
+		t.Errorf("err = %v, want ErrNotFound", err)
+	}
+}
+
+func TestTotalSize(t *testing.T) {
+	s, _ := openTest(t)
+	ctx := context.Background()
+	if n, err := s.TotalSize(ctx); err != nil || n != 0 {
+		t.Fatalf("empty: %d, %v", n, err)
+	}
+	put(t, s, "abc", t0.Add(time.Hour))
+	f, token := put(t, s, "defgh", t0.Add(time.Hour))
+	if n, _ := s.TotalSize(ctx); n != 8 {
+		t.Errorf("total %d, want 8", n)
+	}
+	s.Delete(ctx, f.ID, token, t0)
+	if n, _ := s.TotalSize(ctx); n != 3 {
+		t.Errorf("after delete: total %d, want 3", n)
+	}
+}

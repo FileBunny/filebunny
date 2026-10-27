@@ -18,6 +18,7 @@ import (
 const testMaxSize = 1024
 
 type testEnv struct {
+	dir   string
 	srv   *Server
 	clock time.Time
 	logs  *bytes.Buffer
@@ -25,7 +26,8 @@ type testEnv struct {
 
 func newTestEnv(t *testing.T) *testEnv {
 	t.Helper()
-	st, err := store.Open(t.TempDir())
+	dir := t.TempDir()
+	st, err := store.Open(dir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -34,7 +36,7 @@ func newTestEnv(t *testing.T) *testEnv {
 	cfg, _ := config.FromEnv(func(string) string { return "" })
 	cfg.MaxSize = testMaxSize
 
-	env := &testEnv{clock: time.Date(2026, 10, 27, 12, 0, 0, 0, time.UTC), logs: &bytes.Buffer{}}
+	env := &testEnv{dir: dir, clock: time.Date(2026, 10, 27, 12, 0, 0, 0, time.UTC), logs: &bytes.Buffer{}}
 	env.srv = New(cfg, st, slog.New(slog.NewTextHandler(env.logs, nil)))
 	env.srv.now = func() time.Time { return env.clock }
 	return env
@@ -108,7 +110,7 @@ func TestUploadExpires(t *testing.T) {
 
 func TestUploadBadExpires(t *testing.T) {
 	e := newTestEnv(t)
-	for _, q := range []string{"7d", "169h", "0s", "-1h", "abc"} {
+	for _, q := range []string{"7d", "169h", "0s", "-1h", "abc", "1ns", "59s"} {
 		rec := e.do("POST", "/api/v1/files?expires="+q, strings.NewReader("x"))
 		if rec.Code != http.StatusBadRequest {
 			t.Errorf("expires=%s: status %d", q, rec.Code)

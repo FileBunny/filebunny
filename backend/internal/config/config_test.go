@@ -24,13 +24,14 @@ func TestOverrides(t *testing.T) {
 		"FILEBUNNY_LISTEN":         "127.0.0.1:9000",
 		"FILEBUNNY_DATA_DIR":       "/srv/fb",
 		"FILEBUNNY_MAX_SIZE":       "1024",
+		"FILEBUNNY_MAX_TOTAL_SIZE": "4096",
 		"FILEBUNNY_DEFAULT_EXPIRY": "1h",
 		"FILEBUNNY_MAX_EXPIRY":     "2h",
 	}))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if c.Listen != "127.0.0.1:9000" || c.DataDir != "/srv/fb" || c.MaxSize != 1024 ||
+	if c.Listen != "127.0.0.1:9000" || c.DataDir != "/srv/fb" || c.MaxSize != 1024 || c.MaxTotalSize != 4096 ||
 		c.DefaultExpiry != time.Hour || c.MaxExpiry != 2*time.Hour {
 		t.Errorf("overrides not applied: %+v", c)
 	}
@@ -43,6 +44,8 @@ func TestInvalid(t *testing.T) {
 		"bad duration":        {"FILEBUNNY_MAX_EXPIRY": "7d"},
 		"negative duration":   {"FILEBUNNY_CLEANUP_INTERVAL": "-1m"},
 		"default exceeds max": {"FILEBUNNY_DEFAULT_EXPIRY": "200h"},
+		"size exceeds total":  {"FILEBUNNY_MAX_TOTAL_SIZE": "1000"},
+		"default below min":   {"FILEBUNNY_DEFAULT_EXPIRY": "30s"},
 	}
 	for name, m := range cases {
 		t.Run(name, func(t *testing.T) {

@@ -150,14 +150,17 @@ func (s *Store) Put(ctx context.Context, r io.Reader, now, expiresAt time.Time) 
 	now, expiresAt = now.Truncate(time.Second), expiresAt.Truncate(time.Second)
 	f := File{ID: id, Size: size, CreatedAt: now, ExpiresAt: expiresAt}
 
-	if err := os.Rename(tmpName, s.blobPath(id)); err != nil {
-		return File{}, "", err
-	}
+	// Insert the row before the rename: the primary key guarantees the ID
+	// is unused, so the rename can never overwrite another file's blob.
+	// Until the rename, Get reports the file as not found.
 	_, err = s.db.ExecContext(ctx,
 		`INSERT INTO files (id, delete_token_hash, size, created_at, expires_at) VALUES (?, ?, ?, ?, ?)`,
 		id, hashToken(token), size, now.Unix(), expiresAt.Unix())
 	if err != nil {
-		os.Remove(s.blobPath(id))
+		return File{}, "", err
+	}
+	if err := os.Rename(tmpName, s.blobPath(id)); err != nil {
+		s.db.ExecContext(context.WithoutCancel(ctx), `DELETE FROM files WHERE id = ?`, id)
 		return File{}, "", err
 	}
 	return f, token, nil
@@ -192,13 +195,16 @@ func (s *Store) Get(ctx context.Context, id string, now time.Time) (File, *os.Fi
 	return f, blob, nil
 }
 
-// Delete removes a file if token matches its delete token.
-func (s *Store) Delete(ctx context.Context, id, token string) error {
+// Delete removes a file if token matches its delete token. Expired files
+// are reported as ErrNotFound, like in Get; cleanup removes them.
+func (s *Store) Delete(ctx context.Context, id, token string, now time.Time) error {
 	if !idPattern.MatchString(id) {
 		return ErrNotFound
 	}
 	var stored []byte
-	err := s.db.QueryRowContext(ctx, `SELECT delete_token_hash FROM files WHERE id = ?`, id).Scan(&stored)
+	err := s.db.QueryRowContext(ctx,
+		`SELECT delete_token_hash FROM files WHERE id = ? AND expires_at > ?`,
+		id, now.Unix()).Scan(&stored)
 	if errors.Is(err, sql.ErrNoRows) {
 		return ErrNotFound
 	}
@@ -209,6 +215,14 @@ func (s *Store) Delete(ctx context.Context, id, token string) error {
 		return ErrForbidden
 	}
 	return s.remove(ctx, id)
+}
+
+// TotalSize returns the combined size of all stored files, including
+// expired ones that cleanup has not removed yet (they still use disk).
+func (s *Store) TotalSize(ctx context.Context) (int64, error) {
+	var total int64
+	err := s.db.QueryRowContext(ctx, `SELECT COALESCE(SUM(size), 0) FROM files`).Scan(&total)
+	return total, err
 }
 
 // DeleteExpired removes every file that expired at or before now and

@@ -14,12 +14,13 @@ import (
 
 	"github.com/FileBunny/filebunny/backend/internal/cleanup"
 	"github.com/FileBunny/filebunny/backend/internal/config"
+	"github.com/FileBunny/filebunny/backend/internal/logging"
 	"github.com/FileBunny/filebunny/backend/internal/server"
 	"github.com/FileBunny/filebunny/backend/internal/store"
 )
 
 func main() {
-	log := slog.New(slog.NewTextHandler(os.Stderr, nil))
+	log := logging.New(os.Stderr, slog.LevelInfo)
 	if err := run(log); err != nil {
 		log.Error("fatal", "err", err)
 		os.Exit(1)
@@ -56,7 +57,8 @@ func run(log *slog.Logger) error {
 	srv := &http.Server{
 		Addr:              cfg.Listen,
 		Handler:           server.New(cfg, st, log),
-		ErrorLog:          server.ErrorLog(log),
+		ErrorLog:          logging.ErrorLog(log),
+		MaxHeaderBytes:    64 << 10,
 		ReadHeaderTimeout: 10 * time.Second,
 		IdleTimeout:       60 * time.Second,
 	}

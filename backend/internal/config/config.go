@@ -18,6 +18,9 @@ type Config struct {
 	// MaxSize is the maximum upload size in bytes (ciphertext, including the
 	// OpenPGP overhead).
 	MaxSize int64
+	// MaxTotalSize caps the combined size of all stored files. Uploads that
+	// could exceed it are refused, so anonymous uploads cannot fill the disk.
+	MaxTotalSize int64
 	// DefaultExpiry applies when an upload does not ask for an expiry.
 	DefaultExpiry time.Duration
 	// MaxExpiry is the longest expiry an upload may ask for.
@@ -31,10 +34,14 @@ const (
 	DefaultListen          = ":8080"
 	DefaultDataDir         = "./data"
 	DefaultMaxSize         = 100 << 20 // 100 MiB
+	DefaultMaxTotalSize    = 20 << 30  // 20 GiB
 	DefaultDefaultExpiry   = 24 * time.Hour
 	DefaultMaxExpiry       = 7 * 24 * time.Hour
 	DefaultCleanupInterval = time.Minute
 )
+
+// MinExpiry is the shortest expiry an upload may ask for.
+const MinExpiry = time.Minute
 
 // FromEnv builds a Config from the given lookup function (normally os.Getenv).
 func FromEnv(getenv func(string) string) (Config, error) {
@@ -42,6 +49,7 @@ func FromEnv(getenv func(string) string) (Config, error) {
 		Listen:          DefaultListen,
 		DataDir:         DefaultDataDir,
 		MaxSize:         DefaultMaxSize,
+		MaxTotalSize:    DefaultMaxTotalSize,
 		DefaultExpiry:   DefaultDefaultExpiry,
 		MaxExpiry:       DefaultMaxExpiry,
 		CleanupInterval: DefaultCleanupInterval,
@@ -54,13 +62,24 @@ func FromEnv(getenv func(string) string) (Config, error) {
 	if v := getenv("FILEBUNNY_DATA_DIR"); v != "" {
 		c.DataDir = v
 	}
-	if v := getenv("FILEBUNNY_MAX_SIZE"); v != "" {
+	sizes := []struct {
+		name string
+		dst  *int64
+	}{
+		{"FILEBUNNY_MAX_SIZE", &c.MaxSize},
+		{"FILEBUNNY_MAX_TOTAL_SIZE", &c.MaxTotalSize},
+	}
+	for _, sz := range sizes {
+		v := getenv(sz.name)
+		if v == "" {
+			continue
+		}
 		n, err := strconv.ParseInt(v, 10, 64)
 		if err != nil || n <= 0 {
-			errs = append(errs, fmt.Errorf("FILEBUNNY_MAX_SIZE: want a positive number of bytes, got %q", v))
-		} else {
-			c.MaxSize = n
+			errs = append(errs, fmt.Errorf("%s: want a positive number of bytes, got %q", sz.name, v))
+			continue
 		}
+		*sz.dst = n
 	}
 	durations := []struct {
 		name string
@@ -83,8 +102,14 @@ func FromEnv(getenv func(string) string) (Config, error) {
 		*d.dst = dur
 	}
 
+	if c.DefaultExpiry < MinExpiry {
+		errs = append(errs, fmt.Errorf("default expiry %s is below the minimum %s", c.DefaultExpiry, MinExpiry))
+	}
 	if c.DefaultExpiry > c.MaxExpiry {
 		errs = append(errs, fmt.Errorf("default expiry %s exceeds max expiry %s", c.DefaultExpiry, c.MaxExpiry))
+	}
+	if c.MaxSize > c.MaxTotalSize {
+		errs = append(errs, fmt.Errorf("max size %d exceeds max total size %d", c.MaxSize, c.MaxTotalSize))
 	}
 	return c, errors.Join(errs...)
 }
