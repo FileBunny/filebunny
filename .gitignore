@@ -16,3 +16,7 @@ frontend/node_modules/
 .vscode/
 .DS_Store
 .env
+
+# Personal Claude Code instructions and settings
+CLAUDE.local.md
+.claude/settings.local.json
