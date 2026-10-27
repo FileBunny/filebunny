@@ -37,7 +37,19 @@ func TestNoClientAddressInLogs(t *testing.T) {
 	send("POST", "/api/v1/files", strings.NewReader(strings.Repeat("a", testMaxSize+1)))
 	send("DELETE", "/api/v1/files/"+up.ID, nil, "Authorization", "Bearer wrong")
 	send("DELETE", "/api/v1/files/"+up.ID, nil, "Authorization", "Bearer "+up.DeleteToken)
+	send("HEAD", "/api/v1/files/unknown", nil)
 	send("GET", "/healthz", nil)
+
+	rec = send("POST", "/api/v1/uploads?max_downloads=1", nil)
+	var cu createUploadResponse
+	json.Unmarshal(rec.Body.Bytes(), &cu)
+	auth := "Bearer " + cu.UploadToken
+	send("PUT", "/api/v1/uploads/"+cu.ID+"?offset=0", strings.NewReader("x"), "Authorization", auth)
+	send("PUT", "/api/v1/uploads/"+cu.ID+"?offset=9", strings.NewReader("x"), "Authorization", auth)
+	send("PUT", "/api/v1/uploads/"+cu.ID+"?offset=1", strings.NewReader("x"), "Authorization", "Bearer wrong")
+	send("POST", "/api/v1/uploads/"+cu.ID+"/complete", nil, "Authorization", auth)
+	send("DELETE", "/api/v1/uploads/unknown", nil, "Authorization", auth)
+	send("POST", "/api/v1/uploads?expires=bad", nil)
 
 	if strings.Contains(e.logs.String(), addr) {
 		t.Errorf("client address in logs:\n%s", e.logs)

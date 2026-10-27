@@ -30,6 +30,13 @@ flowchart LR
    temp file to `data/blobs/<id>`.
 5. Return ID, delete token and expiry.
 
+**Chunked upload** — `POST /api/v1/uploads` opens a session (in memory,
+max 50 server-wide) with a random ID and an upload token. Each `PUT`
+appends one chunk (≤ 16 MiB) at the expected offset to a temp file and
+reserves its size against the quota; a failed chunk is truncated away so
+it can be retried. `POST …/complete` runs step 4 above. Sessions without a
+request for 2 minutes are discarded, with their temp file and quota.
+
 **Download** — `GET /api/v1/files/{id}`: validate the ID format, count the
 download in one `UPDATE … RETURNING` that only matches a non-expired row
 with downloads left (so concurrent downloads can never exceed the limit),

@@ -11,7 +11,6 @@ import (
 	"log/slog"
 	"net/http"
 	"strconv"
-	"strings"
 	"sync"
 	"time"
 
@@ -37,16 +36,25 @@ type Server struct {
 	// cannot together exceed cfg.MaxTotalSize.
 	mu       sync.Mutex
 	reserved int64
+
+	// uploads holds the chunked uploads in progress, by ID.
+	upMu    sync.Mutex
+	uploads map[string]*pendingUpload
 }
 
 // New returns a Server with all routes registered.
 func New(cfg config.Config, st *store.Store, log *slog.Logger) *Server {
-	s := &Server{cfg: cfg, store: st, log: log, now: time.Now, stall: stallTimeout, mux: http.NewServeMux()}
+	s := &Server{cfg: cfg, store: st, log: log, now: time.Now, stall: stallTimeout, mux: http.NewServeMux(),
+		uploads: make(map[string]*pendingUpload)}
 	s.mux.HandleFunc("GET /healthz", s.handleHealth)
 	s.mux.HandleFunc("POST /api/v1/files", s.handleUpload)
 	s.mux.HandleFunc("GET /api/v1/files/{id}", s.handleDownload)
 	s.mux.HandleFunc("HEAD /api/v1/files/{id}", s.handleInfo)
 	s.mux.HandleFunc("DELETE /api/v1/files/{id}", s.handleDelete)
+	s.mux.HandleFunc("POST /api/v1/uploads", s.handleCreateUpload)
+	s.mux.HandleFunc("PUT /api/v1/uploads/{id}", s.handleChunk)
+	s.mux.HandleFunc("POST /api/v1/uploads/{id}/complete", s.handleCompleteUpload)
+	s.mux.HandleFunc("DELETE /api/v1/uploads/{id}", s.handleAbortUpload)
 	s.handler = securityHeaders(s.mux)
 	return s
 }
@@ -240,8 +248,8 @@ func setFileHeaders(w http.ResponseWriter, f store.File) {
 
 // handleDelete expects the delete token as "Authorization: Bearer <token>".
 func (s *Server) handleDelete(w http.ResponseWriter, r *http.Request) {
-	token, ok := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
-	if !ok || token == "" {
+	token, ok := bearerToken(r)
+	if !ok {
 		writeError(w, http.StatusUnauthorized, "missing delete token")
 		return
 	}
