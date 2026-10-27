@@ -118,6 +118,65 @@ func TestUploadBadExpires(t *testing.T) {
 	}
 }
 
+func TestUploadBadMaxDownloads(t *testing.T) {
+	e := newTestEnv(t)
+	for _, q := range []string{"0", "-1", "101", "abc", "1.5", ""} {
+		rec := e.do("POST", "/api/v1/files?max_downloads="+q, strings.NewReader("x"))
+		want := http.StatusBadRequest
+		if q == "" {
+			want = http.StatusCreated // empty means unlimited
+		}
+		if rec.Code != want {
+			t.Errorf("max_downloads=%q: status %d, want %d", q, rec.Code, want)
+		}
+	}
+}
+
+func TestOneTimeDownload(t *testing.T) {
+	e := newTestEnv(t)
+	up := e.upload(t, "secret", "?max_downloads=1")
+	if up.MaxDownloads != 1 {
+		t.Errorf("max_downloads %d", up.MaxDownloads)
+	}
+	path := "/api/v1/files/" + up.ID
+
+	// HEAD shows what is left and does not count.
+	for range 2 {
+		rec := e.do("HEAD", path, nil)
+		if rec.Code != http.StatusOK || rec.Header().Get("Downloads-Remaining") != "1" ||
+			rec.Header().Get("Content-Length") != "6" || rec.Body.Len() != 0 {
+			t.Fatalf("HEAD: %d %v %q", rec.Code, rec.Header(), rec.Body)
+		}
+	}
+
+	rec := e.do("GET", path, nil)
+	if rec.Code != http.StatusOK || rec.Body.String() != "secret" {
+		t.Fatalf("download: %d %q", rec.Code, rec.Body)
+	}
+	if got := rec.Header().Get("Downloads-Remaining"); got != "0" {
+		t.Errorf("Downloads-Remaining %q, want 0", got)
+	}
+	for _, m := range []string{"GET", "HEAD"} {
+		if rec := e.do(m, path, nil); rec.Code != http.StatusNotFound {
+			t.Errorf("%s after last download: status %d", m, rec.Code)
+		}
+	}
+}
+
+func TestUnlimitedHasNoDownloadsRemaining(t *testing.T) {
+	e := newTestEnv(t)
+	up := e.upload(t, "x", "")
+	if strings.Contains(e.do("POST", "/api/v1/files", strings.NewReader("x")).Body.String(), "max_downloads") {
+		t.Error("max_downloads in response for unlimited upload")
+	}
+	for _, m := range []string{"GET", "HEAD"} {
+		rec := e.do(m, "/api/v1/files/"+up.ID, nil)
+		if _, ok := rec.Header()["Downloads-Remaining"]; ok || rec.Code != http.StatusOK {
+			t.Errorf("%s: %d %v", m, rec.Code, rec.Header())
+		}
+	}
+}
+
 func TestUploadSizeLimit(t *testing.T) {
 	e := newTestEnv(t)
 	atLimit := strings.Repeat("a", testMaxSize)

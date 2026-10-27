@@ -11,15 +11,20 @@ same-origin`. There are no CORS headers.
 ## Upload
 
 ```
-POST /api/v1/files?expires=<duration>
+POST /api/v1/files?expires=<duration>&max_downloads=<n>
 Content-Type: application/octet-stream
 
 <ciphertext>
 ```
 
-`expires` is optional: a Go duration such as `30m`, `24h` or `168h`,
-between 1 minute and `FILEBUNNY_MAX_EXPIRY` (7 days). Default:
-`FILEBUNNY_DEFAULT_EXPIRY` (24 hours).
+Both parameters are optional:
+
+- `expires`: a Go duration such as `30m`, `24h` or `168h`, between
+  1 minute and `FILEBUNNY_MAX_EXPIRY` (7 days). Default:
+  `FILEBUNNY_DEFAULT_EXPIRY` (24 hours).
+- `max_downloads`: number of downloads allowed, 1 to
+  `FILEBUNNY_MAX_DOWNLOADS` (100). `1` is a one-time download. Default:
+  unlimited until expiry.
 
 **201 Created**
 
@@ -28,7 +33,8 @@ between 1 minute and `FILEBUNNY_MAX_EXPIRY` (7 days). Default:
   "id": "7v2AKiSorZYORZzGK4KQYg",
   "delete_token": "OQaeFws2C8_yPR0PH6IIJP0vrUBbycKlesYhrODkODM",
   "size": 5,
-  "expires_at": "2026-10-28T15:16:54Z"
+  "expires_at": "2026-10-28T15:16:54Z",
+  "max_downloads": 1
 }
 ```
 
@@ -36,10 +42,11 @@ between 1 minute and `FILEBUNNY_MAX_EXPIRY` (7 days). Default:
 - `delete_token`: 43 characters, 256 random bits. Shown only once; the
   server keeps only its hash.
 - `expires_at`: UTC, whole seconds.
+- `max_downloads`: omitted when downloads are unlimited.
 
 | Status | When |
 |---|---|
-| 400 | `expires` invalid or out of range; body aborted or stalled for 1 minute |
+| 400 | `expires` or `max_downloads` invalid or out of range; body aborted or stalled for 1 minute |
 | 413 | Body larger than `FILEBUNNY_MAX_SIZE` (checked on `Content-Length` and while streaming) |
 | 507 | Storage quota (`FILEBUNNY_MAX_TOTAL_SIZE`) reached; try later |
 
@@ -62,12 +69,18 @@ GET /api/v1/files/{id}
 | `Content-Disposition` | `attachment` |
 | `Cache-Control` | `no-store` |
 | `Expires-At` | Expiry, HTTP date format |
+| `Downloads-Remaining` | Downloads left after this one; omitted when unlimited |
 
-`HEAD` returns the same headers without a body.
+Every `GET` counts as a download as soon as it starts, also when the client
+aborts it. The last allowed download removes the file.
+
+`HEAD` returns the same headers without a body and does **not** count;
+there `Downloads-Remaining` is the number left. The download page uses it
+to show expiry and downloads left before the user decides to download.
 
 | Status | When |
 |---|---|
-| 404 | Unknown, malformed, deleted or expired ID (indistinguishable on purpose) |
+| 404 | Unknown, malformed, deleted, expired or no downloads left (indistinguishable on purpose) |
 
 ```sh
 curl -o message.gpg https://filebunny.eu/api/v1/files/7v2AKiSorZYORZzGK4KQYg

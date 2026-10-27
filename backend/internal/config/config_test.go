@@ -14,6 +14,9 @@ func TestDefaults(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if c.MaxDownloads != 100 || c.MaxPendingUploads != 50 {
+		t.Errorf("unexpected limits: %+v", c)
+	}
 	if c.MaxSize != 100<<20 || c.DefaultExpiry != 24*time.Hour || c.MaxExpiry != 7*24*time.Hour {
 		t.Errorf("unexpected defaults: %+v", c)
 	}
@@ -21,18 +24,20 @@ func TestDefaults(t *testing.T) {
 
 func TestOverrides(t *testing.T) {
 	c, err := FromEnv(env(map[string]string{
-		"FILEBUNNY_LISTEN":         "127.0.0.1:9000",
-		"FILEBUNNY_DATA_DIR":       "/srv/fb",
-		"FILEBUNNY_MAX_SIZE":       "1024",
-		"FILEBUNNY_MAX_TOTAL_SIZE": "4096",
-		"FILEBUNNY_DEFAULT_EXPIRY": "1h",
-		"FILEBUNNY_MAX_EXPIRY":     "2h",
+		"FILEBUNNY_LISTEN":              "127.0.0.1:9000",
+		"FILEBUNNY_DATA_DIR":            "/srv/fb",
+		"FILEBUNNY_MAX_SIZE":            "1024",
+		"FILEBUNNY_MAX_TOTAL_SIZE":      "4096",
+		"FILEBUNNY_DEFAULT_EXPIRY":      "1h",
+		"FILEBUNNY_MAX_EXPIRY":          "2h",
+		"FILEBUNNY_MAX_DOWNLOADS":       "5",
+		"FILEBUNNY_MAX_PENDING_UPLOADS": "6",
 	}))
 	if err != nil {
 		t.Fatal(err)
 	}
 	if c.Listen != "127.0.0.1:9000" || c.DataDir != "/srv/fb" || c.MaxSize != 1024 || c.MaxTotalSize != 4096 ||
-		c.DefaultExpiry != time.Hour || c.MaxExpiry != 2*time.Hour {
+		c.DefaultExpiry != time.Hour || c.MaxExpiry != 2*time.Hour || c.MaxDownloads != 5 || c.MaxPendingUploads != 6 {
 		t.Errorf("overrides not applied: %+v", c)
 	}
 }
@@ -46,6 +51,8 @@ func TestInvalid(t *testing.T) {
 		"default exceeds max": {"FILEBUNNY_DEFAULT_EXPIRY": "200h"},
 		"size exceeds total":  {"FILEBUNNY_MAX_TOTAL_SIZE": "1000"},
 		"default below min":   {"FILEBUNNY_DEFAULT_EXPIRY": "30s"},
+		"downloads zero":      {"FILEBUNNY_MAX_DOWNLOADS": "0"},
+		"pending not number":  {"FILEBUNNY_MAX_PENDING_UPLOADS": "many"},
 	}
 	for name, m := range cases {
 		t.Run(name, func(t *testing.T) {

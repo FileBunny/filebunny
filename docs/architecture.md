@@ -15,13 +15,14 @@ flowchart LR
 | Browser | Encrypts and decrypts with OpenPGP.js (phase 2). Passwords and private keys never leave it |
 | Caddy | TLS, security headers, serves the frontend, proxies `/api/*`. No access log; forwarding headers stripped |
 | Go backend | Stores and serves ciphertext by random ID, enforces limits, removes expired files |
-| SQLite | One row per file: ID, hash of the delete token, size, created, expires |
+| SQLite | One row per file: ID, hash of the delete token, size, created, expires, download limit and count |
 | Disk | One file per upload in `data/blobs/<id>`, written via `data/tmp/` and an atomic rename |
 
 ## Request flow
 
 **Upload** — `POST /api/v1/files`
-1. Check `expires` (1 minute to 7 days) and `Content-Length` (≤ 100 MiB).
+1. Check `expires` (1 minute to 7 days), `max_downloads` (1 to 100) and
+   `Content-Length` (≤ 100 MiB).
 2. Reserve the size against the storage quota (`507` if full).
 3. Stream the body to `data/tmp/upload-*`; each read must make progress
    within a minute.
@@ -29,8 +30,13 @@ flowchart LR
    temp file to `data/blobs/<id>`.
 5. Return ID, delete token and expiry.
 
-**Download** — `GET /api/v1/files/{id}`: validate the ID format, look up a
-non-expired row, stream the blob as an attachment.
+**Download** — `GET /api/v1/files/{id}`: validate the ID format, count the
+download in one `UPDATE … RETURNING` that only matches a non-expired row
+with downloads left (so concurrent downloads can never exceed the limit),
+open the blob and stream it as an attachment. The last allowed download
+removes the row and the blob right away; the open handle keeps streaming.
+A download counts when it starts, also if the client aborts it. `HEAD`
+returns the same headers (expiry, downloads left) without counting.
 
 **Delete** — `DELETE /api/v1/files/{id}` with the delete token: compare the
 token's hash in constant time, delete the row, then the blob.
@@ -44,7 +50,7 @@ after a crash).
 | Data | Where | How long |
 |---|---|---|
 | Ciphertext | `data/blobs/<id>` | Until expiry (max 7 days) or deletion |
-| ID, size, created, expires | SQLite | Same |
+| ID, size, created, expires, download limit and count | SQLite | Same, or until the last allowed download |
 | SHA-256 of the delete token | SQLite | Same |
 | Client IP address | Nowhere | — |
 | File name, content type, plaintext | Nowhere (encrypted inside the ciphertext from phase 2) | — |
