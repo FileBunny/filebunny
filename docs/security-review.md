@@ -3,7 +3,7 @@
 | | |
 |---|---|
 | Date | 2026-10-27 |
-| Scope | Branch `fase-1` as of the phase 1 foundation (`d83a815`): backend, Caddy, Docker Compose, CI, frontend skeleton. Fixes in `1436999`, `67db56b`, `3164b47` |
+| Scope | The phase 1 foundation (`d83a815`, merged in #1): backend, Caddy, Docker Compose, CI, frontend skeleton. Fixes in `1436999`, `67db56b`, `3164b47` |
 | Method | Manual code review per category, targeted tests, end-to-end checks against a locally running Caddy + backend, `govulncheck`, `npm audit` |
 | Reviewer | Claude Code (AI-assisted). Not a substitute for the independent review planned in phase 10 |
 

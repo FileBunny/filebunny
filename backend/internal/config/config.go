@@ -29,7 +29,7 @@ type Config struct {
 	CleanupInterval time.Duration
 }
 
-// Defaults for the public service, see Besluiten (fase 0).
+// Defaults for the public service at filebunny.eu.
 const (
 	DefaultListen          = ":8080"
 	DefaultDataDir         = "./data"
