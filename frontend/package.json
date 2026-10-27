@@ -10,7 +10,9 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
+    "build:single": "vite build --mode single",
     "check": "svelte-check --tsconfig ./tsconfig.json --fail-on-warnings",
+    "test": "node --test 'tests/*.test.ts'",
     "preview": "vite preview"
   },
   "devDependencies": {
@@ -20,5 +22,8 @@
     "svelte-check": "4.7.7",
     "typescript": "6.0.3",
     "vite": "8.3.5"
+  },
+  "dependencies": {
+    "openpgp": "6.3.2"
   }
 }

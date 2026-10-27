@@ -15,13 +15,56 @@ flowchart LR
 | Browser | Encrypts and decrypts with OpenPGP.js (phase 2). Passwords and private keys never leave it |
 | Caddy | TLS, security headers, serves the frontend, proxies `/api/*`. No access log; forwarding headers stripped |
 | Go backend | Stores and serves ciphertext by random ID, enforces limits, removes expired files |
-| SQLite | One row per file: ID, hash of the delete token, size, created, expires |
+| SQLite | One row per file: ID, hash of the delete token, size, created, expires, download limit and count |
 | Disk | One file per upload in `data/blobs/<id>`, written via `data/tmp/` and an atomic rename |
+
+## Encryption
+
+All encryption happens in the browser with OpenPGP.js
+(`frontend/src/lib/crypto.ts`). The output must open with GnuPG 2.4, which
+does not support RFC 9580 (v6 packets, SEIPDv2/AEAD), so:
+
+| Choice | Value | Why |
+|---|---|---|
+| Encryption packet | SEIPDv1 with MDC (`aeadProtect: false`) | Readable by every gpg version |
+| Cipher | AES-256 | |
+| Password S2K | Iterated and salted (no Argon2) | gpg 2.4 compatible |
+| Compression | None | No compression oracle, simpler |
+| Literal data | Text: format `u`, no file name. File: format `b` with the file name. Date always 0 | The name is encrypted, the server never sees it; no timestamp leaks |
+| Recipient key IDs | Hidden (wildcard, like `gpg --throw-keyids`) | The server cannot link a message to a key on a keyserver |
+
+Files are encrypted as a stream, so memory use does not grow with the file
+size. Decryption checks the MDC over the whole message before anything is
+shown, so the browser holds the ciphertext and plaintext of one file in
+memory (fine at 100 MiB). A message without a file name is shown as text,
+as with `echo … | gpg --encrypt`. Decrypted text is never rendered as HTML;
+decrypted file names are stripped of directories and control characters.
+
+`frontend/tests/gpg.test.ts` checks both directions against `gpg` with
+the test keys in `testdata/keys` (CI requires gpg).
+
+## Frontend
+
+Svelte without a router library. Routes live in the URL fragment
+(`#/d/<id>`, `#/delete/<id>/<token>`), so the same links work on the site
+and in the single HTML file opened from `file://`, and the fragment (with
+the delete token) is never sent to the server. The app is built as one
+script and one stylesheet, without lazy-loaded chunks or workers, so
+`make single` can inline everything into one file with a CSP by hash.
+
+- **Send:** encrypt the stream, upload in one request if the ciphertext
+  fits in one chunk (8 MiB), otherwise as a chunked upload with retries.
+- **Download:** `HEAD` first, so opening the link (or a link preview bot)
+  does not use up a download. After the user clicks, the ciphertext is
+  downloaded once and kept in the page, so a wrong password can be retried.
+  Text is shown as text, files are offered with `<a download>` from a
+  `blob:` URL of type `application/octet-stream`.
 
 ## Request flow
 
 **Upload** — `POST /api/v1/files`
-1. Check `expires` (1 minute to 7 days) and `Content-Length` (≤ 100 MiB).
+1. Check `expires` (1 minute to 7 days), `max_downloads` (1 to 100) and
+   `Content-Length` (≤ 100 MiB).
 2. Reserve the size against the storage quota (`507` if full).
 3. Stream the body to `data/tmp/upload-*`; each read must make progress
    within a minute.
@@ -29,8 +72,20 @@ flowchart LR
    temp file to `data/blobs/<id>`.
 5. Return ID, delete token and expiry.
 
-**Download** — `GET /api/v1/files/{id}`: validate the ID format, look up a
-non-expired row, stream the blob as an attachment.
+**Chunked upload** — `POST /api/v1/uploads` opens a session (in memory,
+max 50 server-wide) with a random ID and an upload token. Each `PUT`
+appends one chunk (≤ 16 MiB) at the expected offset to a temp file and
+reserves its size against the quota; a failed chunk is truncated away so
+it can be retried. `POST …/complete` runs step 4 above. Sessions without a
+request for 2 minutes are discarded, with their temp file and quota.
+
+**Download** — `GET /api/v1/files/{id}`: validate the ID format, count the
+download in one `UPDATE … RETURNING` that only matches a non-expired row
+with downloads left (so concurrent downloads can never exceed the limit),
+open the blob and stream it as an attachment. The last allowed download
+removes the row and the blob right away; the open handle keeps streaming.
+A download counts when it starts, also if the client aborts it. `HEAD`
+returns the same headers (expiry, downloads left) without counting.
 
 **Delete** — `DELETE /api/v1/files/{id}` with the delete token: compare the
 token's hash in constant time, delete the row, then the blob.
@@ -44,7 +99,7 @@ after a crash).
 | Data | Where | How long |
 |---|---|---|
 | Ciphertext | `data/blobs/<id>` | Until expiry (max 7 days) or deletion |
-| ID, size, created, expires | SQLite | Same |
+| ID, size, created, expires, download limit and count | SQLite | Same, or until the last allowed download |
 | SHA-256 of the delete token | SQLite | Same |
 | Client IP address | Nowhere | — |
 | File name, content type, plaintext | Nowhere (encrypted inside the ciphertext from phase 2) | — |

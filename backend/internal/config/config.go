@@ -27,17 +27,24 @@ type Config struct {
 	MaxExpiry time.Duration
 	// CleanupInterval is how often expired files are removed.
 	CleanupInterval time.Duration
+	// MaxDownloads is the highest download limit an upload may ask for.
+	// Uploads without a limit can be downloaded until they expire.
+	MaxDownloads int
+	// MaxPendingUploads caps the chunked uploads in progress, server-wide.
+	MaxPendingUploads int
 }
 
 // Defaults for the public service at filebunny.eu.
 const (
-	DefaultListen          = ":8080"
-	DefaultDataDir         = "./data"
-	DefaultMaxSize         = 100 << 20 // 100 MiB
-	DefaultMaxTotalSize    = 20 << 30  // 20 GiB
-	DefaultDefaultExpiry   = 24 * time.Hour
-	DefaultMaxExpiry       = 7 * 24 * time.Hour
-	DefaultCleanupInterval = time.Minute
+	DefaultListen            = ":8080"
+	DefaultDataDir           = "./data"
+	DefaultMaxSize           = 100 << 20 // 100 MiB
+	DefaultMaxTotalSize      = 20 << 30  // 20 GiB
+	DefaultDefaultExpiry     = 24 * time.Hour
+	DefaultMaxExpiry         = 7 * 24 * time.Hour
+	DefaultCleanupInterval   = time.Minute
+	DefaultMaxDownloads      = 100
+	DefaultMaxPendingUploads = 50
 )
 
 // MinExpiry is the shortest expiry an upload may ask for.
@@ -46,13 +53,15 @@ const MinExpiry = time.Minute
 // FromEnv builds a Config from the given lookup function (normally os.Getenv).
 func FromEnv(getenv func(string) string) (Config, error) {
 	c := Config{
-		Listen:          DefaultListen,
-		DataDir:         DefaultDataDir,
-		MaxSize:         DefaultMaxSize,
-		MaxTotalSize:    DefaultMaxTotalSize,
-		DefaultExpiry:   DefaultDefaultExpiry,
-		MaxExpiry:       DefaultMaxExpiry,
-		CleanupInterval: DefaultCleanupInterval,
+		Listen:            DefaultListen,
+		DataDir:           DefaultDataDir,
+		MaxSize:           DefaultMaxSize,
+		MaxTotalSize:      DefaultMaxTotalSize,
+		DefaultExpiry:     DefaultDefaultExpiry,
+		MaxExpiry:         DefaultMaxExpiry,
+		CleanupInterval:   DefaultCleanupInterval,
+		MaxDownloads:      DefaultMaxDownloads,
+		MaxPendingUploads: DefaultMaxPendingUploads,
 	}
 	var errs []error
 
@@ -100,6 +109,26 @@ func FromEnv(getenv func(string) string) (Config, error) {
 			continue
 		}
 		*d.dst = dur
+	}
+
+	counts := []struct {
+		name string
+		dst  *int
+	}{
+		{"FILEBUNNY_MAX_DOWNLOADS", &c.MaxDownloads},
+		{"FILEBUNNY_MAX_PENDING_UPLOADS", &c.MaxPendingUploads},
+	}
+	for _, n := range counts {
+		v := getenv(n.name)
+		if v == "" {
+			continue
+		}
+		i, err := strconv.Atoi(v)
+		if err != nil || i <= 0 {
+			errs = append(errs, fmt.Errorf("%s: want a positive number, got %q", n.name, v))
+			continue
+		}
+		*n.dst = i
 	}
 
 	if c.DefaultExpiry < MinExpiry {

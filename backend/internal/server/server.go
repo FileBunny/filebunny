@@ -11,7 +11,6 @@ import (
 	"log/slog"
 	"net/http"
 	"strconv"
-	"strings"
 	"sync"
 	"time"
 
@@ -37,16 +36,26 @@ type Server struct {
 	// cannot together exceed cfg.MaxTotalSize.
 	mu       sync.Mutex
 	reserved int64
+
+	// uploads holds the chunked uploads in progress, by ID.
+	upMu    sync.Mutex
+	uploads map[string]*pendingUpload
 }
 
 // New returns a Server with all routes registered.
 func New(cfg config.Config, st *store.Store, log *slog.Logger) *Server {
-	s := &Server{cfg: cfg, store: st, log: log, now: time.Now, stall: stallTimeout, mux: http.NewServeMux()}
+	s := &Server{cfg: cfg, store: st, log: log, now: time.Now, stall: stallTimeout, mux: http.NewServeMux(),
+		uploads: make(map[string]*pendingUpload)}
 	s.mux.HandleFunc("GET /healthz", s.handleHealth)
 	s.mux.HandleFunc("POST /api/v1/files", s.handleUpload)
 	s.mux.HandleFunc("GET /api/v1/files/{id}", s.handleDownload)
+	s.mux.HandleFunc("HEAD /api/v1/files/{id}", s.handleInfo)
 	s.mux.HandleFunc("DELETE /api/v1/files/{id}", s.handleDelete)
-	s.handler = securityHeaders(s.mux)
+	s.mux.HandleFunc("POST /api/v1/uploads", s.handleCreateUpload)
+	s.mux.HandleFunc("PUT /api/v1/uploads/{id}", s.handleChunk)
+	s.mux.HandleFunc("POST /api/v1/uploads/{id}/complete", s.handleCompleteUpload)
+	s.mux.HandleFunc("DELETE /api/v1/uploads/{id}", s.handleAbortUpload)
+	s.handler = securityHeaders(nullOriginCORS(s.mux))
 	return s
 }
 
@@ -64,20 +73,58 @@ type uploadResponse struct {
 	DeleteToken string    `json:"delete_token"`
 	Size        int64     `json:"size"`
 	ExpiresAt   time.Time `json:"expires_at"`
+	// MaxDownloads is omitted for unlimited downloads.
+	MaxDownloads int `json:"max_downloads,omitempty"`
 }
 
-// handleUpload stores the raw request body. The optional query parameter
-// "expires" is a Go duration (e.g. "1h", "168h") between config.MinExpiry and the
-// configured max.
-func (s *Server) handleUpload(w http.ResponseWriter, r *http.Request) {
-	expiry := s.cfg.DefaultExpiry
-	if v := r.URL.Query().Get("expires"); v != "" {
+func newUploadResponse(f store.File, token string) uploadResponse {
+	return uploadResponse{
+		ID:           f.ID,
+		DeleteToken:  token,
+		Size:         f.Size,
+		ExpiresAt:    f.ExpiresAt.UTC(),
+		MaxDownloads: f.MaxDownloads,
+	}
+}
+
+// limits are the sharing options of an upload.
+type limits struct {
+	expiry       time.Duration
+	maxDownloads int // 0: unlimited
+}
+
+// parseLimits reads the optional query parameters "expires", a Go duration
+// (e.g. "1h", "168h") between config.MinExpiry and the configured max, and
+// "max_downloads", between 1 and the configured max. On error it writes the
+// response and returns false.
+func (s *Server) parseLimits(w http.ResponseWriter, r *http.Request) (limits, bool) {
+	l := limits{expiry: s.cfg.DefaultExpiry}
+	q := r.URL.Query()
+	if v := q.Get("expires"); v != "" {
 		d, err := time.ParseDuration(v)
 		if err != nil || d < config.MinExpiry || d > s.cfg.MaxExpiry {
 			writeError(w, http.StatusBadRequest, "expires must be a duration between "+config.MinExpiry.String()+" and "+s.cfg.MaxExpiry.String())
-			return
+			return limits{}, false
 		}
-		expiry = d
+		l.expiry = d
+	}
+	if v := q.Get("max_downloads"); v != "" {
+		n, err := strconv.Atoi(v)
+		if err != nil || n < 1 || n > s.cfg.MaxDownloads {
+			writeError(w, http.StatusBadRequest, "max_downloads must be a number between 1 and "+strconv.Itoa(s.cfg.MaxDownloads))
+			return limits{}, false
+		}
+		l.maxDownloads = n
+	}
+	return l, true
+}
+
+// handleUpload stores the raw request body, with the limits from
+// parseLimits.
+func (s *Server) handleUpload(w http.ResponseWriter, r *http.Request) {
+	lim, ok := s.parseLimits(w, r)
+	if !ok {
+		return
 	}
 	if r.ContentLength > s.cfg.MaxSize {
 		writeError(w, http.StatusRequestEntityTooLarge, "file exceeds "+strconv.FormatInt(s.cfg.MaxSize, 10)+" bytes")
@@ -104,7 +151,7 @@ func (s *Server) handleUpload(w http.ResponseWriter, r *http.Request) {
 	body := http.MaxBytesReader(w, r.Body, s.cfg.MaxSize)
 	rc := http.NewResponseController(w)
 	now := s.now()
-	f, token, err := s.store.Put(r.Context(), stallReader{body, rc, s.stall}, now, now.Add(expiry))
+	f, token, err := s.store.Put(r.Context(), stallReader{body, rc, s.stall}, now, now.Add(lim.expiry), lim.maxDownloads)
 	if err != nil {
 		if _, ok := errors.AsType[*http.MaxBytesError](err); ok {
 			writeError(w, http.StatusRequestEntityTooLarge, "file exceeds "+strconv.FormatInt(s.cfg.MaxSize, 10)+" bytes")
@@ -122,12 +169,7 @@ func (s *Server) handleUpload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	writeJSON(w, http.StatusCreated, uploadResponse{
-		ID:          f.ID,
-		DeleteToken: token,
-		Size:        f.Size,
-		ExpiresAt:   f.ExpiresAt.UTC(),
-	})
+	writeJSON(w, http.StatusCreated, newUploadResponse(f, token))
 }
 
 var errStorageFull = errors.New("storage full")
@@ -152,6 +194,24 @@ func (s *Server) reserve(ctx context.Context, n int64) (release func(), err erro
 	}, nil
 }
 
+// handleInfo answers HEAD with the download headers, without counting a
+// download, so the download page can show expiry and downloads left.
+func (s *Server) handleInfo(w http.ResponseWriter, r *http.Request) {
+	f, err := s.store.Stat(r.Context(), r.PathValue("id"), s.now())
+	if errors.Is(err, store.ErrNotFound) {
+		writeError(w, http.StatusNotFound, "not found")
+		return
+	}
+	if err != nil {
+		s.log.Error("info failed", "err", err)
+		writeError(w, http.StatusInternalServerError, "info failed")
+		return
+	}
+	setFileHeaders(w, f)
+}
+
+// handleDownload counts a download, also when the client aborts it: counting
+// at the end would let parallel downloads of a one-time file all succeed.
 func (s *Server) handleDownload(w http.ResponseWriter, r *http.Request) {
 	f, blob, err := s.store.Get(r.Context(), r.PathValue("id"), s.now())
 	if errors.Is(err, store.ErrNotFound) {
@@ -165,25 +225,31 @@ func (s *Server) handleDownload(w http.ResponseWriter, r *http.Request) {
 	}
 	defer blob.Close()
 
-	h := w.Header()
-	h.Set("Content-Type", "application/octet-stream")
-	h.Set("Content-Length", strconv.FormatInt(f.Size, 10))
-	h.Set("Content-Disposition", "attachment")
-	h.Set("Cache-Control", "no-store")
-	h.Set("Expires-At", f.ExpiresAt.UTC().Format(http.TimeFormat))
-	if r.Method == http.MethodHead {
-		return
-	}
+	setFileHeaders(w, f)
 	sw := stallWriter{w, http.NewResponseController(w), s.stall}
 	if _, err := io.Copy(sw, blob); err != nil && r.Context().Err() == nil {
 		s.log.Warn("download interrupted", "err", err)
 	}
 }
 
+// setFileHeaders describes f. Downloads-Remaining is omitted when downloads
+// are unlimited; on a download it is the number left after this one.
+func setFileHeaders(w http.ResponseWriter, f store.File) {
+	h := w.Header()
+	h.Set("Content-Type", "application/octet-stream")
+	h.Set("Content-Length", strconv.FormatInt(f.Size, 10))
+	h.Set("Content-Disposition", "attachment")
+	h.Set("Cache-Control", "no-store")
+	h.Set("Expires-At", f.ExpiresAt.UTC().Format(http.TimeFormat))
+	if left := f.DownloadsLeft(); left >= 0 {
+		h.Set("Downloads-Remaining", strconv.Itoa(left))
+	}
+}
+
 // handleDelete expects the delete token as "Authorization: Bearer <token>".
 func (s *Server) handleDelete(w http.ResponseWriter, r *http.Request) {
-	token, ok := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
-	if !ok || token == "" {
+	token, ok := bearerToken(r)
+	if !ok {
 		writeError(w, http.StatusUnauthorized, "missing delete token")
 		return
 	}

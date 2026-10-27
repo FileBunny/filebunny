@@ -35,6 +35,18 @@ type File struct {
 	Size      int64
 	CreatedAt time.Time
 	ExpiresAt time.Time
+	// MaxDownloads is the number of downloads allowed; 0 means unlimited.
+	MaxDownloads int
+	// Downloads counts the downloads started so far.
+	Downloads int
+}
+
+// DownloadsLeft returns how many downloads remain, or -1 if unlimited.
+func (f File) DownloadsLeft() int {
+	if f.MaxDownloads == 0 {
+		return -1
+	}
+	return max(f.MaxDownloads-f.Downloads, 0)
 }
 
 // Store is safe for concurrent use.
@@ -62,6 +74,9 @@ var migrations = []string{
 		expires_at        INTEGER NOT NULL
 	) STRICT;
 	CREATE INDEX files_expires_at ON files(expires_at);`,
+	// max_downloads NULL means unlimited.
+	`ALTER TABLE files ADD COLUMN max_downloads INTEGER;
+	ALTER TABLE files ADD COLUMN downloads INTEGER NOT NULL DEFAULT 0;`,
 }
 
 // Open opens (or creates) the store in dataDir.
@@ -123,21 +138,73 @@ func (s *Store) Close() error {
 	return s.db.Close()
 }
 
-// Put streams r to disk and records it. It returns the metadata and the
-// delete token; only a hash of the token is stored.
-func (s *Store) Put(ctx context.Context, r io.Reader, now, expiresAt time.Time) (File, string, error) {
-	tmp, err := os.CreateTemp(s.tmpDir, "upload-*")
+// Put streams r to disk and records it. maxDownloads 0 means unlimited.
+// It returns the metadata and the delete token; only a hash of the token
+// is stored.
+func (s *Store) Put(ctx context.Context, r io.Reader, now, expiresAt time.Time, maxDownloads int) (File, string, error) {
+	p, err := s.Begin()
 	if err != nil {
 		return File{}, "", err
 	}
-	tmpName := tmp.Name()
+	if _, err := p.Append(r); err != nil {
+		p.Abort()
+		return File{}, "", err
+	}
+	return s.Commit(ctx, p, now, expiresAt, maxDownloads)
+}
+
+// Pending is an upload that is written in parts and not yet visible. It is
+// not safe for concurrent use.
+type Pending struct {
+	f    *os.File
+	size int64
+}
+
+// Begin starts a pending upload in the temp directory. The caller must
+// finish it with Commit or Abort.
+func (s *Store) Begin() (*Pending, error) {
+	f, err := os.CreateTemp(s.tmpDir, "upload-*")
+	if err != nil {
+		return nil, err
+	}
+	return &Pending{f: f}, nil
+}
+
+// Size returns the number of bytes appended so far.
+func (p *Pending) Size() int64 { return p.size }
+
+// Append writes all of r. A part is all or nothing: if r fails, the data
+// it wrote is discarded, so the same part can be sent again.
+func (p *Pending) Append(r io.Reader) (int64, error) {
+	n, err := io.Copy(p.f, r)
+	if err != nil {
+		if terr := p.f.Truncate(p.size); terr != nil {
+			return 0, errors.Join(err, terr)
+		}
+		if _, serr := p.f.Seek(p.size, io.SeekStart); serr != nil {
+			return 0, errors.Join(err, serr)
+		}
+		return 0, err
+	}
+	p.size += n
+	return n, nil
+}
+
+// Abort discards the pending upload.
+func (p *Pending) Abort() {
+	p.f.Close()
+	os.Remove(p.f.Name())
+}
+
+// Commit makes a pending upload a stored file; p must not be used after.
+// maxDownloads 0 means unlimited. It returns the metadata and the delete
+// token; only a hash of the token is stored.
+func (s *Store) Commit(ctx context.Context, p *Pending, now, expiresAt time.Time, maxDownloads int) (File, string, error) {
+	tmpName := p.f.Name()
 	defer os.Remove(tmpName) // no-op once renamed
 
-	size, err := io.Copy(tmp, r)
-	if err == nil {
-		err = tmp.Sync()
-	}
-	if cerr := tmp.Close(); err == nil {
+	err := p.f.Sync()
+	if cerr := p.f.Close(); err == nil {
 		err = cerr
 	}
 	if err != nil {
@@ -148,14 +215,14 @@ func (s *Store) Put(ctx context.Context, r io.Reader, now, expiresAt time.Time) 
 	token := newRandom(tokenBytes)
 	// The database stores whole seconds; return what Get will return.
 	now, expiresAt = now.Truncate(time.Second), expiresAt.Truncate(time.Second)
-	f := File{ID: id, Size: size, CreatedAt: now, ExpiresAt: expiresAt}
+	f := File{ID: id, Size: p.size, CreatedAt: now, ExpiresAt: expiresAt, MaxDownloads: maxDownloads}
 
 	// Insert the row before the rename: the primary key guarantees the ID
 	// is unused, so the rename can never overwrite another file's blob.
 	// Until the rename, Get reports the file as not found.
 	_, err = s.db.ExecContext(ctx,
-		`INSERT INTO files (id, delete_token_hash, size, created_at, expires_at) VALUES (?, ?, ?, ?, ?)`,
-		id, hashToken(token), size, now.Unix(), expiresAt.Unix())
+		`INSERT INTO files (id, delete_token_hash, size, created_at, expires_at, max_downloads) VALUES (?, ?, ?, ?, ?, ?)`,
+		id, hashToken(token), p.size, now.Unix(), expiresAt.Unix(), nullIfZero(maxDownloads))
 	if err != nil {
 		return File{}, "", err
 	}
@@ -166,24 +233,26 @@ func (s *Store) Put(ctx context.Context, r io.Reader, now, expiresAt time.Time) 
 	return f, token, nil
 }
 
-// Get returns the metadata and an open handle to the blob. The caller must
-// close the handle. Expired files are reported as ErrNotFound.
+// available is the SQL condition for a file that can still be downloaded.
+const available = `expires_at > ? AND (max_downloads IS NULL OR downloads < max_downloads)`
+
+const fileColumns = `size, created_at, expires_at, downloads, max_downloads`
+
+// Get counts a download and returns the metadata and an open handle to the
+// blob. The caller must close the handle. Expired files and files without
+// downloads left are reported as ErrNotFound. The counter is updated in one
+// statement, so concurrent downloads can never exceed the limit; the last
+// allowed download removes the file (the open handle keeps working).
 func (s *Store) Get(ctx context.Context, id string, now time.Time) (File, *os.File, error) {
 	if !idPattern.MatchString(id) {
 		return File{}, nil, ErrNotFound
 	}
-	f := File{ID: id}
-	var created, expires int64
-	err := s.db.QueryRowContext(ctx,
-		`SELECT size, created_at, expires_at FROM files WHERE id = ? AND expires_at > ?`,
-		id, now.Unix()).Scan(&f.Size, &created, &expires)
-	if errors.Is(err, sql.ErrNoRows) {
-		return File{}, nil, ErrNotFound
-	}
+	f, err := scanFile(id, s.db.QueryRowContext(ctx,
+		`UPDATE files SET downloads = downloads + 1 WHERE id = ? AND `+available+` RETURNING `+fileColumns,
+		id, now.Unix()))
 	if err != nil {
 		return File{}, nil, err
 	}
-	f.CreatedAt, f.ExpiresAt = time.Unix(created, 0), time.Unix(expires, 0)
 
 	blob, err := os.Open(s.blobPath(id))
 	if errors.Is(err, os.ErrNotExist) {
@@ -192,7 +261,38 @@ func (s *Store) Get(ctx context.Context, id string, now time.Time) (File, *os.Fi
 	if err != nil {
 		return File{}, nil, err
 	}
+	if f.DownloadsLeft() == 0 {
+		// If this fails, the row stays unavailable (no downloads left) and
+		// cleanup removes it when it expires.
+		_ = s.remove(context.WithoutCancel(ctx), id)
+	}
 	return f, blob, nil
+}
+
+// Stat returns the metadata without counting a download.
+func (s *Store) Stat(ctx context.Context, id string, now time.Time) (File, error) {
+	if !idPattern.MatchString(id) {
+		return File{}, ErrNotFound
+	}
+	return scanFile(id, s.db.QueryRowContext(ctx,
+		`SELECT `+fileColumns+` FROM files WHERE id = ? AND `+available,
+		id, now.Unix()))
+}
+
+func scanFile(id string, row *sql.Row) (File, error) {
+	f := File{ID: id}
+	var created, expires int64
+	var maxDownloads sql.NullInt64
+	err := row.Scan(&f.Size, &created, &expires, &f.Downloads, &maxDownloads)
+	if errors.Is(err, sql.ErrNoRows) {
+		return File{}, ErrNotFound
+	}
+	if err != nil {
+		return File{}, err
+	}
+	f.CreatedAt, f.ExpiresAt = time.Unix(created, 0), time.Unix(expires, 0)
+	f.MaxDownloads = int(maxDownloads.Int64)
+	return f, nil
 }
 
 // Delete removes a file if token matches its delete token. Expired files
@@ -313,6 +413,13 @@ func newRandom(n int) string {
 	b := make([]byte, n)
 	rand.Read(b) // never returns an error since Go 1.24
 	return base64.RawURLEncoding.EncodeToString(b)
+}
+
+func nullIfZero(n int) any {
+	if n == 0 {
+		return nil
+	}
+	return n
 }
 
 func hashToken(token string) []byte {

@@ -64,11 +64,29 @@ backend with defaults.
 | `FILEBUNNY_MAX_TOTAL_SIZE` | `21474836480` (20 GiB) | Max combined size of all files; uploads beyond it get `507` |
 | `FILEBUNNY_DEFAULT_EXPIRY` | `24h` | Expiry when the client does not ask for one (min `1m`) |
 | `FILEBUNNY_MAX_EXPIRY` | `168h` | Longest expiry a client may ask for |
+| `FILEBUNNY_MAX_DOWNLOADS` | `100` | Highest download limit a client may ask for; uploads without a limit can be downloaded until they expire |
+| `FILEBUNNY_MAX_PENDING_UPLOADS` | `50` | Max chunked uploads in progress, server-wide; more get `503` |
 | `FILEBUNNY_CLEANUP_INTERVAL` | `1m` | How often expired files are removed |
 | `FILEBUNNY_LISTEN` | `:8080` | Backend listen address (inside the container) |
 | `FILEBUNNY_DATA_DIR` | `/data` in the container | Database and blobs |
 
 Durations use Go syntax (`30m`, `24h`); `7d` is not valid, use `168h`.
+
+## Downloadable single HTML file
+
+`make single` builds `frontend/dist-single/filebunny.html`: the whole app
+(script and styles inline, with a CSP by hash) in one file that people can
+save and open from disk, so they do not depend on the JavaScript your
+server sends each time. It talks to the API at `VITE_FILEBUNNY_API`
+(default `https://filebunny.eu`, see `frontend/.env.single`). For your own
+instance:
+
+```sh
+cd frontend && VITE_FILEBUNNY_API=https://files.example.org npm run build:single
+```
+
+The backend allows CORS for `Origin: null` only, which is what such a page
+sends. Share and delete links made from the file point to that origin.
 
 ## Privacy checklist
 

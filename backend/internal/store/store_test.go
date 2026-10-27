@@ -2,11 +2,14 @@ package store
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"io"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -26,7 +29,7 @@ func openTest(t *testing.T) (*Store, string) {
 
 func put(t *testing.T, s *Store, body string, expires time.Time) (File, string) {
 	t.Helper()
-	f, token, err := s.Put(context.Background(), strings.NewReader(body), t0, expires)
+	f, token, err := s.Put(context.Background(), strings.NewReader(body), t0, expires, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -176,7 +179,7 @@ func TestReopenKeepsData(t *testing.T) {
 func TestPutReaderError(t *testing.T) {
 	s, dir := openTest(t)
 	r := io.MultiReader(strings.NewReader("partial"), errReader{})
-	if _, _, err := s.Put(context.Background(), r, t0, t0.Add(time.Hour)); err == nil {
+	if _, _, err := s.Put(context.Background(), r, t0, t0.Add(time.Hour), 0); err == nil {
 		t.Fatal("expected error")
 	}
 	for _, sub := range []string{"tmp", "blobs"} {
@@ -213,5 +216,187 @@ func TestTotalSize(t *testing.T) {
 	s.Delete(ctx, f.ID, token, t0)
 	if n, _ := s.TotalSize(ctx); n != 3 {
 		t.Errorf("after delete: total %d, want 3", n)
+	}
+}
+
+func TestDownloadLimit(t *testing.T) {
+	s, dir := openTest(t)
+	ctx := context.Background()
+	f, _, err := s.Put(ctx, strings.NewReader("twice"), t0, t0.Add(time.Hour), 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if f.MaxDownloads != 2 || f.DownloadsLeft() != 2 {
+		t.Fatalf("new file: %+v", f)
+	}
+
+	for want := 1; want >= 0; want-- {
+		got, blob, err := s.Get(ctx, f.ID, t0)
+		if err != nil {
+			t.Fatalf("download with %d left: %v", want+1, err)
+		}
+		// The handle stays readable even after the last download removed
+		// the blob.
+		if b, _ := io.ReadAll(blob); string(b) != "twice" {
+			t.Errorf("body %q", b)
+		}
+		blob.Close()
+		if got.DownloadsLeft() != want {
+			t.Errorf("downloads left %d, want %d", got.DownloadsLeft(), want)
+		}
+	}
+	if _, _, err := s.Get(ctx, f.ID, t0); !errors.Is(err, ErrNotFound) {
+		t.Errorf("third download: err = %v, want ErrNotFound", err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "blobs", f.ID)); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("blob not removed after last download: %v", err)
+	}
+	if n, _ := s.TotalSize(ctx); n != 0 {
+		t.Errorf("total size %d after last download", n)
+	}
+}
+
+// Concurrent downloads of a one-time file: exactly one succeeds.
+func TestDownloadLimitConcurrent(t *testing.T) {
+	s, _ := openTest(t)
+	ctx := context.Background()
+	f, _, err := s.Put(ctx, strings.NewReader("once"), t0, t0.Add(time.Hour), 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var wg sync.WaitGroup
+	var ok atomic.Int32
+	for range 20 {
+		wg.Go(func() {
+			if _, blob, err := s.Get(ctx, f.ID, t0); err == nil {
+				blob.Close()
+				ok.Add(1)
+			}
+		})
+	}
+	wg.Wait()
+	if ok.Load() != 1 {
+		t.Errorf("%d downloads succeeded, want 1", ok.Load())
+	}
+}
+
+func TestStatDoesNotCount(t *testing.T) {
+	s, _ := openTest(t)
+	ctx := context.Background()
+	f, _, err := s.Put(ctx, strings.NewReader("x"), t0, t0.Add(time.Hour), 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for range 3 {
+		got, err := s.Stat(ctx, f.ID, t0)
+		if err != nil || got.DownloadsLeft() != 1 || got.Size != 1 {
+			t.Fatalf("stat: %+v, %v", got, err)
+		}
+	}
+	if _, blob, err := s.Get(ctx, f.ID, t0); err != nil {
+		t.Fatal(err)
+	} else {
+		blob.Close()
+	}
+	if _, err := s.Stat(ctx, f.ID, t0); !errors.Is(err, ErrNotFound) {
+		t.Errorf("stat after last download: %v", err)
+	}
+	if _, err := s.Stat(ctx, "AAAAAAAAAAAAAAAAAAAAAA", t0); !errors.Is(err, ErrNotFound) {
+		t.Errorf("stat unknown: %v", err)
+	}
+}
+
+func TestUnlimitedDownloads(t *testing.T) {
+	s, _ := openTest(t)
+	f, _ := put(t, s, "x", t0.Add(time.Hour))
+	if f.DownloadsLeft() != -1 {
+		t.Errorf("downloads left %d, want -1", f.DownloadsLeft())
+	}
+	for range 5 {
+		_, blob, err := s.Get(context.Background(), f.ID, t0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		blob.Close()
+	}
+}
+
+func TestPendingAppendRetry(t *testing.T) {
+	s, dir := openTest(t)
+	ctx := context.Background()
+	p, err := s.Begin()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := p.Append(strings.NewReader("part1-")); err != nil {
+		t.Fatal(err)
+	}
+	// A part that fails halfway is discarded completely.
+	if _, err := p.Append(io.MultiReader(strings.NewReader("par"), errReader{})); err == nil {
+		t.Fatal("expected error")
+	}
+	if p.Size() != 6 {
+		t.Errorf("size after failed part %d, want 6", p.Size())
+	}
+	if _, err := p.Append(strings.NewReader("part2")); err != nil {
+		t.Fatal(err)
+	}
+	f, _, err := s.Commit(ctx, p, t0, t0.Add(time.Hour), 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, blob, err := s.Get(ctx, f.ID, t0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer blob.Close()
+	if b, _ := io.ReadAll(blob); string(b) != "part1-part2" || f.Size != 11 {
+		t.Errorf("body %q, size %d", b, f.Size)
+	}
+	if entries, _ := os.ReadDir(filepath.Join(dir, "tmp")); len(entries) != 0 {
+		t.Errorf("tmp not empty: %v", entries)
+	}
+}
+
+func TestPendingAbort(t *testing.T) {
+	s, dir := openTest(t)
+	p, err := s.Begin()
+	if err != nil {
+		t.Fatal(err)
+	}
+	p.Append(strings.NewReader("data"))
+	p.Abort()
+	if entries, _ := os.ReadDir(filepath.Join(dir, "tmp")); len(entries) != 0 {
+		t.Errorf("tmp not empty after abort: %v", entries)
+	}
+}
+
+// A database created by the first migration keeps its files, which get
+// unlimited downloads.
+func TestMigrateFromVersion1(t *testing.T) {
+	dir := t.TempDir()
+	db, err := sql.Open("sqlite", "file:"+filepath.Join(dir, "filebunny.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(migrations[0] + `; PRAGMA user_version = 1`); err != nil {
+		t.Fatal(err)
+	}
+	id := "AAAAAAAAAAAAAAAAAAAAAA"
+	if _, err := db.Exec(`INSERT INTO files VALUES (?, ?, 1, ?, ?)`, id, hashToken("t"), t0.Unix(), t0.Add(time.Hour).Unix()); err != nil {
+		t.Fatal(err)
+	}
+	db.Close()
+	os.MkdirAll(filepath.Join(dir, "blobs"), 0o700)
+	os.WriteFile(filepath.Join(dir, "blobs", id), []byte("x"), 0o600)
+
+	s, err := Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	f, err := s.Stat(context.Background(), id, t0)
+	if err != nil || f.DownloadsLeft() != -1 || f.Downloads != 0 {
+		t.Errorf("migrated file: %+v, %v", f, err)
 	}
 }

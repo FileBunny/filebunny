@@ -120,13 +120,67 @@ IDs, tokens or addresses.
 
 | Phase | Risk | Requirement |
 |---|---|---|
-| 2 | XSS through decrypted content | No `{@html}`; render text as text; file names only as text and in `download` attributes |
-| 2 | Download counting / one-time download | Decide the counter atomically in the database (no read-then-write); define what a `HEAD` or an aborted download counts as |
+| 2 | XSS through decrypted content | Done in phase 2, see below |
+| 2 | Download counting / one-time download | Done in phase 2, see below |
 | 3 | SSRF in the key-lookup proxy (WKD fallback) | Only build WKD URLs from a validated e-mail domain; resolve DNS and reject private, loopback, link-local and metadata addresses (also after redirects); no redirects to other hosts; short timeouts; response size limit; no logging of looked-up addresses |
 | 4 | Upload-link management link | Same model as the delete token: long random secret, stored hashed, never in logs |
 | 5 | SSRF and data leaks through proxy adapters | Fixed list of adapter hosts; no URLs from clients; health-check data must not contain user content |
 | 6 | Mail abuse | Fixed templates, rate limits per recipient/sender/global, block link |
 | 7 | Abuse of the whole quota by one client | Rate limiting with a daily rotating salt, proof of work |
+
+## Phase 2 (encryption and sharing)
+
+| | |
+|---|---|
+| Date | 2026-10-27 |
+| Scope | Branch `phase-2`: download limits, chunked uploads, CORS for `Origin: null`, browser crypto, send/download/delete pages, single HTML build |
+| Reviewer | Claude Code (AI-assisted), during development |
+
+### Requirements from phase 1
+
+- **XSS through decrypted content:** decrypted text is rendered by Svelte
+  as text in a `<pre>`; there is no `{@html}`, `innerHTML` or `eval`
+  (checked with `grep`). File names only appear as text and in the
+  `download` attribute, after `safeFileName` removes directories and
+  control characters. Files are offered from a `blob:` URL of type
+  `application/octet-stream`, never opened in a tab.
+- **Download counting:** one `UPDATE … RETURNING` that only matches rows
+  with downloads left, on a single SQLite connection; 20 parallel
+  downloads of a one-time file give exactly one success
+  (`TestDownloadLimitConcurrent`). `HEAD` does not count. A `GET` counts
+  when it starts, also when aborted.
+
+### New attack surface
+
+| Area | Measure | Test |
+|---|---|---|
+| Chunked uploads (resource exhaustion) | Max 50 sessions server-wide, max upload size per session, max 16 MiB per chunk, `Content-Length` required, quota reserved per chunk, 2 minute idle timeout, 1 minute stall timeout per chunk, one request per session at a time | `uploads_test.go` |
+| Upload tokens | 256 bits, compared as SHA-256 in constant time, in memory only, never logged; bound to their session | `TestUploadTokenIsBoundToUpload`, `TestNoClientAddressInLogs` |
+| CORS | Only for `Origin: null`; no credentials; other origins get nothing | `TestCORSOnlyForNullOrigin`, smoke test |
+| Metadata in the ciphertext | File name inside the encrypted literal packet, date 0, recipient key IDs hidden | `crypto.test.ts`, `gpg.test.ts` |
+| Weak crypto choices | SEIPDv1 with MDC (integrity), AES-256, no compression; tampered messages are rejected | `crypto.test.ts` |
+| Single HTML file | CSP by hash for its one script and stylesheet; `connect-src` only the API; build fails on extra files | Build, `make repro` |
+
+### Residual risks
+
+- **`Origin: null` is not only `file://`:** a sandboxed iframe on any
+  website also has origin `null`, so another site can use the API from its
+  visitors' browsers. The API has no cookies or ambient authority, so this
+  gives nothing a server-side script could not do. Once rate limiting per
+  (hashed) IP exists (phase 7), such a site could use up its visitors'
+  limits; revisit then.
+- **Aborted downloads count.** A one-time download that breaks off is
+  gone. Counting at the end would let parallel downloads all succeed,
+  which is worse. The download page warns before the last download.
+- **Ciphertext size reveals the approximate plaintext size.** No padding.
+- **The delete link is in the browser history** of whoever opens it (in
+  the fragment, so never in server or proxy logs).
+- **Private keys pasted into the download page** live in the page's memory
+  until it is closed; browser extensions with page access can read them.
+  The page never stores or uploads them.
+- **The JavaScript is trusted on every visit.** The single HTML file
+  reduces this for people who save it; signing and a transparency log
+  follow in phase 8.
 
 ## How to re-run the checks
 

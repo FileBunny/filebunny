@@ -18,8 +18,9 @@ for n in 1 2; do
 	(cd "$dir/backend" && go build -trimpath -buildvcs=false -ldflags="-s -w -buildid=" \
 		-o "$work/filebunny-$n" ./cmd/filebunny)
 
-	(cd "$dir/frontend" && npm ci --ignore-scripts --silent && npm run build --silent >/dev/null)
-	(cd "$dir/frontend/dist" && find . -type f -print0 | sort -z | xargs -0 sha256sum) >"$work/frontend-$n.sha256"
+	(cd "$dir/frontend" && npm ci --ignore-scripts --silent && npm run build --silent >/dev/null &&
+		npm run build:single --silent >/dev/null)
+	(cd "$dir/frontend" && find dist dist-single -type f -print0 | sort -z | xargs -0 sha256sum) >"$work/frontend-$n.sha256"
 done
 
 b1=$(sha256sum <"$work/filebunny-1" | cut -d' ' -f1)

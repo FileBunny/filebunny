@@ -2,7 +2,7 @@
 GOFLAGS_BUILD := -trimpath -buildvcs=false -ldflags="-s -w -buildid="
 export CGO_ENABLED := 0
 
-.PHONY: all build backend frontend test test-backend test-frontend vuln repro run dev clean
+.PHONY: all build backend frontend single test test-backend test-frontend vuln repro run dev clean
 
 all: test build
 
@@ -13,6 +13,12 @@ backend:
 
 frontend: frontend/node_modules
 	cd frontend && npm run build
+
+# One self-contained HTML file (frontend/dist-single/filebunny.html) that
+# works when saved and opened from disk. API: VITE_FILEBUNNY_API, default
+# in frontend/.env.single.
+single: frontend/node_modules
+	cd frontend && npm run build:single
 
 frontend/node_modules: frontend/package-lock.json
 	cd frontend && npm ci --ignore-scripts
@@ -25,8 +31,11 @@ test-backend:
 	cd backend && go vet ./...
 	cd backend && CGO_ENABLED=1 go test -race ./...
 
+# The gpg interoperability tests skip without gpg; CI sets
+# FILEBUNNY_REQUIRE_GPG=1 so they cannot be skipped there.
 test-frontend: frontend/node_modules
 	cd frontend && npm run check
+	cd frontend && npm test
 
 # `go run pkg@version` ignores go.mod; force the module's toolchain.
 vuln:
@@ -43,4 +52,4 @@ dev: frontend/node_modules
 	cd frontend && npm run dev
 
 clean:
-	rm -rf bin frontend/dist
+	rm -rf bin frontend/dist frontend/dist-single

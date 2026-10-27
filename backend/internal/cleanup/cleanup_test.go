@@ -24,8 +24,8 @@ func TestOnceRemovesExpired(t *testing.T) {
 	ctx := context.Background()
 	now := time.Date(2026, 10, 27, 12, 0, 0, 0, time.UTC)
 
-	old, _, _ := st.Put(ctx, strings.NewReader("old"), now, now.Add(time.Minute))
-	fresh, _, _ := st.Put(ctx, strings.NewReader("fresh"), now, now.Add(time.Hour))
+	old, _, _ := st.Put(ctx, strings.NewReader("old"), now, now.Add(time.Minute), 0)
+	fresh, _, _ := st.Put(ctx, strings.NewReader("fresh"), now, now.Add(time.Hour), 0)
 
 	Once(ctx, st, now.Add(2*time.Minute), discard)
 

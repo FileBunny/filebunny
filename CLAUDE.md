@@ -57,7 +57,10 @@ backend/internal/store    blobs + SQLite; migrations as a list, tracked by PRAGM
 backend/internal/server   HTTP handlers, quota, stall timeouts, security headers
 backend/internal/logging  slog logger that redacts IP addresses
 backend/internal/cleanup  periodic removal of expired files
-frontend/                 Vite + Svelte app
+frontend/src/lib          crypto (OpenPGP.js), API client, hash routes
+frontend/src/pages        send, download, delete pages
+frontend/tests            node --test, incl. gpg interoperability
+testdata/keys             public test keypairs, never for real data
 deploy/Caddyfile          TLS, CSP, /api proxy, log filter
 scripts/repro-check.sh    builds twice, compares hashes
 scripts/smoke-test.sh     end-to-end test of the Compose stack, incl. log privacy
@@ -67,10 +70,11 @@ docs/                     architecture, API, self-hosting, security review
 ## Build and test
 
 ```sh
-make test       # gofmt, go vet, go test -race, svelte-check
+make test       # gofmt, go vet, go test -race, svelte-check, node --test (gpg)
 make vuln       # govulncheck
 make repro      # reproducibility check (backend + frontend)
 make build      # bin/filebunny + frontend/dist
+make single     # frontend/dist-single/filebunny.html (self-contained)
 docker compose up -d --build && scripts/smoke-test.sh   # end to end
 make run        # backend on :8080, data in ./data
 make dev        # Vite dev server, proxies /api to :8080
@@ -119,5 +123,12 @@ overhead on a 100 MB file. Only the SHA-256 of the delete token is stored.
 
 ## Roadmap
 
-Phase 1 (foundation) is this code. Next: phase 2, browser encryption,
-share links with download limits, chunked upload for large files.
+Phases 1 (foundation) and 2 (browser encryption, share links with
+download limits, chunked upload, single HTML build) are this code. Next:
+phase 3, key lookup (WKD, keys.openpgp.org) with fingerprints and QR.
+
+Frontend rules: everything must keep working from the single HTML file
+(no lazy-loaded chunks, workers or extra assets; routes in the fragment;
+API base from `VITE_FILEBUNNY_API`). Frontend modules import each other
+with the `.ts` extension and use only erasable TypeScript, so Node can run
+them in tests.

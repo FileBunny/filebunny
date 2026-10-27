@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # End-to-end check of the Docker Compose stack: headers, upload, download,
-# delete, and that no client address or token reaches any container log.
+# download limits, chunked upload, CORS, delete, and that no client address
+# or token reaches any container log.
 # Usage: docker compose up -d --build && scripts/smoke-test.sh
 set -euo pipefail
 
@@ -9,10 +10,16 @@ fake_ip=203.0.113.7
 curl=(curl -sk --max-time 10 -H "X-Forwarded-For: $fake_ip" -H "X-Real-IP: $fake_ip")
 fail() { echo "FAIL: $*"; exit 1; }
 
+echo "waiting for $base"
+reachable=
 for _ in $(seq 30); do
-	"${curl[@]}" -o /dev/null "$base/" && break
+	if "${curl[@]}" --max-time 2 -o /dev/null "$base/"; then
+		reachable=1
+		break
+	fi
 	sleep 1
 done
+[[ -n $reachable ]] || fail "$base not reachable after 30 tries (stack running? a host firewall blocking Docker bridges?)"
 
 echo "frontend headers"
 headers=$("${curl[@]}" -D - -o /dev/null "$base/")
@@ -38,6 +45,33 @@ code=$("${curl[@]}" -o /dev/null -w '%{http_code}' -X DELETE -H "Authorization: 
 code=$("${curl[@]}" -o /dev/null -w '%{http_code}' "$base/api/v1/files/$id")
 [[ $code == 404 ]] || fail "after delete: $code"
 
+echo "one-time download"
+resp=$("${curl[@]}" --data-binary 'once' "$base/api/v1/files?max_downloads=1")
+once=$(sed -n 's/.*"id":"\([^"]*\)".*/\1/p' <<<"$resp")
+[[ -n $once ]] || fail "upload with max_downloads: $resp"
+"${curl[@]}" -I "$base/api/v1/files/$once" | grep -qi '^downloads-remaining: 1' || fail "HEAD downloads-remaining"
+[[ $("${curl[@]}" "$base/api/v1/files/$once") == once ]] || fail "one-time download"
+code=$("${curl[@]}" -o /dev/null -w '%{http_code}' "$base/api/v1/files/$once")
+[[ $code == 404 ]] || fail "second download of one-time file: $code"
+
+echo "chunked upload"
+resp=$("${curl[@]}" -X POST "$base/api/v1/uploads")
+up=$(sed -n 's/.*"id":"\([^"]*\)".*/\1/p' <<<"$resp")
+up_token=$(sed -n 's/.*"upload_token":"\([^"]*\)".*/\1/p' <<<"$resp")
+[[ -n $up && -n $up_token ]] || fail "create upload: $resp"
+auth=(-H "Authorization: Bearer $up_token")
+"${curl[@]}" "${auth[@]}" -X PUT --data-binary 'chunk-one/' "$base/api/v1/uploads/$up?offset=0" | grep -q '"offset":10' || fail "chunk 1"
+"${curl[@]}" "${auth[@]}" -X PUT --data-binary 'chunk-two' "$base/api/v1/uploads/$up?offset=10" | grep -q '"offset":19' || fail "chunk 2"
+resp=$("${curl[@]}" "${auth[@]}" -X POST "$base/api/v1/uploads/$up/complete")
+chunked=$(sed -n 's/.*"id":"\([^"]*\)".*/\1/p' <<<"$resp")
+[[ $("${curl[@]}" "$base/api/v1/files/$chunked") == chunk-one/chunk-two ]] || fail "chunked download"
+
+echo "CORS"
+cors=$("${curl[@]}" -D - -o /dev/null -X OPTIONS -H 'Origin: null' -H 'Access-Control-Request-Method: PUT' "$base/api/v1/uploads/x")
+grep -qi '^access-control-allow-origin: null' <<<"$cors" || fail "no CORS for Origin: null"
+cors=$("${curl[@]}" -D - -o /dev/null -H 'Origin: https://evil.example' "$base/api/v1/files/$chunked")
+grep -qi '^access-control-allow-origin' <<<"$cors" && fail "CORS for another origin"
+
 echo "error log with backend down"
 docker compose stop backend >/dev/null
 code=$("${curl[@]}" -o /dev/null -w '%{http_code}' -H "Authorization: Bearer $token" "$base/api/v1/files/$id")
@@ -46,7 +80,7 @@ docker compose start backend >/dev/null
 
 echo "logs"
 logs=$(docker compose logs --no-color 2>&1)
-for secret in "$fake_ip" "$token" "$id"; do
+for secret in "$fake_ip" "$token" "$id" "$up" "$up_token" "$once" "$chunked"; do
 	grep -qF -- "$secret" <<<"$logs" && fail "log contains $secret"
 done
 grep -qE '"(remote|client)_ip"' <<<"$logs" && fail "log contains remote_ip/client_ip"
