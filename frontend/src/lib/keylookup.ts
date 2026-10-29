@@ -188,6 +188,43 @@ export async function checkKeyWithWkd(info: KeyInfo, deps?: Deps): Promise<WkdCh
   );
 }
 
+/** What keys.openpgp.org says about each address of a published key. */
+export type PublishStatus = { email: string; status: 'published' | 'pending' | 'unpublished' | 'revoked' };
+
+/**
+ * Uploads a public key to keys.openpgp.org (VKS API), directly from the
+ * browser, and asks it to send a verification mail to every address that
+ * is not published yet. keys.openpgp.org publishes an address only after
+ * its owner clicks the link in that mail; until then only the key
+ * material (without user IDs) is findable by fingerprint.
+ */
+export async function publishKey(publicKey: string, deps?: Deps): Promise<PublishStatus[]> {
+  const d = resolve(deps);
+  const post = async (path: string, body: unknown) => {
+    const res = await fetchCapped(
+      `https://keys.openpgp.org/vks/v1/${path}`,
+      { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) },
+      d,
+    );
+    if (res.status !== 200) throw new LookupError(`keys.openpgp.org refused the key (status ${res.status})`);
+    const json = JSON.parse(new TextDecoder().decode(res.body)) as { token?: unknown; status?: unknown };
+    if (typeof json.token !== 'string' || typeof json.status !== 'object' || json.status === null) {
+      throw new LookupError('unexpected answer from keys.openpgp.org');
+    }
+    return { token: json.token, status: json.status as Record<string, string> };
+  };
+  try {
+    const up = await post('upload', { keytext: publicKey });
+    const unverified = Object.entries(up.status)
+      .filter(([, st]) => st === 'unpublished')
+      .map(([email]) => email);
+    const final = unverified.length > 0 ? await post('request-verify', { token: up.token, addresses: unverified }) : up;
+    return Object.entries(final.status).map(([email, status]) => ({ email, status: status as PublishStatus['status'] }));
+  } catch (err) {
+    throw new Error(err instanceof LookupError ? err.message : 'keys.openpgp.org could not be reached');
+  }
+}
+
 /** Whether the backend offers the WKD proxy. False when unreachable. */
 export async function wkdAvailable(deps?: Deps): Promise<boolean> {
   const d = resolve(deps);
