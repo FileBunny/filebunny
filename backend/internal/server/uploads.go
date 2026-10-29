@@ -32,6 +32,10 @@ type pendingUpload struct {
 	id        string
 	tokenHash [sha256.Size]byte
 	lim       limits
+	// inbox is the upload link this upload goes to, if any; maxSize is
+	// the most it may hold.
+	inbox   string
+	maxSize int64
 
 	// mu is held for the whole of a request on this upload; a second
 	// request for the same upload at the same time gets 409.
@@ -55,11 +59,32 @@ type chunkResponse struct {
 }
 
 // handleCreateUpload starts a chunked upload with the limits from
-// parseLimits; they apply when it completes.
+// parseLimits; they apply when it completes. With ?inbox=<id> it is an
+// upload to that link instead, limited by what the link has left.
 func (s *Server) handleCreateUpload(w http.ResponseWriter, r *http.Request) {
-	lim, ok := s.parseLimits(w, r)
-	if !ok {
-		return
+	var lim limits
+	inbox := r.URL.Query().Get("inbox")
+	maxSize := s.cfg.MaxSize
+	if inbox != "" {
+		in, err := s.store.OpenInbox(r.Context(), inbox, s.now())
+		if errors.Is(err, store.ErrNotFound) {
+			writeError(w, http.StatusNotFound, "not found")
+			return
+		}
+		if err != nil {
+			s.log.Error("create upload failed", "err", err)
+			writeError(w, http.StatusInternalServerError, "create upload failed")
+			return
+		}
+		if maxSize = s.inboxMaxFileSize(in); maxSize == 0 {
+			writeError(w, http.StatusConflict, "this upload link is full")
+			return
+		}
+	} else {
+		var ok bool
+		if lim, ok = s.parseLimits(w, r); !ok {
+			return
+		}
 	}
 
 	s.upMu.Lock()
@@ -80,6 +105,8 @@ func (s *Server) handleCreateUpload(w http.ResponseWriter, r *http.Request) {
 		id:         randomString(16),
 		tokenHash:  sha256.Sum256([]byte(token)),
 		lim:        lim,
+		inbox:      inbox,
+		maxSize:    maxSize,
 		p:          p,
 		lastActive: time.Now(),
 	}
@@ -90,7 +117,7 @@ func (s *Server) handleCreateUpload(w http.ResponseWriter, r *http.Request) {
 		ID:           u.id,
 		UploadToken:  token,
 		MaxChunkSize: maxChunkSize,
-		MaxSize:      s.cfg.MaxSize,
+		MaxSize:      maxSize,
 	})
 }
 
@@ -121,8 +148,8 @@ func (s *Server) handleChunk(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusRequestEntityTooLarge, "chunk exceeds "+strconv.Itoa(maxChunkSize)+" bytes")
 		return
 	}
-	if u.p.Size()+r.ContentLength > s.cfg.MaxSize {
-		writeError(w, http.StatusRequestEntityTooLarge, "file exceeds "+strconv.FormatInt(s.cfg.MaxSize, 10)+" bytes")
+	if u.p.Size()+r.ContentLength > u.maxSize {
+		writeError(w, http.StatusRequestEntityTooLarge, "file exceeds "+strconv.FormatInt(u.maxSize, 10)+" bytes")
 		return
 	}
 
@@ -164,6 +191,13 @@ func (s *Server) handleCompleteUpload(w http.ResponseWriter, r *http.Request) {
 
 	if u.p.Size() == 0 {
 		writeError(w, http.StatusBadRequest, "upload is empty")
+		return
+	}
+	if u.inbox != "" {
+		// Commit consumes the pending upload, also when it fails; release
+		// the quota only after the file counts in the stored total.
+		s.commitToInbox(w, r, u.p, u.inbox)
+		s.finishUpload(u)
 		return
 	}
 	now := s.now()
