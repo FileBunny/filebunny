@@ -64,16 +64,48 @@ export async function upload(
   signal?: AbortSignal,
 ): Promise<Uploaded> {
   const query = limitsQuery(limits);
+  const done = await send(ciphertext, `/api/v1/files?${query}`, `/api/v1/uploads?${query}`, onProgress, signal);
+  return toUploaded(done as Parameters<typeof toUploaded>[0]);
+}
+
+/**
+ * Uploads a ciphertext stream to an upload link, like upload(). Returns
+ * the stored size; the uploader gets no ID or delete token.
+ */
+export async function uploadToInbox(
+  inboxId: string,
+  ciphertext: ReadableStream<Uint8Array>,
+  onProgress: Progress = () => {},
+  signal?: AbortSignal,
+): Promise<number> {
+  const done = await send(
+    ciphertext,
+    `${inboxPath(inboxId)}/files`,
+    `/api/v1/uploads?inbox=${encodeURIComponent(inboxId)}`,
+    onProgress,
+    signal,
+  );
+  return (done as { size: number }).size;
+}
+
+/** One request if the ciphertext fits in a chunk, a chunked upload otherwise. */
+async function send(
+  ciphertext: ReadableStream<Uint8Array>,
+  singlePath: string,
+  chunkedPath: string,
+  onProgress: Progress,
+  signal?: AbortSignal,
+): Promise<unknown> {
   const reader = ciphertext.getReader();
   const chunks = new Chunker(reader);
   try {
     const first = await chunks.next();
     if (first.done) {
-      const res = await request('POST', `/api/v1/files?${query}`, { body: first.chunk, signal });
+      const res = await request('POST', singlePath, { body: first.chunk, signal });
       onProgress(first.chunk.size);
-      return toUploaded(await res.json());
+      return await res.json();
     }
-    return await uploadChunked(chunks, first.chunk, query, onProgress, signal);
+    return await uploadChunked(chunks, first.chunk, chunkedPath, onProgress, signal);
   } finally {
     reader.releaseLock();
   }
@@ -82,11 +114,11 @@ export async function upload(
 async function uploadChunked(
   chunks: Chunker,
   first: Blob,
-  query: string,
+  createPath: string,
   onProgress: Progress,
   signal?: AbortSignal,
-): Promise<Uploaded> {
-  const res = await request('POST', `/api/v1/uploads?${query}`, { signal });
+): Promise<unknown> {
+  const res = await request('POST', createPath, { signal });
   const session: { id: string; upload_token: string; max_size: number } = await res.json();
   const path = `/api/v1/uploads/${encodeURIComponent(session.id)}`;
   const auth = { Authorization: `Bearer ${session.upload_token}` };
@@ -104,7 +136,7 @@ async function uploadChunked(
       if (next.chunk.size === 0) break;
     }
     const done = await request('POST', `${path}/complete`, { headers: auth, signal });
-    return toUploaded(await done.json());
+    return await done.json();
   } catch (err) {
     // Free the server's slot right away instead of waiting for the timeout.
     void request('DELETE', path, { headers: auth }).catch(() => {});
@@ -190,7 +222,10 @@ export async function fileInfo(id: string): Promise<FileInfo | null> {
 
 /** Downloads the ciphertext. This uses up one download. */
 export async function download(id: string, onProgress: Progress = () => {}, signal?: AbortSignal): Promise<Uint8Array> {
-  const res = await request('GET', filePath(id), { signal });
+  return readBody(await request('GET', filePath(id), { signal }), onProgress);
+}
+
+async function readBody(res: Response, onProgress: Progress): Promise<Uint8Array> {
   if (!res.body) return new Uint8Array(await res.arrayBuffer());
   const parts: Uint8Array[] = [];
   let received = 0;
@@ -218,6 +253,111 @@ export async function deleteFile(id: string, deleteToken: string): Promise<void>
 /** The command-line equivalent of a download, for the gpg instructions. */
 export function fileUrl(id: string): string {
   return siteBase() + filePath(id);
+}
+
+export type InboxCreated = {
+  id: string;
+  manageToken: string;
+  expiresAt: Date;
+  maxUploads: number;
+  maxSize: number;
+};
+
+export type InboxInfo = {
+  publicKey: string;
+  expiresAt: Date;
+  uploadsLeft: number;
+  bytesLeft: number;
+  /** The most the next upload may be; 0 when the link is full. */
+  maxFileSize: number;
+};
+
+export type InboxFile = { id: string; size: number; receivedAt: Date; expiresAt: Date };
+
+export type InboxStatus = {
+  expiresAt: Date;
+  open: boolean;
+  uploads: number;
+  maxUploads: number;
+  bytes: number;
+  maxBytes: number;
+  files: InboxFile[];
+};
+
+/** Registers an armored public key as an upload link. */
+export async function createInbox(publicKey: string, opts: { expires: string; maxUploads: number }): Promise<InboxCreated> {
+  const q = new URLSearchParams({ expires: opts.expires, max_uploads: String(opts.maxUploads) });
+  const res = await request('POST', `/api/v1/inboxes?${q}`, { body: new Blob([publicKey]) });
+  const r = (await res.json()) as { id: string; manage_token: string; expires_at: string; max_uploads: number; max_size: number };
+  return { id: r.id, manageToken: r.manage_token, expiresAt: new Date(r.expires_at), maxUploads: r.max_uploads, maxSize: r.max_size };
+}
+
+/** The public side of an upload link; null when it is gone or expired. */
+export async function inboxInfo(id: string): Promise<InboxInfo | null> {
+  try {
+    const r = (await (await request('GET', inboxPath(id))).json()) as {
+      public_key: string;
+      expires_at: string;
+      uploads_left: number;
+      bytes_left: number;
+      max_file_size: number;
+    };
+    return {
+      publicKey: r.public_key,
+      expiresAt: new Date(r.expires_at),
+      uploadsLeft: r.uploads_left,
+      bytesLeft: r.bytes_left,
+      maxFileSize: r.max_file_size,
+    };
+  } catch (err) {
+    if (err instanceof ApiError && err.status === 404) return null;
+    throw err;
+  }
+}
+
+/** What arrived at an upload link; needs the management token. */
+export async function inboxStatus(id: string, token: string): Promise<InboxStatus> {
+  const res = await request('GET', `${inboxPath(id)}/files`, { headers: bearer(token) });
+  const r = (await res.json()) as {
+    expires_at: string;
+    open: boolean;
+    uploads: number;
+    max_uploads: number;
+    bytes: number;
+    max_bytes: number;
+    files: { id: string; size: number; received_at: string; expires_at: string }[];
+  };
+  return {
+    expiresAt: new Date(r.expires_at),
+    open: r.open,
+    uploads: r.uploads,
+    maxUploads: r.max_uploads,
+    bytes: r.bytes,
+    maxBytes: r.max_bytes,
+    files: r.files.map((f) => ({ id: f.id, size: f.size, receivedAt: new Date(f.received_at), expiresAt: new Date(f.expires_at) })),
+  };
+}
+
+export async function fetchInboxFile(id: string, token: string, fileId: string, onProgress: Progress = () => {}): Promise<Uint8Array> {
+  const res = await request('GET', `${inboxPath(id)}/files/${encodeURIComponent(fileId)}`, { headers: bearer(token) });
+  return readBody(res, onProgress);
+}
+
+export async function deleteInboxFile(id: string, token: string, fileId: string): Promise<void> {
+  await request('DELETE', `${inboxPath(id)}/files/${encodeURIComponent(fileId)}`, { headers: bearer(token) });
+}
+
+/** Revokes the link and deletes everything it received. */
+export async function revokeInbox(id: string, token: string): Promise<void> {
+  await request('DELETE', inboxPath(id), { headers: bearer(token) });
+}
+
+function inboxPath(id: string): string {
+  return `/api/v1/inboxes/${encodeURIComponent(id)}`;
+}
+
+function bearer(token: string): Record<string, string> {
+  return { Authorization: `Bearer ${token}` };
 }
 
 function filePath(id: string): string {
