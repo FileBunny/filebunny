@@ -4,6 +4,7 @@ import {
   decrypt,
   encrypt,
   formatFingerprint,
+  KeyError,
   messageInfo,
   readPrivateKey,
   readPublicKeys,
@@ -111,4 +112,19 @@ test('readPublicKeys reads every armored block in a file', async () => {
     keys.map((k) => k.userIDs[0].split(' ')[0]),
     ['Alice', 'Bob'],
   );
+});
+
+test('readPrivateKey says why a key cannot be used', async () => {
+  const bob = testKey('bob.sec.asc');
+  const reason = (p: Promise<unknown>) =>
+    p.then(
+      () => 'ok',
+      (e: unknown) => (e instanceof KeyError ? e.reason : `other: ${e}`),
+    );
+  assert.equal(await reason(readPrivateKey(bob, '')), 'passphrase-needed');
+  assert.equal(await reason(readPrivateKey(bob, 'wrong')), 'wrong-passphrase');
+  assert.equal(await reason(readPrivateKey(bob, 'bob-test-passphrase')), 'ok');
+  assert.equal(await reason(readPrivateKey(testKey('alice.sec.asc'), '')), 'ok');
+  assert.equal(await reason(readPrivateKey('not a key', '')), 'invalid');
+  assert.equal(await reason(readPrivateKey(testKey('alice.pub.asc'), '')), 'invalid');
 });

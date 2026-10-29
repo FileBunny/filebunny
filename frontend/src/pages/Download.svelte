@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onDestroy, onMount } from 'svelte';
   import { ApiError, download, fileInfo, fileUrl, type FileInfo } from '../lib/api.ts';
-  import { decrypt, messageInfo, readPrivateKey, type Decrypted } from '../lib/crypto.ts';
+  import { decrypt, KeyError, messageInfo, readPrivateKey, type Decrypted } from '../lib/crypto.ts';
   import { copyText, formatBytes, formatDate } from '../lib/format.ts';
   import ErrorMessage from '../components/ErrorMessage.svelte';
 
@@ -15,9 +15,11 @@
   let error = $state('');
 
   let password = $state('');
+  let showPassword = $state(false);
   let keyInput = $state('');
   let keyFile = $state<Uint8Array | null>(null);
   let passphrase = $state('');
+  let showPassphrase = $state(false);
 
   let result = $state<Decrypted | null>(null);
   let fileUrlObject = $state('');
@@ -70,8 +72,8 @@
       } else {
         const keySource = keyInput.trim() || keyFile;
         if (!keySource) throw new UserError('Enter the password or load your private key.');
-        const key = await readPrivateKey(keySource, passphrase).catch(() => {
-          throw new UserError('Could not unlock the private key. Check the key and its passphrase.');
+        const key = await readPrivateKey(keySource, passphrase).catch((err: unknown) => {
+          throw new UserError(keyErrorMessage(err));
         });
         secret = { privateKeys: [key] };
       }
@@ -87,6 +89,17 @@
   }
 
   class UserError extends Error {}
+
+  function keyErrorMessage(err: unknown): string {
+    switch (err instanceof KeyError ? err.reason : 'invalid') {
+      case 'passphrase-needed':
+        return 'This private key is protected by a passphrase. Enter it below.';
+      case 'wrong-passphrase':
+        return 'The passphrase is not correct for this key.';
+      default:
+        return 'This is not a valid OpenPGP private key.';
+    }
+  }
 
   async function copyResult() {
     if (result?.kind === 'text') copied = await copyText(result.text);
@@ -147,7 +160,10 @@ gpg --decrypt message.gpg > decrypted</pre>
     {#if opensWith.password}
       <label class="field">
         <span>Password</span>
-        <input type="password" bind:value={password} autocomplete="off" />
+        <span class="row">
+          <input type={showPassword ? 'text' : 'password'} bind:value={password} autocomplete="off" />
+          <button type="button" onclick={() => (showPassword = !showPassword)}>{showPassword ? 'Hide' : 'Show'}</button>
+        </span>
       </label>
     {/if}
     {#if opensWith.key}
@@ -164,7 +180,10 @@ gpg --decrypt message.gpg > decrypted</pre>
         </label>
         <label class="field">
           <span>Passphrase of the key (if any)</span>
-          <input type="password" bind:value={passphrase} autocomplete="off" />
+          <span class="row">
+            <input type={showPassphrase ? 'text' : 'password'} bind:value={passphrase} autocomplete="off" />
+            <button type="button" onclick={() => (showPassphrase = !showPassphrase)}>{showPassphrase ? 'Hide' : 'Show'}</button>
+          </span>
         </label>
       </fieldset>
     {/if}
