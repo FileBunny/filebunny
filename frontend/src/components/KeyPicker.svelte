@@ -86,8 +86,11 @@
   }
 
   async function pickKeyFile(e: Event & { currentTarget: HTMLInputElement }) {
-    await addFiles(e.currentTarget.files);
-    e.currentTarget.value = '';
+    // currentTarget is null once the event has been dispatched, so keep it.
+    const input = e.currentTarget;
+    await addFiles(input.files);
+    // Lets the same file be chosen again after removing its key.
+    input.value = '';
   }
 
   function dragOver(e: DragEvent) {
