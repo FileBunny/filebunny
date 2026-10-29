@@ -13,6 +13,7 @@ import (
 
 	"github.com/FileBunny/filebunny/backend/internal/config"
 	"github.com/FileBunny/filebunny/backend/internal/store"
+	"github.com/FileBunny/filebunny/backend/internal/wkd"
 )
 
 const testMaxSize = 1024
@@ -39,6 +40,8 @@ func newTestEnv(t *testing.T) *testEnv {
 	env := &testEnv{dir: dir, clock: time.Date(2026, 10, 27, 12, 0, 0, 0, time.UTC), logs: &bytes.Buffer{}}
 	env.srv = New(cfg, st, slog.New(slog.NewTextHandler(env.logs, nil)))
 	env.srv.now = func() time.Time { return env.clock }
+	// Tests never reach the network; WKD tests set their own fake.
+	env.srv.wkd = &fakeWKD{err: wkd.ErrNotFound}
 	return env
 }
 

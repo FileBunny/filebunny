@@ -16,6 +16,7 @@ import (
 
 	"github.com/FileBunny/filebunny/backend/internal/config"
 	"github.com/FileBunny/filebunny/backend/internal/store"
+	"github.com/FileBunny/filebunny/backend/internal/wkd"
 )
 
 // stallTimeout ends an upload or download that makes no progress for this
@@ -40,12 +41,20 @@ type Server struct {
 	// uploads holds the chunked uploads in progress, by ID.
 	upMu    sync.Mutex
 	uploads map[string]*pendingUpload
+
+	// wkd is nil when the WKD proxy is switched off; wkdSlots caps the
+	// lookups in progress.
+	wkd      keyLookup
+	wkdSlots chan struct{}
 }
 
 // New returns a Server with all routes registered.
 func New(cfg config.Config, st *store.Store, log *slog.Logger) *Server {
 	s := &Server{cfg: cfg, store: st, log: log, now: time.Now, stall: stallTimeout, mux: http.NewServeMux(),
-		uploads: make(map[string]*pendingUpload)}
+		uploads: make(map[string]*pendingUpload), wkdSlots: make(chan struct{}, maxWKDLookups)}
+	if cfg.WKDProxy {
+		s.wkd = wkd.NewClient()
+	}
 	s.mux.HandleFunc("GET /healthz", s.handleHealth)
 	s.mux.HandleFunc("POST /api/v1/files", s.handleUpload)
 	s.mux.HandleFunc("GET /api/v1/files/{id}", s.handleDownload)
@@ -55,6 +64,8 @@ func New(cfg config.Config, st *store.Store, log *slog.Logger) *Server {
 	s.mux.HandleFunc("PUT /api/v1/uploads/{id}", s.handleChunk)
 	s.mux.HandleFunc("POST /api/v1/uploads/{id}/complete", s.handleCompleteUpload)
 	s.mux.HandleFunc("DELETE /api/v1/uploads/{id}", s.handleAbortUpload)
+	s.mux.HandleFunc("GET /api/v1/features", s.handleFeatures)
+	s.mux.HandleFunc("POST /api/v1/wkd", s.handleWKD)
 	s.handler = securityHeaders(nullOriginCORS(s.mux))
 	return s
 }

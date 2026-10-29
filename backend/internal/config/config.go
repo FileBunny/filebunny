@@ -32,6 +32,9 @@ type Config struct {
 	MaxDownloads int
 	// MaxPendingUploads caps the chunked uploads in progress, server-wide.
 	MaxPendingUploads int
+	// WKDProxy enables POST /api/v1/wkd, which fetches a key from the
+	// recipient's domain (Web Key Directory) for the browser.
+	WKDProxy bool
 }
 
 // Defaults for the public service at filebunny.eu.
@@ -62,6 +65,7 @@ func FromEnv(getenv func(string) string) (Config, error) {
 		CleanupInterval:   DefaultCleanupInterval,
 		MaxDownloads:      DefaultMaxDownloads,
 		MaxPendingUploads: DefaultMaxPendingUploads,
+		WKDProxy:          true,
 	}
 	var errs []error
 
@@ -129,6 +133,15 @@ func FromEnv(getenv func(string) string) (Config, error) {
 			continue
 		}
 		*n.dst = i
+	}
+
+	if v := getenv("FILEBUNNY_WKD_PROXY"); v != "" {
+		b, err := strconv.ParseBool(v)
+		if err != nil {
+			errs = append(errs, fmt.Errorf("FILEBUNNY_WKD_PROXY: want true or false, got %q", v))
+		} else {
+			c.WKDProxy = b
+		}
 	}
 
 	if c.DefaultExpiry < MinExpiry {

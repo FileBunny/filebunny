@@ -1,7 +1,7 @@
 # API v1
 
 Base path `/api/v1`. All bodies are opaque ciphertext; the server never
-interprets them. Errors are JSON: `{"error": "<message>"}`.
+interprets them (the WKD proxy returns key bytes it does not parse either). Errors are JSON: `{"error": "<message>"}`.
 
 Every API response carries `Content-Security-Policy: default-src 'none';
 frame-ancestors 'none'; sandbox`, `X-Content-Type-Options: nosniff`,
@@ -186,6 +186,54 @@ Authorization: Bearer <delete_token>
 | 401 | No bearer token |
 | 403 | Token does not belong to this file |
 | 404 | Unknown, malformed or expired ID |
+
+## Features
+
+```
+GET /api/v1/features
+```
+
+**200 OK**, `{"wkd": true}`: which optional endpoints this server offers.
+The frontend hides the WKD options when `wkd` is `false`.
+
+## WKD lookup
+
+```
+POST /api/v1/wkd
+Content-Type: application/json
+
+{"email": "alice@example.org"}
+```
+
+Fetches the public key for the address from the recipient's own domain
+(Web Key Directory, draft-koch-openpgp-webkey-service), because a browser
+cannot reach arbitrary domains under the frontend's CSP. POST keeps the
+address out of URLs. The address, its domain and hash are never logged or
+stored.
+
+**200 OK**, body is the key exactly as the domain published it
+(`Content-Type: application/octet-stream`, `Cache-Control: no-store`).
+The server does not parse or judge it: the browser checks the user ID and
+fingerprint.
+
+The server tries the advanced method
+(`https://openpgpkey.<domain>/.well-known/openpgpkey/<domain>/hu/<hash>?l=<local>`)
+and only if that host does not exist (NXDOMAIN) the direct method
+(`https://<domain>/.well-known/openpgpkey/hu/<hash>?l=<local>`). The hash
+is the z-base32 SHA-1 of the lowercased local part.
+
+| Status | When |
+|---|---|
+| 400 | Not JSON, body over 1 KiB, or an address that is not accepted (see below) |
+| 404 | The domain publishes no key for the address, or WKD is switched off on this server (`FILEBUNNY_WKD_PROXY=false`) |
+| 502 | Lookup failed: DNS, TLS, timeout (10 s), redirect, a non-public address, an unexpected status, or a response over 1 MiB |
+| 503 | Too many lookups in progress (8 server-wide); try again |
+
+Accepted addresses: exactly one `@`; a dot-atom local part of at most 64
+ASCII characters; a domain of at least two ASCII letter-digit-hyphen
+labels (at most 253 characters) with a non-numeric top-level label. No IP
+literals, ports or trailing dot. Internationalized domains must be given
+in punycode (`xn--…`); the server does not convert them.
 
 ## Health
 
