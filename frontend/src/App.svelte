@@ -3,6 +3,10 @@
   import Send from './pages/Send.svelte';
   import Download from './pages/Download.svelte';
   import Delete from './pages/Delete.svelte';
+  import Receive from './pages/Receive.svelte';
+  import KeyPage from './pages/KeyPage.svelte';
+  import InboxUpload from './pages/InboxUpload.svelte';
+  import InboxManage from './pages/InboxManage.svelte';
 
   let route = $state(parseRoute(location.hash));
 
@@ -16,6 +20,11 @@
 <header>
   <a href="#/" class="brand">FileBunny</a>
   <span class="tagline">Encrypt in your browser with OpenPGP, share anonymously.</span>
+  <nav aria-label="Main">
+    <a href="#/" aria-current={route.page === 'send' ? 'page' : undefined}>Send</a>
+    <a href="#/receive" aria-current={route.page === 'receive' ? 'page' : undefined}>Receive</a>
+    <a href="#/key" aria-current={route.page === 'key' ? 'page' : undefined}>Create a key</a>
+  </nav>
 </header>
 
 <main>
@@ -28,6 +37,18 @@
   {:else if route.page === 'delete'}
     {#key route.id}
       <Delete id={route.id} token={route.token} />
+    {/key}
+  {:else if route.page === 'receive'}
+    <Receive />
+  {:else if route.page === 'key'}
+    <KeyPage />
+  {:else if route.page === 'inbox-upload'}
+    {#key `${route.id}/${route.fingerprint}`}
+      <InboxUpload id={route.id} fingerprint={route.fingerprint} />
+    {/key}
+  {:else if route.page === 'inbox-manage'}
+    {#key route.id}
+      <InboxManage id={route.id} token={route.token} />
     {/key}
   {:else}
     <h1>Page not found</h1>

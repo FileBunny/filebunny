@@ -24,7 +24,12 @@
   import ErrorMessage from './ErrorMessage.svelte';
   import Info from './Info.svelte';
 
-  let { recipients = $bindable() }: { recipients: Recipient[] } = $props();
+  // single: exactly one key (your own, for an upload link), no "add another".
+  let {
+    recipients = $bindable(),
+    single = false,
+    title = '',
+  }: { recipients: Recipient[]; single?: boolean; title?: string } = $props();
 
   /** Whether this server offers the WKD proxy; hidden otherwise. */
   let wkdOffered = $state(false);
@@ -276,9 +281,9 @@
 {/snippet}
 
 <section class="recipients" aria-labelledby="recipients-title">
-  <h3 id="recipients-title">{recipients.length > 1 ? `Recipients (${recipients.length})` : 'Recipient'}</h3>
+  <h3 id="recipients-title">{title || (recipients.length > 1 ? `Recipients (${recipients.length})` : 'Recipient')}</h3>
   {#if recipients.length === 0}
-    <p class="note">No recipient yet. Add the recipient's public key below.</p>
+    <p class="note">{single ? 'No key yet. Add your public key below.' : "No recipient yet. Add the recipient's public key below."}</p>
   {/if}
   {#if recipients.length > 1}
     <p class="multi" role="status">
@@ -321,10 +326,12 @@
         {#if recipients.length === 1}
           <button type="button" onclick={() => startAdding('change')}>Change key</button>
         {/if}
-        <button type="button" onclick={() => startAdding('another')}>+ Add another recipient</button>
+        {#if !single}
+          <button type="button" onclick={() => startAdding('another')}>+ Add another recipient</button>
+        {/if}
       </div>
     {/if}
-    <p class="note">
+    {#if !single}<p class="note">
       Compare the fingerprint with the recipient before you send anything.
       <Info label="Why compare the fingerprint?">
         A keyserver or a domain can hand out a key that is not the recipient's. Only the fingerprint, checked with the
@@ -332,7 +339,7 @@
         {#if wkdOffered}The domain check is optional: it asks the recipient's domain through {server}, which then sees
           the address (not logged or stored).{/if}
       </Info>
-    </p>
+    </p>{/if}
   {/if}
 </section>
 
