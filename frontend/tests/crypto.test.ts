@@ -104,3 +104,11 @@ test('safeFileName', () => {
 test('formatFingerprint', () => {
   assert.equal(formatFingerprint('90e62dd27af917d6'), '90E6 2DD2 7AF9 17D6');
 });
+
+test('readPublicKeys reads every armored block in a file', async () => {
+  const keys = await readPublicKeys(new TextEncoder().encode(testKey('alice.pub.asc') + '\n' + testKey('bob.pub.asc')));
+  assert.deepEqual(
+    keys.map((k) => k.userIDs[0].split(' ')[0]),
+    ['Alice', 'Bob'],
+  );
+});
