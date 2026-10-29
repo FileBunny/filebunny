@@ -59,7 +59,7 @@ backend/internal/logging  slog logger that redacts IP addresses
 backend/internal/cleanup  periodic removal of expired files
 backend/internal/wkd      WKD client with SSRF protection (key lookup proxy)
 frontend/src/lib          crypto (OpenPGP.js), API client, key lookup, hash routes
-frontend/src/pages        send, download, delete pages
+frontend/src/pages        send, download, delete, receive (upload links), key pair pages
 frontend/tests            node --test, incl. gpg interoperability
 testdata/keys             public test keypairs, never for real data
 deploy/Caddyfile          TLS, CSP, /api proxy, log filter
@@ -125,10 +125,11 @@ overhead on a 100 MB file. Only the SHA-256 of the delete token is stored.
 ## Roadmap
 
 Phases 1 (foundation), 2 (browser encryption, share links with download
-limits, chunked upload, single HTML build) and 3 (keys: lookup on
+limits, chunked upload, single HTML build), 3 (keys: lookup on
 keys.openpgp.org from the browser, optional WKD proxy, local key upload,
-WKD check) are this code. Next: phase 4, upload links. QR codes for
-fingerprints moved to phase 9.
+WKD check) and 4 (upload links with a management link, key pair
+generation, publishing on keys.openpgp.org) are this code. Next: phase
+5, proxy to external storage. QR codes for fingerprints moved to phase 9.
 
 Frontend rules: everything must keep working from the single HTML file
 (no lazy-loaded chunks, workers or extra assets; routes in the fragment;
