@@ -8,13 +8,15 @@ flowchart LR
     C -- "/api/* without client address" --> G[Go backend]
     G --> D[(SQLite<br/>metadata)]
     G --> F[(Disk<br/>ciphertext blobs)]
+    B -- "key lookup by e-mail" --> K[keys.openpgp.org]
+    G -. "WKD, only when asked" .-> W[Recipient's domain]
 ```
 
 | Component | Role |
 |---|---|
 | Browser | Encrypts and decrypts with OpenPGP.js (phase 2). Passwords and private keys never leave it |
 | Caddy | TLS, security headers, serves the frontend, proxies `/api/*`. No access log; forwarding headers stripped |
-| Go backend | Stores and serves ciphertext by random ID, enforces limits, removes expired files |
+| Go backend | Stores and serves ciphertext by random ID, enforces limits, removes expired files; optional WKD proxy (phase 3) |
 | SQLite | One row per file: ID, hash of the delete token, size, created, expires, download limit and count |
 | Disk | One file per upload in `data/blobs/<id>`, written via `data/tmp/` and an atomic rename |
 
@@ -60,6 +62,57 @@ script and one stylesheet, without lazy-loaded chunks or workers, so
   Text is shown as text, files are offered with `<a download>` from a
   `blob:` URL of type `application/octet-stream`.
 
+## Public keys
+
+In public-key mode the send page offers three ways to get a recipient's
+key (`frontend/src/components/KeyPicker.svelte`,
+`frontend/src/lib/keylookup.ts`):
+
+1. **From your device:** choose a file (`.asc`, `.gpg`, `.pgp`, `.key`),
+   drop it on the key field, or paste it. The key is read in the browser
+   only and never sent anywhere.
+2. **Look up by e-mail:** only when the user clicks "Look up key", the
+   browser asks keys.openpgp.org
+   (`GET /vks/v1/by-email/<address>`). keys.openpgp.org only publishes
+   user IDs whose address it has verified.
+3. **Also via WKD** (checkbox, off by default; hidden when the server has
+   `FILEBUNNY_WKD_PROXY=false`): the backend fetches the key from the
+   recipient's own domain (`POST /api/v1/wkd`, see `docs/api.md`). A
+   browser cannot do this itself: the domains are arbitrary and cannot be
+   listed in the CSP.
+
+Enabled sources run in parallel, each with a 10 s timeout and a 1 MiB
+cap, without cookies, referrer, cache or redirects. Every key is parsed
+by OpenPGP.js in the browser; only keys with a valid (not revoked) user ID
+for exactly the looked-up address that can encrypt are offered, and the
+page lists what was dropped and why. Results are merged by fingerprint.
+If the sources return different keys, or one source returns several, the
+page shows a warning; it never picks a key itself. The user clicks "Use
+this key" for each recipient; every recipient shows its fingerprint
+(with a copy button) and source.
+
+**Optional WKD check:** for any key on the recipient list (also one from
+the device or a keyserver), "Check with the recipient's domain (WKD)"
+fetches the WKD key for every address in its user IDs and compares
+fingerprints: *matches*, *different key published* (warning), *no WKD key
+published* (neutral: most domains publish none) or *check failed*. It is
+never needed to send and never runs automatically.
+
+keyserver.ubuntu.com is deliberately not used: it sends no CORS headers
+on "not found", so a browser cannot tell a missing key from an outage,
+and proxying it would show our server every looked-up address.
+
+**Who sees what:**
+
+| Way | Sees the looked-up address | Sees your IP address |
+|---|---|---|
+| From your device | Nobody | Nobody |
+| keys.openpgp.org | keys.openpgp.org | keys.openpgp.org |
+| WKD (lookup or check) | FileBunny's server (never logged or stored) and the recipient's domain | Only FileBunny's server; the recipient's domain sees the server's address |
+
+**CSP:** `connect-src` is `'self'` plus exactly `https://keys.openpgp.org`
+(in `deploy/Caddyfile` and in the single HTML's CSP); no wildcard.
+
 ## Request flow
 
 **Upload** — `POST /api/v1/files`
@@ -90,6 +143,17 @@ returns the same headers (expiry, downloads left) without counting.
 **Delete** — `DELETE /api/v1/files/{id}` with the delete token: compare the
 token's hash in constant time, delete the row, then the blob.
 
+**WKD lookup** — `POST /api/v1/wkd`: validate the address (strict
+ASCII, no IP literals or ports), take one of 8 server-wide slots (`503`
+if none), then fetch the advanced URL on `openpgpkey.<domain>`, and the
+direct URL on `<domain>` only if that host does not exist. The dedicated
+HTTP client (`internal/wkd`) speaks HTTPS to port 443 only, uses no proxy,
+follows no redirects, verifies TLS, checks every resolved address and
+again the address actually connected to (dialer `Control`, against DNS
+rebinding) and refuses loopback, private, link-local, CGNAT, multicast,
+reserved, documentation and IPv4-in-IPv6 ranges. 10 s and 1 MiB at most.
+The key bytes go back unparsed.
+
 **Cleanup** — every minute, delete rows and blobs whose expiry has passed.
 At startup, also remove temp files and blobs without a row (left over
 after a crash).
@@ -102,6 +166,7 @@ after a crash).
 | ID, size, created, expires, download limit and count | SQLite | Same, or until the last allowed download |
 | SHA-256 of the delete token | SQLite | Same |
 | Client IP address | Nowhere | — |
+| Looked-up e-mail addresses (WKD) | Nowhere; in memory during the request only | — |
 | File name, content type, plaintext | Nowhere (encrypted inside the ciphertext from phase 2) | — |
 | Logs | Container stdout | No IPs, no IDs, no tokens; see below |
 
@@ -138,6 +203,16 @@ after a crash).
   times. Your IP address is visible to your network and to the hosting
   provider's infrastructure, even though FileBunny does not store it.
 - **Compromised devices** of sender or recipient.
+- **A wrong public key.** A keyserver or a domain can serve a key that is
+  not the recipient's (keyserver.ubuntu.com-style servers accept any key
+  for any address; keys.openpgp.org verifies the address, not the
+  person; a domain can be compromised). The page warns when sources
+  disagree and offers a WKD check, but only comparing the fingerprint with
+  the recipient through another channel proves the key is theirs.
+- **Lookups revealing who you write to.** keys.openpgp.org sees your IP
+  address and the address you look up; with WKD on, FileBunny's server
+  sees the address (not stored). Loading the key from your device avoids
+  both.
 - **Someone you gave the link to** sharing it further. Use public-key mode
   if only a specific person may read it.
 
@@ -149,6 +224,7 @@ after a crash).
 | Total storage | 20 GiB | `FILEBUNNY_MAX_TOTAL_SIZE` |
 | Expiry | 24 h default, 1 min – 7 days | `FILEBUNNY_DEFAULT_EXPIRY`, `FILEBUNNY_MAX_EXPIRY` |
 | Stalled transfer | 1 minute without progress | fixed |
+| WKD lookups in progress | 8 server-wide, 10 s and 1 MiB each | fixed; switch off with `FILEBUNNY_WKD_PROXY` |
 
 Rate limiting, proof of work and abuse reporting follow in phase 7.
 

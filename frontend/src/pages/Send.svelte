@@ -1,10 +1,12 @@
 <script lang="ts">
-  import { encrypt, readPublicKeys, type KeyInfo } from '../lib/crypto.ts';
+  import { encrypt } from '../lib/crypto.ts';
+  import type { Recipient } from '../lib/keylookup.ts';
   import { ApiError, siteBase, upload, type Uploaded } from '../lib/api.ts';
   import { deleteLink, shareLink } from '../lib/route.ts';
   import { formatBytes, formatDate, generatePassword } from '../lib/format.ts';
   import CopyField from '../components/CopyField.svelte';
   import ErrorMessage from '../components/ErrorMessage.svelte';
+  import KeyPicker from '../components/KeyPicker.svelte';
 
   // The server limit is 100 MiB of ciphertext; OpenPGP adds a little.
   const maxFileSize = 100_000_000;
@@ -29,9 +31,8 @@
   let mode = $state<'password' | 'key'>('password');
   let password = $state('');
   let showPassword = $state(false);
-  let keyInput = $state('');
-  let keys = $state<KeyInfo[]>([]);
-  let keyError = $state('');
+  // Raw: OpenPGP key objects must not be wrapped in proxies.
+  let recipients = $state.raw<Recipient[]>([]);
 
   let expires = $state('24h');
   let maxDownloads = $state(0);
@@ -45,33 +46,12 @@
   const total = $derived(what === 'file' ? (file?.size ?? 0) : new TextEncoder().encode(text).length);
   const contentReady = $derived(what === 'text' ? text.length > 0 : file !== null && file.size <= maxFileSize);
   const recipientsReady = $derived(
-    mode === 'password' ? password.length > 0 : keys.length > 0 && keys.every((k) => k.canEncrypt),
+    mode === 'password' ? password.length > 0 : recipients.length > 0 && recipients.every((r) => r.info.canEncrypt),
   );
 
   function pickFile(e: Event & { currentTarget: HTMLInputElement }) {
     file = e.currentTarget.files?.[0] ?? null;
     error = file && file.size > maxFileSize ? `This file is ${formatBytes(file.size)}; the limit is 100 MB.` : '';
-  }
-
-  async function loadKeys(input: string | Uint8Array) {
-    keyError = '';
-    keys = [];
-    if (input === '' || (input instanceof Uint8Array && input.length === 0)) return;
-    try {
-      keys = await readPublicKeys(input);
-      if (keys.some((k) => !k.canEncrypt)) keyError = 'One of these keys cannot be used for encryption (expired, revoked or sign-only).';
-    } catch (err) {
-      keyError = err instanceof Error && err.message.includes('private key') ? err.message : 'This is not a valid OpenPGP public key.';
-    }
-  }
-
-  async function pickKeyFile(e: Event & { currentTarget: HTMLInputElement }) {
-    const f = e.currentTarget.files?.[0];
-    if (!f) return;
-    const bytes = new Uint8Array(await f.arrayBuffer());
-    const asText = new TextDecoder().decode(bytes);
-    keyInput = asText.includes('-----BEGIN PGP') ? asText : '';
-    await loadKeys(keyInput || bytes);
   }
 
   function newPassword() {
@@ -89,7 +69,7 @@
     try {
       const plaintext =
         what === 'text' ? { kind: 'text' as const, text } : { kind: 'file' as const, name: file!.name, data: file!.stream() };
-      const to = mode === 'password' ? { password } : { publicKeys: keys.map((k) => k.key) };
+      const to = mode === 'password' ? { password } : { publicKeys: recipients.map((r) => r.info.key) };
       const ciphertext = await encrypt(plaintext, to);
       result = await upload(ciphertext, { expires, maxDownloads }, (n) => (sent = n), controller.signal);
     } catch (err) {
@@ -168,30 +148,7 @@
           </span>
         </label>
       {:else}
-        <label class="field">
-          <span>Public key(s), ASCII-armored</span>
-          <textarea
-            bind:value={keyInput}
-            onchange={() => loadKeys(keyInput.trim())}
-            rows="5"
-            spellcheck="false"
-            placeholder="-----BEGIN PGP PUBLIC KEY BLOCK-----"
-          ></textarea>
-        </label>
-        <label class="field">
-          <span>…or load a key file (.asc, .gpg)</span>
-          <input type="file" accept=".asc,.gpg,.pgp,.key,application/pgp-keys" onchange={pickKeyFile} />
-        </label>
-        <ErrorMessage error={keyError} />
-        {#each keys as k (k.fingerprint)}
-          <div class="key">
-            {#each k.userIDs as uid (uid)}<div>{uid}</div>{/each}
-            <code>{k.fingerprint}</code>
-          </div>
-        {/each}
-        {#if keys.length > 0}
-          <p class="note">Compare the fingerprint with the recipient before you send anything.</p>
-        {/if}
+        <KeyPicker bind:recipients />
       {/if}
     </fieldset>
 

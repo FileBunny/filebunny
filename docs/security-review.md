@@ -122,7 +122,7 @@ IDs, tokens or addresses.
 |---|---|---|
 | 2 | XSS through decrypted content | Done in phase 2, see below |
 | 2 | Download counting / one-time download | Done in phase 2, see below |
-| 3 | SSRF in the key-lookup proxy (WKD fallback) | Only build WKD URLs from a validated e-mail domain; resolve DNS and reject private, loopback, link-local and metadata addresses (also after redirects); no redirects to other hosts; short timeouts; response size limit; no logging of looked-up addresses |
+| 3 | SSRF in the key-lookup proxy (WKD fallback) | Done in phase 3, see below |
 | 4 | Upload-link management link | Same model as the delete token: long random secret, stored hashed, never in logs |
 | 5 | SSRF and data leaks through proxy adapters | Fixed list of adapter hosts; no URLs from clients; health-check data must not contain user content |
 | 6 | Mail abuse | Fixed templates, rate limits per recipient/sender/global, block link |
@@ -181,6 +181,78 @@ IDs, tokens or addresses.
 - **The JavaScript is trusted on every visit.** The single HTML file
   reduces this for people who save it; signing and a transparency log
   follow in phase 8.
+
+## Phase 3 (keys)
+
+| | |
+|---|---|
+| Date | 2026-10-29 |
+| Scope | Branch `phase-3`: key lookup on keys.openpgp.org from the browser, WKD proxy (`POST /api/v1/wkd`, `GET /api/v1/features`), local key upload, optional WKD check |
+| Reviewer | Claude Code (AI-assisted), during development |
+
+### Requirement from phase 1: SSRF in the WKD proxy
+
+The only outgoing requests the backend makes. `internal/wkd`:
+
+- **URLs only from a validated address:** one `@`, dot-atom local part
+  (≤ 64), domain of ≥ 2 ASCII letter-digit-hyphen labels (≤ 253) with a
+  non-numeric top-level label; no IP literals, ports, trailing dots,
+  paths or non-ASCII (punycode only, no IDNA conversion). The local part
+  goes into the URL only as a hash and as an escaped query value.
+- **Dedicated client:** `Proxy: nil`, `https` only, every connection to
+  port 443 regardless of the URL, TLS verification on (system roots from
+  the distroless image), no redirects (`CheckRedirect` refuses them, so
+  a redirect to an internal host is never requested), no keep-alives,
+  no compression.
+- **Address checks:** every address DNS returns is checked before
+  dialing, and the dialer's `Control` function checks the address the
+  socket actually connects to (covers DNS rebinding). Refused: everything
+  that is not global unicast (loopback, link-local incl.
+  169.254.169.254, multicast, unspecified, broadcast), private (RFC 1918,
+  fc00::/7), CGNAT 100.64/10, 0/8, 192.0.0/24, documentation and
+  benchmark ranges, 240/4, 6to4 relay, IPv4-mapped and -compatible IPv6,
+  NAT64 (64:ff9b::/96, 64:ff9b:1::/48), 6to4 2002::/16, Teredo 2001::/32,
+  site-local and discard.
+- **Limits:** 5 s dial, 5 s TLS, 5 s to headers, 10 s per lookup in
+  total, 1 MiB response, 16 KiB headers, request body 1 KiB, at most 8
+  lookups server-wide (`503` beyond).
+- **Fallback:** the direct method is only tried when the `openpgpkey.`
+  host does not exist (NXDOMAIN), not after a 404 or another error.
+- **No logging:** errors are wrapped so their text never contains the
+  URL; the handler logs only a fixed category ("timeout", "tls",
+  "blocked address", …).
+
+### New attack surface
+
+| Area | Measure | Test |
+|---|---|---|
+| SSRF via WKD | See above | `wkd_test.go`: `TestAllowed`, `TestLookupBlocksInternalAddresses`, `TestDialerControl`, `TestDialerControlChecksConnectedAddress`, redirect, size, timeout, TLS, fallback tests; `TestParseAddress` |
+| Server as anonymous lookup relay | 8 lookups at a time, 10 s each; switch off with `FILEBUNNY_WKD_PROXY=false` | `TestWKDConcurrencyCap`, `TestWKDSwitchedOff` |
+| Privacy of looked-up addresses | POST body, not URL; never logged; error responses do not echo input | `TestNoClientAddressInLogs` (address, domain, hash), `TestWKDErrors`, smoke test |
+| Untrusted keys from keyservers or domains | Parsed in the browser only; keys need a valid user ID for exactly the address and must be able to encrypt; all armored blocks are read, so a second key cannot hide; conflicts are shown, never resolved automatically; user IDs rendered as text | `keylookup.test.ts`, `crypto.test.ts` |
+| Browser requests to a keyserver | Only on click; `connect-src` adds exactly `https://keys.openpgp.org`; no cookies, referrer, cache or redirects; 10 s, 1 MiB read from the stream | `keylookup.test.ts`, smoke test (CSP), build (single HTML CSP) |
+
+keyserver.ubuntu.com was left out: it sends no CORS headers on a 404
+(checked 2026-10-29), so a browser cannot distinguish "not found" from a
+failure, and proxying it would show the server every looked-up address.
+
+### Residual risks
+
+- **No per-client rate limit on WKD yet** (phase 7). One client can keep
+  the 8 slots busy, so other users' WKD lookups get `503`; it cannot make
+  the server open more than 8 connections at once or reach internal
+  addresses. The server's own IP address is what the queried domains see.
+- **The server sees looked-up addresses** when the user turns WKD on or
+  runs a WKD check. They are not logged or stored, but a compromised
+  server could record them. The UI says so; the option is off by default.
+- **keys.openpgp.org sees the visitor's IP and the address** looked up.
+  The UI says so before the lookup.
+- **No IDNA:** internationalized domains must be entered in punycode.
+- **A matching WKD key is not proof** of the recipient's identity, only
+  that the domain publishes it. The UI asks users to compare fingerprints
+  through another channel.
+- **DNS answers come from the host's resolver**; a poisoned resolver can
+  point a lookup at any public address (but not an internal one).
 
 ## How to re-run the checks
 

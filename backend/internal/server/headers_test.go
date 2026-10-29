@@ -7,6 +7,8 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"github.com/FileBunny/filebunny/backend/internal/wkd"
 )
 
 // TestNoClientAddressInLogs runs every endpoint, including error paths, and
@@ -51,8 +53,21 @@ func TestNoClientAddressInLogs(t *testing.T) {
 	send("DELETE", "/api/v1/uploads/unknown", nil, "Authorization", auth)
 	send("POST", "/api/v1/uploads?expires=bad", nil)
 
-	if strings.Contains(e.logs.String(), addr) {
-		t.Errorf("client address in logs:\n%s", e.logs)
+	// WKD: neither the client nor the looked-up address, its domain or
+	// hash may be logged, on any outcome.
+	const email = "looked.up@private-domain.example"
+	for _, err := range []error{nil, wkd.ErrNotFound, wkd.ErrUpstream} {
+		e.srv.wkd = &fakeWKD{key: []byte("k"), err: err}
+		send("POST", "/api/v1/wkd", wkdBody(email))
+	}
+	send("POST", "/api/v1/wkd", wkdBody("looked.up@private-domain.example:1"))
+	send("GET", "/api/v1/features", nil)
+
+	looked, _ := wkd.ParseAddress(email)
+	for _, secret := range []string{addr, "looked.up", "private-domain", looked.Hash()} {
+		if strings.Contains(e.logs.String(), secret) {
+			t.Errorf("%q in logs:\n%s", secret, e.logs)
+		}
 	}
 }
 

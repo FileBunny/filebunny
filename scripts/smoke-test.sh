@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # End-to-end check of the Docker Compose stack: headers, upload, download,
-# download limits, chunked upload, CORS, delete, and that no client address
-# or token reaches any container log.
+# download limits, chunked upload, CORS, delete, the WKD proxy, and that no
+# client address, token or looked-up e-mail address reaches any container
+# log.
 # Usage: docker compose up -d --build && scripts/smoke-test.sh
 set -euo pipefail
 
@@ -24,6 +25,7 @@ done
 echo "frontend headers"
 headers=$("${curl[@]}" -D - -o /dev/null "$base/")
 grep -qi "^content-security-policy: default-src 'none'; script-src 'self'" <<<"$headers" || fail "frontend CSP missing"
+grep -qi "^content-security-policy: .*connect-src 'self' https://keys.openpgp.org;" <<<"$headers" || fail "connect-src not exactly self + keys.openpgp.org"
 grep -qi '^strict-transport-security:' <<<"$headers" || fail "HSTS missing"
 grep -qi '^server:' <<<"$headers" && fail "Server header present"
 
@@ -72,6 +74,20 @@ grep -qi '^access-control-allow-origin: null' <<<"$cors" || fail "no CORS for Or
 cors=$("${curl[@]}" -D - -o /dev/null -H 'Origin: https://evil.example' "$base/api/v1/files/$chunked")
 grep -qi '^access-control-allow-origin' <<<"$cors" && fail "CORS for another origin"
 
+echo "WKD proxy"
+"${curl[@]}" "$base/api/v1/features" | grep -q '"wkd":true' || fail "features: WKD not on"
+wkd_local=smoke-wkd-local
+wkd_domain=smoke-wkd-domain.invalid
+wkd() { "${curl[@]}" -o /dev/null -w '%{http_code}' -X POST -H 'Content-Type: application/json' --data "{\"email\":\"$1\"}" "$base/api/v1/wkd"; }
+[[ $(wkd "$wkd_local@127.0.0.1") == 400 ]] || fail "WKD accepted an IP literal"
+[[ $(wkd "$wkd_local@$wkd_domain:8443") == 400 ]] || fail "WKD accepted a port"
+# .invalid never resolves: both methods fail, so 502 (or 404 if a
+# resolver in between makes something up).
+code=$(wkd "$wkd_local@$wkd_domain")
+[[ $code == 502 || $code == 404 ]] || fail "WKD lookup of an unresolvable domain: $code"
+code=$("${curl[@]}" -o /dev/null -w '%{http_code}' "$base/api/v1/wkd?email=$wkd_local@$wkd_domain")
+[[ $code == 405 ]] || fail "WKD over GET: $code"
+
 echo "error log with backend down"
 docker compose stop backend >/dev/null
 code=$("${curl[@]}" -o /dev/null -w '%{http_code}' -H "Authorization: Bearer $token" "$base/api/v1/files/$id")
@@ -80,7 +96,7 @@ docker compose start backend >/dev/null
 
 echo "logs"
 logs=$(docker compose logs --no-color 2>&1)
-for secret in "$fake_ip" "$token" "$id" "$up" "$up_token" "$once" "$chunked"; do
+for secret in "$fake_ip" "$token" "$id" "$up" "$up_token" "$once" "$chunked" "$wkd_local" "$wkd_domain"; do
 	grep -qF -- "$secret" <<<"$logs" && fail "log contains $secret"
 done
 grep -qE '"(remote|client)_ip"' <<<"$logs" && fail "log contains remote_ip/client_ip"

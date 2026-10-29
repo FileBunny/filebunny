@@ -66,11 +66,21 @@ backend with defaults.
 | `FILEBUNNY_MAX_EXPIRY` | `168h` | Longest expiry a client may ask for |
 | `FILEBUNNY_MAX_DOWNLOADS` | `100` | Highest download limit a client may ask for; uploads without a limit can be downloaded until they expire |
 | `FILEBUNNY_MAX_PENDING_UPLOADS` | `50` | Max chunked uploads in progress, server-wide; more get `503` |
+| `FILEBUNNY_WKD_PROXY` | `true` | Offer `POST /api/v1/wkd`, which fetches keys from recipients' domains (Web Key Directory). `false` switches it off and hides the WKD options in the frontend |
 | `FILEBUNNY_CLEANUP_INTERVAL` | `1m` | How often expired files are removed |
 | `FILEBUNNY_LISTEN` | `:8080` | Backend listen address (inside the container) |
 | `FILEBUNNY_DATA_DIR` | `/data` in the container | Database and blobs |
 
 Durations use Go syntax (`30m`, `24h`); `7d` is not valid, use `168h`.
+
+The WKD proxy needs outgoing HTTPS (port 443) from the backend container
+to arbitrary domains; the distroless image includes the CA certificates.
+It only connects to public addresses (no private, loopback, link-local or
+metadata ranges), follows no redirects and logs no looked-up addresses.
+If your firewall restricts egress, either allow outgoing 443 for the
+backend or set `FILEBUNNY_WKD_PROXY=false`. Keyserver lookups
+(keys.openpgp.org) go directly from the browser and need nothing from
+your server.
 
 ## Downloadable single HTML file
 
@@ -100,6 +110,10 @@ FileBunny stores no IP addresses. Keep it that way on your server:
   containers print no addresses. Consider `journald`/log rotation limits.
 - Firewall or fail2ban logs on the host may contain addresses; decide
   consciously whether you need them.
+- With the WKD proxy on, your server sees which e-mail addresses are
+  looked up (not by whom). It never logs them; keep it that way, and
+  switch it off (`FILEBUNNY_WKD_PROXY=false`) if you prefer not to see
+  them at all.
 
 ## Updates
 

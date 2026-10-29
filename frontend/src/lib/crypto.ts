@@ -113,9 +113,11 @@ function armoredOrBinary(input: string | Uint8Array): string | Uint8Array {
  */
 export async function readPublicKeys(file: string | Uint8Array): Promise<KeyInfo[]> {
   const input = armoredOrBinary(file);
+  // OpenPGP.js reads only the first armored block; read every one, so a
+  // second key in the same file or response is never silently ignored.
   const keys =
     typeof input === 'string'
-      ? await openpgp.readKeys({ armoredKeys: input })
+      ? (await Promise.all(armorBlocks(input).map((armoredKeys) => openpgp.readKeys({ armoredKeys })))).flat()
       : await openpgp.readKeys({ binaryKeys: input });
   return Promise.all(
     keys.map(async (key) => {
@@ -133,6 +135,12 @@ export async function readPublicKeys(file: string | Uint8Array): Promise<KeyInfo
       };
     }),
   );
+}
+
+/** Splits text into its "-----BEGIN PGP" blocks (the whole text if none). */
+function armorBlocks(text: string): string[] {
+  const blocks = text.match(/-----BEGIN PGP [^-]+-----[\s\S]*?-----END PGP [^-]+-----/g);
+  return blocks ?? [text];
 }
 
 /**
