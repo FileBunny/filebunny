@@ -64,8 +64,12 @@ script and one stylesheet, without lazy-loaded chunks or workers, so
 
 ## Public keys
 
-In public-key mode the send page offers three ways to get a recipient's
-key (`frontend/src/components/KeyPicker.svelte`,
+In public-key mode the send page shows the chosen recipients in a frame
+on top, and below it two tabs to add a key; once there is a recipient
+the tabs fold away behind "Change key" and "Add another recipient".
+Background information sits behind small ⓘ toggles (`<details>`, no
+script). There are three ways to get a recipient's key
+(`frontend/src/components/KeyPicker.svelte`,
 `frontend/src/lib/keylookup.ts`):
 
 1. **From your device:** choose a file (`.asc`, `.gpg`, `.pgp`, `.key`),
