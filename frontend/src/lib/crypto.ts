@@ -149,12 +149,32 @@ function armorBlocks(text: string): string[] {
  */
 export async function readPrivateKey(file: string | Uint8Array, passphrase: string): Promise<openpgp.PrivateKey> {
   const input = armoredOrBinary(file);
-  const key =
-    typeof input === 'string'
-      ? await openpgp.readPrivateKey({ armoredKey: input })
-      : await openpgp.readPrivateKey({ binaryKey: input });
+  let key: openpgp.PrivateKey;
+  try {
+    key =
+      typeof input === 'string'
+        ? await openpgp.readPrivateKey({ armoredKey: input })
+        : await openpgp.readPrivateKey({ binaryKey: input });
+  } catch {
+    throw new KeyError('invalid');
+  }
   if (key.isDecrypted()) return key;
-  return openpgp.decryptKey({ privateKey: key, passphrase });
+  if (passphrase === '') throw new KeyError('passphrase-needed');
+  try {
+    return await openpgp.decryptKey({ privateKey: key, passphrase });
+  } catch {
+    throw new KeyError('wrong-passphrase');
+  }
+}
+
+/** Why a private key could not be used, so the page can say what to do. */
+export class KeyError extends Error {
+  readonly reason: 'invalid' | 'passphrase-needed' | 'wrong-passphrase';
+
+  constructor(reason: KeyError['reason']) {
+    super(reason);
+    this.reason = reason;
+  }
 }
 
 /** Groups a hex fingerprint in blocks of four, as gpg shows it. */

@@ -88,8 +88,17 @@ for exactly the looked-up address that can encrypt are offered, and the
 page lists what was dropped and why. Results are merged by fingerprint.
 If the sources return different keys, or one source returns several, the
 page shows a warning; it never picks a key itself. The user clicks "Use
-this key" for each recipient; every recipient shows its fingerprint
-(with a copy button) and source.
+this key"; every recipient shows its fingerprint (with a copy button) and
+source.
+
+**Recipients:** a new key (from a file, a drop, a paste or "Use this
+key") replaces the current recipient, and the page says which one it
+replaced, so a key added by mistake cannot silently stay: every key on
+the list can open the message. Several recipients are still possible
+through "Add another recipient"; the page then states that each of them
+can open the one message with their own private key (one session key,
+encrypted to every recipient, as `gpg -r a -r b`). A pasted key is read
+as soon as the armored block is complete.
 
 **Optional WKD check:** for any key on the recipient list (also one from
 the device or a keyserver), "Check with the recipient's domain (WKD)"
