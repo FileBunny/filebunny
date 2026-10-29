@@ -57,7 +57,8 @@ backend/internal/store    blobs + SQLite; migrations as a list, tracked by PRAGM
 backend/internal/server   HTTP handlers, quota, stall timeouts, security headers
 backend/internal/logging  slog logger that redacts IP addresses
 backend/internal/cleanup  periodic removal of expired files
-frontend/src/lib          crypto (OpenPGP.js), API client, hash routes
+backend/internal/wkd      WKD client with SSRF protection (key lookup proxy)
+frontend/src/lib          crypto (OpenPGP.js), API client, key lookup, hash routes
 frontend/src/pages        send, download, delete pages
 frontend/tests            node --test, incl. gpg interoperability
 testdata/keys             public test keypairs, never for real data

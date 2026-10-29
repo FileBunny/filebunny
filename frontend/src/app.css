@@ -117,6 +117,7 @@ legend {
 
 input[type='text'],
 input[type='password'],
+input[type='email'],
 textarea,
 select {
   font: inherit;
@@ -196,4 +197,49 @@ pre.message {
   border-left: 3px solid var(--accent);
   padding: 0.25rem 0.75rem;
   margin: 0.5rem 0;
+}
+
+.key code {
+  overflow-wrap: anywhere;
+}
+
+.keysource + .keysource {
+  border-top: 1px solid var(--border);
+  margin-top: 1rem;
+}
+
+.keysource h3 {
+  font-size: 1rem;
+  margin: 0.75rem 0 0.25rem;
+}
+
+textarea.dragging {
+  border-color: var(--accent);
+  outline: 2px dashed var(--accent);
+}
+
+.checkbox {
+  display: block;
+  margin: 0.5rem 0;
+}
+
+.sources {
+  padding-left: 1.25rem;
+}
+
+.warning {
+  color: var(--danger);
+  font-weight: 600;
+  border-left: 3px solid var(--danger);
+  padding-left: 0.5rem;
+}
+
+.ok {
+  color: var(--accent);
+}
+
+button.small {
+  padding: 0.15rem 0.6rem;
+  font-size: 0.85rem;
+  margin: 0.25rem 0.25rem 0.25rem 0;
 }

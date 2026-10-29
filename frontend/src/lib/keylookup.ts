@@ -299,3 +299,12 @@ async function readCapped(res: Response, max: number, ctrl: AbortController): Pr
   }
   return out;
 }
+
+/** A key on the send page's recipient list. */
+export type Recipient = {
+  info: KeyInfo;
+  /** Where the key came from, for display. */
+  source: string;
+  /** Result of the optional WKD check, once asked for. */
+  check?: WkdCheck[] | 'busy';
+};

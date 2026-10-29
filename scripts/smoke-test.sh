@@ -25,6 +25,7 @@ done
 echo "frontend headers"
 headers=$("${curl[@]}" -D - -o /dev/null "$base/")
 grep -qi "^content-security-policy: default-src 'none'; script-src 'self'" <<<"$headers" || fail "frontend CSP missing"
+grep -qi "^content-security-policy: .*connect-src 'self' https://keys.openpgp.org;" <<<"$headers" || fail "connect-src not exactly self + keys.openpgp.org"
 grep -qi '^strict-transport-security:' <<<"$headers" || fail "HSTS missing"
 grep -qi '^server:' <<<"$headers" && fail "Server header present"
 
