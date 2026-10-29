@@ -3,7 +3,9 @@ import { test } from 'node:test';
 import {
   decrypt,
   encrypt,
+  defaultKeyName,
   formatFingerprint,
+  generateKeyPair,
   KeyError,
   messageInfo,
   readPrivateKey,
@@ -127,4 +129,22 @@ test('readPrivateKey says why a key cannot be used', async () => {
   assert.equal(await reason(readPrivateKey(testKey('alice.sec.asc'), '')), 'ok');
   assert.equal(await reason(readPrivateKey('not a key', '')), 'invalid');
   assert.equal(await reason(readPrivateKey(testKey('alice.pub.asc'), '')), 'invalid');
+});
+
+test('generateKeyPair: protected private key, user IDs as given', async () => {
+  const pair = await generateKeyPair({ name: ' Anna ', email: '', passphrase: 'p' });
+  assert.deepEqual(pair.info.userIDs, ['Anna']);
+  assert.ok(pair.info.canEncrypt);
+  assert.match(pair.publicKey, /^-----BEGIN PGP PUBLIC KEY BLOCK-----/);
+  assert.match(pair.privateKey, /^-----BEGIN PGP PRIVATE KEY BLOCK-----/);
+  await assert.rejects(readPrivateKey(pair.privateKey, ''), (e: unknown) => e instanceof KeyError && e.reason === 'passphrase-needed');
+  const key = await readPrivateKey(pair.privateKey, 'p');
+  assert.equal(formatFingerprint(key.getFingerprint()), pair.info.fingerprint);
+  // v4, legacy curve25519: what gpg 2.4 can read.
+  assert.equal(pair.info.key.keyPacket.version, 4);
+  assert.equal(pair.info.key.getAlgorithmInfo().algorithm, 'eddsaLegacy');
+
+  assert.deepEqual((await generateKeyPair({ name: '', email: '', passphrase: 'p' })).info.userIDs, [defaultKeyName]);
+  assert.deepEqual((await generateKeyPair({ name: '', email: 'a@example.org', passphrase: 'p' })).info.userIDs, ['<a@example.org>']);
+  await assert.rejects(generateKeyPair({ name: 'x', email: '', passphrase: '' }));
 });

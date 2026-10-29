@@ -7,7 +7,7 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { after, before, describe, test } from 'node:test';
-import { decrypt, encrypt, readPrivateKey, readPublicKeys } from '../src/lib/crypto.ts';
+import { decrypt, encrypt, generateKeyPair, readPrivateKey, readPublicKeys } from '../src/lib/crypto.ts';
 import { collect, randomBytes, streamOf, testKey } from './helpers.ts';
 
 const hasGpg = spawnSync('gpg', ['--version']).status === 0;
@@ -84,6 +84,36 @@ describe('gpg interoperability', { skip: !hasGpg && 'gpg not installed' }, () =>
       assert.match(packets, /:symkey enc packet: version 4, cipher 9, aead 0, s2k 3/);
       assert.match(packets, /:encrypted data packet:\n\s+length: .*\n\s+mdc_method: 2/);
       assert.doesNotMatch(packets, /compressed packet|aead encrypted/i);
+    });
+  });
+
+  describe('generated key pairs', () => {
+    test('gpg imports both keys and decrypts with the generated private key', async () => {
+      const pair = await generateKeyPair({ name: 'Gen Test', email: 'gen@example.org', passphrase: 'gen pass' });
+      // Its own home, so the test keys do not interfere.
+      const own = mkdtempSync(join(tmpdir(), 'filebunny-gen-'));
+      const g = (args: string[], input?: string | Uint8Array) =>
+        execFileSync('gpg', ['--homedir', own, '--batch', '--yes', '--pinentry-mode', 'loopback', ...args], {
+          input,
+          stdio: ['pipe', 'pipe', 'pipe'],
+        });
+      try {
+        g(['--import'], pair.publicKey);
+        g(['--passphrase', 'gen pass', '--import'], pair.privateKey);
+        const listed = g(['--with-colons', '--list-secret-keys']).toString();
+        assert.ok(listed.includes(pair.info.fingerprint.replaceAll(' ', '')), 'secret key listed by fingerprint');
+        assert.match(listed, /uid:.*Gen Test <gen@example\.org>/);
+
+        const ct = await collect(await encrypt({ kind: 'text', text: 'to the new key' }, { publicKeys: [pair.info.key] }));
+        assert.equal(g(['--passphrase', 'gen pass', '--decrypt'], ct).toString(), 'to the new key');
+        // And gpg encrypting to it opens in FileBunny.
+        const fromGpg = g(['--trust-model', 'always', '--encrypt', '-r', 'gen@example.org'], 'from gpg');
+        const key = await readPrivateKey(pair.privateKey, 'gen pass');
+        assert.deepEqual(await decrypt(new Uint8Array(fromGpg), { privateKeys: [key] }), { kind: 'text', text: 'from gpg' });
+      } finally {
+        spawnSync('gpgconf', ['--homedir', own, '--kill', 'all']);
+        rmSync(own, { recursive: true, force: true });
+      }
     });
   });
 
