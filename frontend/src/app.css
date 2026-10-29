@@ -8,6 +8,7 @@
   --accent: #2d6a4f;
   --accent-fg: #ffffff;
   --danger: #b3261e;
+  --notice: #8a5300;
   color-scheme: light dark;
 }
 
@@ -21,6 +22,7 @@
     --accent: #74c69d;
     --accent-fg: #0b2116;
     --danger: #f2b8b5;
+    --notice: #f0b35b;
   }
 }
 
@@ -242,4 +244,30 @@ button.small {
   padding: 0.15rem 0.6rem;
   font-size: 0.85rem;
   margin: 0.25rem 0.25rem 0.25rem 0;
+}
+
+.sources li.ok {
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.sources li.notice,
+.notice {
+  color: var(--notice);
+  font-weight: 600;
+}
+
+.sources li.error {
+  color: var(--danger);
+  font-weight: 600;
+}
+
+.sources li .note {
+  font-weight: normal;
+}
+
+.multi {
+  border-left: 3px solid var(--notice);
+  padding: 0.25rem 0.75rem;
+  font-weight: 600;
 }

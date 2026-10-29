@@ -34,6 +34,11 @@
   let keyInput = $state('');
   let localError = $state('');
   let dragging = $state(false);
+  let pasted = false;
+
+  // A new key replaces the recipient unless the user asked to add another.
+  let addingAnother = $state(false);
+  let replacedNote = $state('');
 
   // By e-mail address.
   let email = $state('');
@@ -46,43 +51,81 @@
 
   const added = (fingerprint: string) => recipients.some((r) => r.info.fingerprint === fingerprint);
 
-  function add(info: KeyInfo, source: string) {
-    if (!added(info.fingerprint)) recipients = [...recipients, { info, source }];
+  /**
+   * Makes the keys of one action (a file, a paste, "Use this key") the
+   * recipients. They replace the current ones, so a key added by mistake
+   * does not silently stay on the list; after "Add another recipient" they
+   * are added instead.
+   */
+  function addRecipients(infos: KeyInfo[], source: string) {
+    if (infos.length === 0) return;
+    const fresh = infos.filter((i) => !added(i.fingerprint)).map((info) => ({ info, source }));
+    if (addingAnother) {
+      recipients = [...recipients, ...fresh];
+      replacedNote = '';
+    } else {
+      const kept = recipients.filter((r) => infos.some((i) => i.fingerprint === r.info.fingerprint));
+      const gone = recipients.filter((r) => !kept.includes(r));
+      replacedNote =
+        gone.length > 0 ? `Replaced ${gone.map((r) => r.info.userIDs[0] ?? r.info.fingerprint).join(', ')}.` : '';
+      recipients = [...kept, ...fresh];
+    }
+    addingAnother = false;
   }
 
   function remove(fingerprint: string) {
     recipients = recipients.filter((r) => r.info.fingerprint !== fingerprint);
+    replacedNote = '';
+    if (recipients.length === 0) addingAnother = false;
   }
 
-  /** Reads keys from a file, a drop or the text field; adds those that can encrypt. */
-  async function addLocal(input: string | Uint8Array): Promise<boolean> {
-    localError = '';
+  /** Reads keys from a file, a drop or the text field; returns those that can encrypt. */
+  async function readLocal(input: string | Uint8Array): Promise<KeyInfo[]> {
     let infos: KeyInfo[];
     try {
       infos = await readPublicKeys(input);
     } catch (err) {
       localError =
         err instanceof Error && err.message.includes('private key') ? err.message : 'This is not a valid OpenPGP public key.';
-      return false;
+      return [];
     }
     const usable = infos.filter((k) => k.canEncrypt);
     if (usable.length < infos.length) {
       localError = `${usable.length === 0 ? 'This key' : 'One of these keys'} cannot be used for encryption (expired, revoked or sign-only).`;
     }
-    for (const info of usable) add(info, 'your device');
+    return usable;
+  }
+
+  async function addLocal(input: string | Uint8Array): Promise<boolean> {
+    localError = '';
+    const usable = await readLocal(input);
+    addRecipients(usable, 'your device');
     return usable.length > 0;
   }
 
-  async function addPasted() {
-    if (keyInput.trim() === '') return;
-    if (await addLocal(keyInput.trim())) keyInput = '';
+  /** Reads a pasted key as soon as it is complete; no button needed. */
+  async function keyTyped() {
+    const text = keyInput.trim();
+    if (/-----END PGP [A-Z ]+-----/.test(text)) {
+      pasted = false;
+      if (await addLocal(text)) keyInput = '';
+    } else if (pasted) {
+      pasted = false;
+      localError = 'Paste the whole key, from -----BEGIN PGP PUBLIC KEY BLOCK----- to -----END PGP PUBLIC KEY BLOCK-----.';
+    } else if (text === '') {
+      localError = '';
+    }
   }
 
+  /** All files of one pick or drop count as one action. */
   async function addFiles(files: FileList | null | undefined) {
+    localError = '';
+    const all: KeyInfo[] = [];
     for (const f of files ?? []) {
-      await addLocal(new Uint8Array(await f.arrayBuffer()));
-      if (localError) break;
+      all.push(...(await readLocal(new Uint8Array(await f.arrayBuffer()))));
+      if (localError) return;
     }
+    addRecipients(all, 'your device');
   }
 
   async function pickKeyFile(e: Event & { currentTarget: HTMLInputElement }) {
@@ -132,7 +175,7 @@
   }
 
   function use(c: Candidate) {
-    add(c.info, c.sources.map((s) => `${sourceLabels[s].name} (${sourceLabels[s].trust})`).join(' and '));
+    addRecipients([c.info], c.sources.map((s) => `${sourceLabels[s].name} (${sourceLabels[s].trust})`).join(' and '));
   }
 
   async function check(fingerprint: string) {
@@ -164,6 +207,8 @@
     }
   }
 
+  const statusClass = { found: 'ok', 'not-found': 'notice', failed: 'error' } as const;
+
   function checkText(c: WkdCheck): string {
     switch (c.status) {
       case 'match':
@@ -178,6 +223,13 @@
   }
 </script>
 
+{#if addingAnother}
+  <p class="multi" role="status">
+    Adding another recipient: the next key you choose is added to the list.
+    <button type="button" class="small" onclick={() => (addingAnother = false)}>Cancel</button>
+  </p>
+{/if}
+
 <div class="keysource">
   <h3>From your device</h3>
   <p class="note">The key is read in your browser only; it is not uploaded.</p>
@@ -186,6 +238,8 @@
     <textarea
       class:dragging
       bind:value={keyInput}
+      onpaste={() => (pasted = true)}
+      oninput={keyTyped}
       ondragover={dragOver}
       ondragleave={() => (dragging = false)}
       ondrop={drop}
@@ -194,9 +248,6 @@
       placeholder="-----BEGIN PGP PUBLIC KEY BLOCK-----"
     ></textarea>
   </label>
-  <div class="row">
-    <button type="button" onclick={addPasted} disabled={keyInput.trim() === ''}>Add pasted key</button>
-  </div>
   <label class="field">
     <span>…or choose a key file (.asc, .gpg, .pgp, .key)</span>
     <input type="file" multiple accept=".asc,.gpg,.pgp,.key,application/pgp-keys" onchange={pickKeyFile} />
@@ -232,7 +283,7 @@
   {#if lookup}
     <ul class="sources">
       {#each lookup.results as r (r.source)}
-        <li>
+        <li class={statusClass[r.status]}>
           {sourceLabels[r.source].name}: {sourceStatus(r)}
           {#each r.dropped as d (d.fingerprint)}
             <div class="note">Ignored <code>{d.fingerprint}</code>: {d.reason}</div>
@@ -259,14 +310,21 @@
       </div>
     {/each}
     {#if lookup.candidates.length === 0}
-      <p class="note">No usable key found. Ask the recipient for their public key and add it from your device.</p>
+      <p class="notice">No usable key found. Ask the recipient for their public key and add it from your device.</p>
     {/if}
   {/if}
 </div>
 
 {#if recipients.length > 0}
   <div class="keysource">
-    <h3>Recipients</h3>
+    <h3>{recipients.length === 1 ? 'Recipient' : `Recipients (${recipients.length})`}</h3>
+    {#if recipients.length > 1}
+      <p class="multi" role="status">
+        One message for all of them: each of these {recipients.length} recipients can open it with their own private
+        key. Remove any key you added by mistake.
+      </p>
+    {/if}
+    {#if replacedNote}<p class="note">{replacedNote}</p>{/if}
     {#each recipients as r (r.info.fingerprint)}
       <div class="key">
         {#each r.info.userIDs as uid (uid)}<div>{uid}</div>{/each}
@@ -295,6 +353,9 @@
         <button type="button" class="small" onclick={() => remove(r.info.fingerprint)}>Remove</button>
       </div>
     {/each}
+    {#if !addingAnother}
+      <button type="button" onclick={() => (addingAnother = true)}>Add another recipient</button>
+    {/if}
     <p class="note">
       Compare the fingerprint with the recipient (in person or by phone) before you send anything.
       {#if wkdOffered}The WKD check is optional; it asks the domain through {server}, which then sees the address.{/if}
