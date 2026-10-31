@@ -4,7 +4,7 @@
   // without showing it on screen.
   import { copyText, generatePassword } from '../lib/format.ts';
 
-  let { label, value = $bindable('') }: { label: string; value?: string } = $props();
+  let { label, value = $bindable(''), id }: { label: string; value?: string; id?: string } = $props();
   let show = $state(false);
   let copied = $state(false);
 
@@ -17,7 +17,7 @@
 <label class="field">
   <span>{label}</span>
   <span class="row">
-    <input type={show ? 'text' : 'password'} bind:value autocomplete="new-password" />
+    <input {id} type={show ? 'text' : 'password'} bind:value autocomplete="new-password" />
     <button type="button" onclick={() => (show = !show)}>{show ? 'Hide' : 'Show'}</button>
     <button type="button" onclick={() => (value = generatePassword())}>Generate</button>
     <button type="button" onclick={copy} disabled={!value}>{copied ? 'Copied' : 'Copy'}</button>

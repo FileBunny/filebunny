@@ -55,6 +55,11 @@
   // OpenPGP adds a little; the server checks the exact ciphertext size.
   const tooLarge = $derived(info ? size > info.maxFileSize - 1024 : false);
   const ready = $derived(key !== null && (what === 'text' ? text.length > 0 : file !== null) && !tooLarge);
+  let tried = $state(false);
+  // Too large is shown under the field already.
+  const missing = $derived(
+    !tried || ready || tooLarge ? '' : what === 'text' ? 'Type a message first.' : 'Choose a file first.',
+  );
 
   function pickFile(e: Event & { currentTarget: HTMLInputElement }) {
     file = e.currentTarget.files?.[0] ?? null;
@@ -62,7 +67,13 @@
 
   async function submit(e: SubmitEvent) {
     e.preventDefault();
-    if (!ready || busy || !key) return;
+    if (busy || !key) return;
+    // The button stays enabled and says what is missing.
+    if (!ready) {
+      tried = true;
+      document.getElementById('inbox-content')?.focus();
+      return;
+    }
     busy = true;
     error = '';
     sent = 0;
@@ -87,6 +98,7 @@
 
   async function again() {
     done = null;
+    tried = false;
     text = '';
     file = null;
     info = await inboxInfo(id).catch(() => info);
@@ -143,23 +155,23 @@
         {#if what === 'text'}
           <label class="field">
             <span>Message</span>
-            <textarea bind:value={text} rows="8" spellcheck="false"></textarea>
+            <textarea id="inbox-content" bind:value={text} rows="8" spellcheck="false"></textarea>
           </label>
         {:else}
           <label class="field">
             <span>File (max {formatBytes(info.maxFileSize)})</span>
-            <input type="file" onchange={pickFile} />
+            <input id="inbox-content" type="file" onchange={pickFile} />
           </label>
           {#if file}<p class="note">{file.name}, {formatBytes(file.size)}</p>{/if}
         {/if}
         {#if tooLarge}<p class="error">Too large for what this link has left.</p>{/if}
       </fieldset>
-      <ErrorMessage {error} />
+      <ErrorMessage error={missing || error} />
       {#if busy}
         <progress max={size} value={Math.min(sent, size)}></progress>
         <button type="button" onclick={() => controller?.abort()}>Cancel</button>
       {:else}
-        <button type="submit" class="primary" disabled={!ready}>Encrypt and send</button>
+        <button type="submit" class="primary">Encrypt and send</button>
       {/if}
       <p class="note">Encrypted in this browser before it is sent. The server only gets ciphertext.</p>
     </form>

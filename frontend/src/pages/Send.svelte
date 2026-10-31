@@ -54,9 +54,34 @@
     error = file && file.size > maxFileSize ? `This file is ${formatBytes(file.size)}; the limit is 100 MB.` : '';
   }
 
+  // The button stays enabled and says what is missing, with the focus on
+  // the field to fix.
+  function missing(): { message: string; focus: string } | null {
+    if (!contentReady) {
+      if (what === 'text') return { message: 'Type a message first.', focus: '#send-content' };
+      if (!file) return { message: 'Choose a file first.', focus: '#send-content' };
+      return { message: `This file is ${formatBytes(file.size)}; the limit is 100 MB.`, focus: '#send-content' };
+    }
+    if (!recipientsReady) {
+      if (mode === 'password') return { message: 'Choose a password first, or generate one.', focus: '#send-password' };
+      if (recipients.length === 0) return { message: "Add the recipient's public key first.", focus: '[role="tab"][aria-selected="true"]' };
+      return { message: 'Remove the keys that can no longer be used (expired or revoked).', focus: '.recipients button' };
+    }
+    return null;
+  }
+
+  let tried = $state(false);
+  const gap = $derived(tried ? missing() : null);
+
   async function submit(e: SubmitEvent) {
     e.preventDefault();
-    if (!contentReady || !recipientsReady || busy) return;
+    if (busy) return;
+    const todo = missing();
+    if (todo) {
+      tried = true;
+      document.querySelector<HTMLElement>(todo.focus)?.focus();
+      return;
+    }
     busy = true;
     error = '';
     sent = 0;
@@ -79,6 +104,7 @@
 
   function startOver() {
     result = null;
+    tried = false;
     text = '';
     file = null;
     password = '';
@@ -116,12 +142,12 @@
       {#if what === 'text'}
         <label class="field">
           <span>Message</span>
-          <textarea bind:value={text} rows="8" spellcheck="false"></textarea>
+          <textarea id="send-content" bind:value={text} rows="8" spellcheck="false"></textarea>
         </label>
       {:else}
         <label class="field">
           <span>File (max 100 MB)</span>
-          <input type="file" onchange={pickFile} />
+          <input id="send-content" type="file" onchange={pickFile} />
         </label>
         {#if file}<p class="note">{file.name}, {formatBytes(file.size)}</p>{/if}
       {/if}
@@ -134,7 +160,7 @@
         <label><input type="radio" bind:group={mode} value="key" /> Holders of a public key</label>
       </div>
       {#if mode === 'password'}
-        <SecretField label="Password" bind:value={password} />
+        <SecretField id="send-password" label="Password" bind:value={password} />
       {:else}
         <KeyPicker bind:recipients />
       {/if}
@@ -158,12 +184,12 @@
       </div>
     </fieldset>
 
-    <ErrorMessage {error} />
+    <ErrorMessage error={gap?.message ?? error} />
     {#if busy}
       <progress max={total} value={Math.min(sent, total)}></progress>
       <button type="button" onclick={() => controller?.abort()}>Cancel</button>
     {:else}
-      <button type="submit" class="primary" disabled={!contentReady || !recipientsReady}>Encrypt and upload</button>
+      <button type="submit" class="primary">Encrypt and upload</button>
     {/if}
   </form>
 {/if}
