@@ -34,8 +34,8 @@
   <p>Your address can get links from FileBunny again.</p>
 {:else}
   <p>
-    You got a link from FileBunny because someone entered your address when sharing a file. You can stop all e-mail
-    from FileBunny to your address.
+    FileBunny mailed a link to your address because it was entered when the file was shared. Here you can stop all
+    e-mail from FileBunny to your address.
   </p>
   <button type="button" class="primary" disabled={busy} onclick={() => set(true)}>Stop e-mail to my address</button>
 {/if}
