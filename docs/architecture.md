@@ -210,6 +210,30 @@ before any data is sent. Transfers are capped at 8 at a time per service,
 the state. Outgoing requests use their own client with the same address
 checks as WKD, fixed hosts and at most one redirect between them.
 
+## E-mail
+
+The sender of a share link can have the link mailed
+(`backend/internal/mail`, `internal/server/mail.go`,
+`MailLink.svelte`). The browser sends the address with the delete token
+to `POST /api/v1/files/{id}/notify`; the server builds a fixed English
+text with the link and sends it through one of the configured SMTP
+relays. Only TLS with verified certificates is used. Nothing from the
+client goes into the mail except the recipient address, which is checked
+strictly (plain ASCII, no line breaks) and only used as the recipient.
+
+- **Relays:** listed in a secret file (`FILEBUNNY_SMTP_FILE`), each with
+  a daily limit; used round-robin, skipping relays that are full or fail.
+  A relay that refuses the recipient (5xx) is not retried elsewhere.
+- **No address is stored or logged.** The limits and the block list use
+  an HMAC of the lower-cased address with a secret key in the data
+  directory (`mail-pepper`). Errors carry the SMTP code only, since relays
+  echo addresses in their replies.
+- **Blocking:** every mail has a block link (`#/block/<token>`, the token
+  being that HMAC) and a one-click `List-Unsubscribe` header. Opening the
+  page does nothing until the visitor confirms.
+- **Limits:** per link, per address per day, server-wide per day, per
+  relay per day, and 4 deliveries at a time.
+
 ## Request flow
 
 **Upload** — `POST /api/v1/files`
@@ -268,6 +292,10 @@ after a crash).
 | Upload links: the owner's public key (incl. its user IDs), SHA-256 of the management token, expiry, limits and counters | SQLite | Until the link is revoked, or expired and empty |
 | Files received by an upload link | `data/blobs/<id>`, row with `inbox_id`; or at the link's external storage, as above | 7 days after arrival (6 at Filebin), or until deleted or the link is revoked |
 | Private keys and passphrases of generated key pairs | Nowhere (browser only) | — |
+| Recipient addresses of mailed links | Nowhere; in memory during the delivery only. The relay sees them | — |
+| Mail counters: HMAC of each address, per relay and in total, per day; mails per link | SQLite (`mail_counts`, `files.notified`) | Until the next day's cleanup; with the file |
+| Addresses that asked for no mail | SQLite (`mail_blocks`): only the HMAC | Until allowed again |
+| Key for the address HMAC | `data/mail-pepper` | Permanent |
 | File name, content type, plaintext | Nowhere (encrypted inside the ciphertext from phase 2) | — |
 | Logs | Container stdout | No IPs, no IDs, no tokens; see below |
 
@@ -324,6 +352,9 @@ after a crash).
   time, and with the direct route it sees your IP address and so does
   anyone who learns the link's bin name; that person can also delete it.
   It can never decrypt it.
+- **A mailed link looking like phishing.** The mail has no sender name
+  (that would be free text from the client); recipients only know it is
+  real if the sender told them. Its fixed text never asks for a password.
 - **Someone you gave the link to** sharing it further. Use public-key mode
   if only a specific person may read it.
 
@@ -339,6 +370,7 @@ after a crash).
 | Per upload link | 10 uploads (max 100), 100 MiB, open 7 days (max 30) | `FILEBUNNY_INBOX_*` |
 | WKD lookups in progress | 8 server-wide, 10 s and 1 MiB each | fixed; switch off with `FILEBUNNY_WKD_PROXY` |
 | External storage | 8 transfers per service, 15 min each; 50 GiB of traffic per UTC day | fixed; `FILEBUNNY_PROXY_DAILY_BYTES`; off unless `FILEBUNNY_FILEBIN` |
+| E-mail | 3 addresses per link, 3 mails per address per day, 500 per day, each relay's own daily limit, 4 at a time, 30 s each | `FILEBUNNY_MAIL_*`, `daily_limit` per relay; off without relays |
 
 Rate limiting, proof of work and abuse reporting follow in phase 7.
 

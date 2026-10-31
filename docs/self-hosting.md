@@ -74,6 +74,11 @@ backend with defaults.
 | `FILEBUNNY_INBOX_MAX_SIZE` | `104857600` | Max combined size of the uploads to one link, in bytes (100 MiB) |
 | `FILEBUNNY_FILEBIN` | `false` | Offer Filebin (filebin.net) as external storage through this server; see [storage/filebin.md](storage/filebin.md) |
 | `FILEBUNNY_PROXY_DAILY_BYTES` | `53687091200` (50 GiB) | Traffic to and from external storage per UTC day, per service; beyond it uploads and downloads there get `503` |
+| `FILEBUNNY_SMTP_FILE` | `/run/secrets/smtp` in Compose | JSON file with the sender address and the SMTP relays; see [E-mail](#e-mail). No file or no relays: no e-mail |
+| `FILEBUNNY_PUBLIC_URL` | `https://$FILEBUNNY_DOMAIN` in Compose | The site's address for links in mails; required when e-mail is on |
+| `FILEBUNNY_MAIL_DAILY` | `500` | Mails per UTC day, server-wide |
+| `FILEBUNNY_MAIL_PER_RECIPIENT` | `3` | Mails per address per UTC day |
+| `FILEBUNNY_MAIL_PER_FILE` | `3` | Addresses one share link may be mailed to |
 | `FILEBUNNY_CLEANUP_INTERVAL` | `1m` | How often expired files are removed |
 | `FILEBUNNY_LISTEN` | `:8080` | Backend listen address (inside the container) |
 | `FILEBUNNY_DATA_DIR` | `/data` in the container | Database and blobs |
@@ -95,6 +100,59 @@ to Filebin goes from the browser and needs nothing from your server
 except `connect-src` in the CSP, which `deploy/Caddyfile` already allows.
 Read the service's terms before you offer it. The adapter docs in
 [storage/](storage/) say what each service sees and how it is used.
+
+## E-mail
+
+Senders can have a share link mailed to an address. FileBunny sends a
+fixed text through SMTP relays you configure; it never runs its own mail
+server. Off until you give it relays.
+
+**The relay passwords never go into the repository, an image, the
+environment or CI.** They live in one file outside the repository that
+Compose mounts as a secret:
+
+```json
+{
+  "from": "noreply@files.example.org",
+  "relays": [
+    {"name": "relay-a", "host": "smtp.relay-a.example", "port": 587,
+     "username": "…", "password": "…", "daily_limit": 300},
+    {"name": "relay-b", "host": "smtp.relay-b.example", "port": 465,
+     "username": "…", "password": "…", "daily_limit": 100}
+  ]
+}
+```
+
+```sh
+sudo install -d -m 0755 /etc/filebunny
+sudo install -m 0400 -o 65532 smtp.json /etc/filebunny/smtp.json   # 65532: the backend's user
+FILEBUNNY_SMTP=/etc/filebunny/smtp.json docker compose up -d
+```
+
+- `name`: shown in logs and used for counters (a-z, 0-9, `-`); never the
+  account. `daily_limit`: the relay's own free-tier limit; FileBunny sends
+  no more than that through it per UTC day.
+- Port 465 uses TLS from the start (or set `"implicit_tls": true`); any
+  other port requires STARTTLS. Certificates are always verified; plain
+  SMTP is never used.
+- The relays are used round-robin; a relay that is full for the day or
+  fails is skipped. Follow each relay's terms: do not use several relays
+  to get around one relay's limits.
+- Without `FILEBUNNY_SMTP`, Compose mounts `deploy/smtp-off.json` (no
+  relays): mail off.
+- Prefer keys with sending rights only, for your sender address only,
+  and, where the relay offers it, only from your server's IP address.
+
+**DNS** for the sender's domain, from each relay's instructions: one SPF
+record that includes every relay (at most 10 DNS lookups in total), a
+DKIM record per relay, and a DMARC record (start with `p=none`, tighten
+once the reports look right). Send a test mail and check that the
+headers say `spf=pass`, `dkim=pass` and `dmarc=pass`.
+
+The backend keeps a secret key (`data/mail-pepper`) for the address
+hashes behind the limits and the block list. Losing it resets both.
+
+The backend needs outgoing access to the relays' SMTP ports.
 
 ## Downloadable single HTML file
 
@@ -128,6 +186,10 @@ FileBunny stores no IP addresses. Keep it that way on your server:
   looked up (not by whom). It never logs them; keep it that way, and
   switch it off (`FILEBUNNY_WKD_PROXY=false`) if you prefer not to see
   them at all.
+- With e-mail on, your server and the relay see the recipient's address
+  for each mail. FileBunny keeps only a keyed hash of it (for the limits
+  and the block list) and never logs it; the relay keeps its own logs
+  under its own terms.
 - External storage through the server shows the service only your
   server's address. The direct route shows it the visitor's address; the
   page says so before anything is sent.
@@ -146,8 +208,9 @@ at startup.
 ## Backups
 
 Do **not** back up uploads: they are temporary ciphertext and expire
-within 7 days. Back up only your `.env` and any local changes to the
-configuration. The `caddy_data` volume (certificates) is recreated
+within 7 days. Back up only your `.env`, the SMTP file (in your password
+manager, not next to the backups of the server) and any local changes to
+the configuration. The `caddy_data` volume (certificates) is recreated
 automatically if lost.
 
 ## Removing all data

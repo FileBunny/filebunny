@@ -119,6 +119,15 @@ code=$("${curl[@]}" -o /dev/null -w '%{http_code}' --data-binary 'x' "$base/api/
 code=$("${curl[@]}" -o /dev/null -w '%{http_code}' --data-binary "$key" "$base/api/v1/inboxes?storage=filebin")
 [[ $code == 400 ]] || fail "upload link storage not offered: $code"
 
+echo "e-mail (off by default; CI never sends mail)"
+"${curl[@]}" "$base/api/v1/features" | grep -q '"mail":false' || fail "features: mail not off"
+resp=$("${curl[@]}" --data-binary 'mail' "$base/api/v1/files")
+mail_id=$(sed -n 's/.*"id":"\([^"]*\)".*/\1/p' <<<"$resp")
+mail_token=$(sed -n 's/.*"delete_token":"\([^"]*\)".*/\1/p' <<<"$resp")
+mail_to=smoke-mail-recipient@smoke-mail.invalid
+code=$("${curl[@]}" -o /dev/null -w '%{http_code}' -H "Authorization: Bearer $mail_token" --data "{\"email\":\"$mail_to\"}" "$base/api/v1/files/$mail_id/notify")
+[[ $code == 404 ]] || fail "notify with mail off: $code"
+
 echo "error log with backend down"
 docker compose stop backend >/dev/null
 code=$("${curl[@]}" -o /dev/null -w '%{http_code}' -H "Authorization: Bearer $token" "$base/api/v1/files/$id")
@@ -127,7 +136,7 @@ docker compose start backend >/dev/null
 
 echo "logs"
 logs=$(docker compose logs --no-color 2>&1)
-for secret in "$fake_ip" "$token" "$id" "$up" "$up_token" "$once" "$chunked" "$wkd_local" "$wkd_domain" "$inbox" "$manage" "$inbox_file"; do
+for secret in "$fake_ip" "$token" "$id" "$up" "$up_token" "$once" "$chunked" "$wkd_local" "$wkd_domain" "$inbox" "$manage" "$inbox_file" "$mail_id" "$mail_token" "smoke-mail-recipient" "smoke-mail.invalid"; do
 	grep -qF -- "$secret" <<<"$logs" && fail "log contains $secret"
 done
 grep -qE '"(remote|client)_ip"' <<<"$logs" && fail "log contains remote_ip/client_ip"

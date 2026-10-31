@@ -202,6 +202,54 @@ Authorization: Bearer <delete_token>
 | 403 | Token does not belong to this file |
 | 404 | Unknown, malformed or expired ID |
 
+## E-mail the link
+
+```
+POST /api/v1/files/{id}/notify
+Authorization: Bearer <delete_token>
+Content-Type: application/json
+
+{"email": "name@example.org"}
+```
+
+The server mails the share link (`<FILEBUNNY_PUBLIC_URL>/#/d/{id}`) to the
+address in a fixed English text with the expiry and downloads left, a
+note that FileBunny never sends passwords, and a block link. Nothing else
+from the request goes into the mail. Only the sender can ask: it needs the
+delete token. The address is used for this one delivery; it is never
+stored or logged. A download is not counted.
+
+The address must be plain ASCII (`name@example.org`): no display name,
+quotes, comments, IP literals or line breaks, at most 254 characters.
+
+**204 No Content** when a relay accepted the mail.
+
+| Status | When |
+|---|---|
+| 400 | Body not `{"email": "…"}` or the address not accepted |
+| 401 / 403 | No delete token, or the wrong one |
+| 404 | Unknown or expired link, or this server does not send e-mail (`"mail": false` in [Features](#features)) |
+| 409 | The address asked not to get mail from FileBunny |
+| 422 | The recipient's mail server refused the address |
+| 429 | The link was already mailed to `FILEBUNNY_MAIL_PER_FILE` (3) addresses, or the address got `FILEBUNNY_MAIL_PER_RECIPIENT` (3) mails today |
+| 503 | `FILEBUNNY_MAIL_DAILY` (500) reached today, 4 mails on their way already, or no relay could send; `Retry-After` is set |
+
+A claim against the limits is not given back when sending fails.
+
+### Block and allow again
+
+```
+POST   /api/v1/mail/block/{token}
+DELETE /api/v1/mail/block/{token}
+```
+
+`{token}` is in every mail: the block link `#/block/{token}` and the
+`List-Unsubscribe` header (one-click, RFC 8058, which POSTs here). It is a
+keyed hash of the address (43 characters, base64url); the address itself
+is not in it. **204** on success, **404** for a malformed token. Opening
+the block link does nothing by itself; the page asks first, since mail
+scanners open links.
+
 ## Upload links
 
 An upload link (an "inbox") lets anyone send ciphertext to its owner.
@@ -314,8 +362,9 @@ after the link expired, as long as it still holds files.
 GET /api/v1/features
 ```
 
-**200 OK**, `{"wkd": true}`: which optional endpoints this server offers.
-The frontend hides the WKD options when `wkd` is `false`.
+**200 OK**, `{"wkd": true, "mail": false}`: which optional endpoints this
+server offers. The frontend hides the WKD options when `wkd` is `false`,
+and offers to mail a share link only when `mail` is `true`.
 
 ## Storage
 

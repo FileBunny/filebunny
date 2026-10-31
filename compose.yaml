@@ -1,5 +1,6 @@
 # Local:      docker compose up --build   → https://localhost
 # Production: FILEBUNNY_DOMAIN=filebunny.eu docker compose up -d --build
+# E-mail:     FILEBUNNY_SMTP=/etc/filebunny/smtp.json (outside the repo; see docs/self-hosting.md)
 services:
   backend:
     build:
@@ -15,6 +16,12 @@ services:
       # External storage at filebin.net through this server (docs/storage/filebin.md).
       FILEBUNNY_FILEBIN: ${FILEBUNNY_FILEBIN:-false}
       FILEBUNNY_PROXY_DAILY_BYTES: ${FILEBUNNY_PROXY_DAILY_BYTES:-53687091200}
+      # E-mail: relays and passwords come from the smtp secret, never from
+      # the environment. The default file has no relays: mail off.
+      FILEBUNNY_SMTP_FILE: /run/secrets/smtp
+      FILEBUNNY_PUBLIC_URL: https://${FILEBUNNY_DOMAIN:-localhost}
+      FILEBUNNY_MAIL_DAILY: ${FILEBUNNY_MAIL_DAILY:-500}
+    secrets: [smtp]
     volumes:
       - data:/data
     read_only: true
@@ -41,6 +48,10 @@ services:
     cap_drop: [ALL]
     cap_add: [NET_BIND_SERVICE]
     security_opt: [no-new-privileges:true]
+
+secrets:
+  smtp:
+    file: ${FILEBUNNY_SMTP:-./deploy/smtp-off.json}
 
 volumes:
   data:
