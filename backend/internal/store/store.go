@@ -66,6 +66,7 @@ func (f File) DownloadsLeft() int {
 // Store is safe for concurrent use.
 type Store struct {
 	db      *sql.DB
+	dataDir string
 	blobDir string
 	tmpDir  string
 }
@@ -121,11 +122,28 @@ var migrations = []string{
 	// The external service that files sent to an upload link go to; NULL
 	// means this server's disk.
 	`ALTER TABLE inboxes ADD COLUMN storage TEXT;`,
+	// E-mail notifications. mail_counts counts mails per UTC day (days
+	// since the epoch) by key: "all", "relay:<name>" or "to:<hash>" with a
+	// keyed hash of the address. mail_blocks holds the hashes of addresses
+	// that asked for no more mail. files.notified counts the mails sent
+	// for a share link.
+	`CREATE TABLE mail_counts (
+		key   TEXT NOT NULL,
+		day   INTEGER NOT NULL,
+		count INTEGER NOT NULL,
+		PRIMARY KEY (key, day)
+	) STRICT;
+	CREATE TABLE mail_blocks (
+		address_hash BLOB PRIMARY KEY,
+		created_at   INTEGER NOT NULL
+	) STRICT;
+	ALTER TABLE files ADD COLUMN notified INTEGER NOT NULL DEFAULT 0;`,
 }
 
 // Open opens (or creates) the store in dataDir.
 func Open(dataDir string) (*Store, error) {
 	s := &Store{
+		dataDir: dataDir,
 		blobDir: filepath.Join(dataDir, "blobs"),
 		tmpDir:  filepath.Join(dataDir, "tmp"),
 	}
@@ -498,6 +516,10 @@ func (s *Store) DeleteExpired(ctx context.Context, now time.Time) (int, error) {
 			return n, err
 		}
 		n++
+	}
+	// Mail counters are only needed for the current day.
+	if _, err := s.db.ExecContext(ctx, `DELETE FROM mail_counts WHERE day < ?`, mailDay(now)); err != nil {
+		return n, err
 	}
 	// An expired upload link stays while it holds files, so its owner can
 	// still fetch them; then it goes too.
