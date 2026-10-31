@@ -14,6 +14,8 @@ export type Route =
   /** A file stored directly at an external service; the server knows nothing of it. */
   | { page: 'external'; service: 'filebin'; bin: string }
   | { page: 'status' }
+  /** token: the keyed hash of an address, from the link in a mail. */
+  | { page: 'block'; token: string }
   | { page: 'not-found' };
 
 const id = '([A-Za-z0-9_-]{22})';
@@ -39,6 +41,8 @@ export function parseRoute(hash: string): Route {
   m = path.match(new RegExp(`^/x/filebin/${bin}$`));
   if (m) return { page: 'external', service: 'filebin', bin: m[1]! };
   if (path === '/status') return { page: 'status' };
+  m = path.match(new RegExp(`^/block/${token}$`));
+  if (m) return { page: 'block', token: m[1]! };
   return { page: 'not-found' };
 }
 

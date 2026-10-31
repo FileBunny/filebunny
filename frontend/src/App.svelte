@@ -8,6 +8,7 @@
   import InboxUpload from './pages/InboxUpload.svelte';
   import InboxManage from './pages/InboxManage.svelte';
   import External from './pages/External.svelte';
+  import Block from './pages/Block.svelte';
   import Status from './pages/Status.svelte';
 
   let route = $state(parseRoute(location.hash));
@@ -63,6 +64,10 @@
     {/key}
   {:else if route.page === 'status'}
     <Status />
+  {:else if route.page === 'block'}
+    {#key route.token}
+      <Block token={route.token} />
+    {/key}
   {:else}
     <h1>Page not found</h1>
     <p>Check the link, or <a href="#/">share something new</a>.</p>

@@ -9,6 +9,7 @@
   import CopyField from '../components/CopyField.svelte';
   import ErrorMessage from '../components/ErrorMessage.svelte';
   import KeyPicker from '../components/KeyPicker.svelte';
+  import MailLink from '../components/MailLink.svelte';
   import Info from '../components/Info.svelte';
   import SecretField from '../components/SecretField.svelte';
   import StorageStatus from '../components/StorageStatus.svelte';
@@ -186,6 +187,7 @@
     {#if chosen.name !== 'local'}
       <p class="note">Stored at {chosen.short} through FileBunny; {chosen.short} only sees this server.</p>
     {/if}
+    <MailLink id={result.id} deleteToken={result.deleteToken} />
     <CopyField label="Delete link (keep this to yourself)" value={deleteLink(siteBase(), result.id, result.deleteToken)} />
     <button type="button" onclick={startOver}>Share something else</button>
   </section>
