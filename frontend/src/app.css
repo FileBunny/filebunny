@@ -400,6 +400,16 @@ details.info[open] .info-text {
   background: var(--bg);
 }
 
+/* In a row of choices the ⓘ stays where it is and its text opens on a
+   line of its own, instead of the whole ⓘ wrapping to the next line. */
+.choice details.info {
+  display: contents;
+}
+
+.choice details.info[open] .info-text {
+  flex-basis: 100%;
+}
+
 details.more summary {
   cursor: pointer;
   color: var(--muted);
@@ -454,4 +464,10 @@ ul.status {
 
 ul.status li {
   margin: 0.25rem 0;
+}
+
+ul.status .mark {
+  display: inline-block;
+  width: 1.25em;
+  font-weight: bold;
 }

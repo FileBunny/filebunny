@@ -23,10 +23,9 @@
   <p>Loading…</p>
 {:else if list}
   <ul class="status">
-    <li class="ok">FileBunny (this server): available</li>
+    <li class="ok"><span class="mark" aria-hidden="true">✓</span>FileBunny (this server): available</li>
     {#each list as s (s.name)}
-      <li class={s.available ? 'ok' : 'error'}>
-        {storageByName(s.name)?.label ?? s.name}, through FileBunny: {s.available ? 'available' : 'not available right now'}
+      <li class={s.available ? 'ok' : 'error'}><span class="mark" aria-hidden="true">{s.available ? '✓' : '✗'}</span>{storageByName(s.name)?.label ?? s.name}, through FileBunny: {s.available ? 'available' : 'not available right now'}
         {#if s.checkedAt}<span class="note">(checked {formatDate(s.checkedAt)})</span>{/if}
       </li>
     {/each}
