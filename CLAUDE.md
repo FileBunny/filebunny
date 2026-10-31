@@ -58,6 +58,7 @@ backend/internal/server   HTTP handlers, quota, stall timeouts, security headers
 backend/internal/logging  slog logger that redacts IP addresses
 backend/internal/cleanup  periodic removal of expired files
 backend/internal/wkd      WKD client with SSRF protection (key lookup proxy)
+backend/internal/storage  external storage adapters (Filebin), SSRF-safe client
 frontend/src/lib          crypto (OpenPGP.js), API client, key lookup, hash routes
 frontend/src/pages        send, download, delete, receive (upload links), key pair pages
 frontend/tests            node --test, incl. gpg interoperability
@@ -66,6 +67,7 @@ deploy/Caddyfile          TLS, CSP, /api proxy, log filter
 scripts/repro-check.sh    builds twice, compares hashes
 scripts/smoke-test.sh     end-to-end test of the Compose stack, incl. log privacy
 docs/                     architecture, API, self-hosting, security review
+docs/storage/             one page per storage adapter
 ```
 
 ## Build and test
@@ -127,9 +129,11 @@ overhead on a 100 MB file. Only the SHA-256 of the delete token is stored.
 Phases 1 (foundation), 2 (browser encryption, share links with download
 limits, chunked upload, single HTML build), 3 (keys: lookup on
 keys.openpgp.org from the browser, optional WKD proxy, local key upload,
-WKD check) and 4 (upload links with a management link, key pair
-generation, publishing on keys.openpgp.org) are this code. Next: phase
-5, proxy to external storage. QR codes for fingerprints moved to phase 9.
+WKD check), 4 (upload links with a management link, key pair
+generation, publishing on keys.openpgp.org) and 5 (external storage:
+Filebin through this server or directly from the browser, also for upload
+links) are this code. Next: phase 6, e-mail notifications. QR codes for
+fingerprints moved to phase 9.
 
 Frontend rules: everything must keep working from the single HTML file
 (no lazy-loaded chunks, workers or extra assets; routes in the fragment;
