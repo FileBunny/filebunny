@@ -3,10 +3,11 @@
   // public key (with its user IDs) is stored on the server; the private
   // key never leaves this browser.
   import { createInbox, ApiError, siteBase, type InboxCreated } from '../lib/api.ts';
+  import { tick } from 'svelte';
   import { readPublicKeys, type KeyInfo, type NewKeyPair } from '../lib/crypto.ts';
   import type { Recipient } from '../lib/keylookup.ts';
   import { manageLink, uploadLink } from '../lib/route.ts';
-  import { formatDate } from '../lib/format.ts';
+  import { formatBytes, formatDate } from '../lib/format.ts';
   import CopyField from '../components/CopyField.svelte';
   import ErrorMessage from '../components/ErrorMessage.svelte';
   import Info from '../components/Info.svelte';
@@ -30,9 +31,32 @@
   let maxUploads = $state(10);
   let busy = $state(false);
   let error = $state('');
+  let missingKey = $state(false);
   let result = $state.raw<{ inbox: InboxCreated; fingerprint: string } | null>(null);
 
   const key = $derived(keySource === 'new' ? generated : (existing[0]?.info ?? null));
+
+  // Once there is a key, the tabs fold away to the chosen key.
+  function changeKey() {
+    generated = null;
+    generatedArmored = '';
+    existing = [];
+  }
+
+  // Tabs: arrow keys move between them, as for any tab list.
+  const sources = ['new', 'existing'] as const;
+  async function tabKey(e: KeyboardEvent) {
+    if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
+    e.preventDefault();
+    keySource = keySource === 'new' ? 'existing' : 'new';
+    await tick();
+    document.getElementById(`sourcetab-${keySource}`)?.focus();
+  }
+
+  function days(seconds: number): string {
+    const d = Math.round(seconds / 86400);
+    return d === 1 ? '1 day' : `${d} days`;
+  }
 
   function useGenerated(pair: NewKeyPair) {
     generated = pair.info;
@@ -40,7 +64,13 @@
   }
 
   async function create() {
-    if (!key || busy) return;
+    if (busy) return;
+    // The button stays enabled and says what is missing.
+    if (!key) {
+      missingKey = true;
+      document.getElementById(`sourcetab-${keySource}`)?.focus();
+      return;
+    }
     busy = true;
     error = '';
     try {
@@ -69,8 +99,9 @@
     <CopyField label="Upload link: give this to the people who send you files" value={uploadLink(siteBase(), result.inbox.id, result.fingerprint)} />
     <p class="note">
       Open until {formatDate(result.inbox.expiresAt)}, for at most {result.inbox.maxUploads}
-      {result.inbox.maxUploads === 1 ? 'upload' : 'uploads'}. Everything sent is encrypted to your key
-      <code>{result.fingerprint}</code>.
+      {result.inbox.maxUploads === 1 ? 'upload' : 'uploads'}. Senders can upload up to
+      {formatBytes(result.inbox.maxSize)} in total; each upload is deleted {days(result.inbox.keepSeconds)} after it
+      arrives. Everything sent is encrypted to your key <code>{result.fingerprint}</code>.
     </p>
     <CopyField label="Management link: keep this to yourself" value={manageLink(siteBase(), result.inbox.id, result.inbox.manageToken)} />
     <p class="warning">
@@ -88,29 +119,45 @@
 
   <fieldset disabled={busy}>
     <legend>1. Your key</legend>
-    <div class="choice">
-      <label><input type="radio" bind:group={keySource} value="new" /> Create a new key pair</label>
-      <label><input type="radio" bind:group={keySource} value="existing" /> Use my existing public key</label>
-    </div>
-    {#if keySource === 'new'}
-      {#if generated}
+    {#if key}
+      <section class="recipients" aria-labelledby="your-key">
+        <h3 id="your-key">Your key</h3>
         <div class="key chosen">
-          {#each generated.userIDs as uid (uid)}<div class="uid">{uid}</div>{/each}
-          <code class="fingerprint">{generated.fingerprint}</code>
-          <div class="note">New key pair, private key saved by you.</div>
+          {#each key.userIDs as uid (uid)}<div class="uid">{uid}</div>{/each}
+          <code class="fingerprint">{key.fingerprint}</code>
+          {#if keySource === 'new'}<div class="note">New key pair; you saved the private key.</div>{/if}
         </div>
-        <button type="button" onclick={() => (generated = null)}>Create another key pair</button>
-      {:else}
-        <KeyGen onCreated={useGenerated} continueLabel="Use this key for the upload link" />
-      {/if}
+        <button type="button" onclick={changeKey}>Change key</button>
+      </section>
     {:else}
-      <KeyPicker bind:recipients={existing} single title="Your public key" />
+      <div class="tabs" role="tablist" aria-label="Which key">
+        {#each sources as t (t)}
+          <button
+            type="button"
+            role="tab"
+            id={`sourcetab-${t}`}
+            aria-selected={keySource === t}
+            aria-controls={`sourcepanel-${t}`}
+            tabindex={keySource === t ? 0 : -1}
+            onclick={() => (keySource = t)}
+            onkeydown={tabKey}
+          >
+            {t === 'new' ? 'Create a new key pair' : 'Use my existing public key'}
+          </button>
+        {/each}
+      </div>
+      <div class="tabpanel" role="tabpanel" id={`sourcepanel-${keySource}`} aria-labelledby={`sourcetab-${keySource}`}>
+        {#if keySource === 'new'}
+          <KeyGen onCreated={useGenerated} continueLabel="Use this key for the upload link" />
+        {:else}
+          <KeyPicker bind:recipients={existing} single title="Your public key" />
+        {/if}
+      </div>
     {/if}
     <p class="note">
-      The server stores your public key, so senders can fetch it.
-      <Info label="What the server sees">
-        A public key contains the name and e-mail address in its user IDs, so {new URL(siteBase()).host} sees whose upload
-        link this is. A new key pair without name or address avoids that. The server never sees your private key or what
+      FileBunny stores your public key with this upload link, so senders get it automatically.
+      <Info label="What FileBunny sees">
+        A public key contains the name and e-mail address in its user IDs, so FileBunny sees whose upload link this is. A new key pair without name or address avoids that. The server never sees your private key or what
         is sent to you.
       </Info>
     </p>
@@ -132,11 +179,11 @@
         </select>
       </label>
     </div>
-    <p class="note">At most 100 MB in total. Each upload is kept for 7 days after it arrives.</p>
+    <p class="note">You see how much senders can upload, and how long each upload is kept, once the link is created.</p>
   </fieldset>
 
-  <ErrorMessage {error} />
-  <button type="button" class="primary" disabled={!key || busy} onclick={create}>
+  <ErrorMessage error={missingKey && !key ? 'Choose your key first: create a new key pair or use one you have.' : error} />
+  <button type="button" class="primary" disabled={busy} onclick={create}>
     {busy ? 'Creating…' : 'Create upload link'}
   </button>
 {/if}
