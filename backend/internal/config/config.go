@@ -46,6 +46,13 @@ type Config struct {
 	InboxMaxUploads int
 	// InboxMaxSize caps the combined size of the uploads to one link.
 	InboxMaxSize int64
+	// Filebin offers filebin.net as external storage for share links.
+	// Off by default: a self-hoster decides whether to use a third party.
+	Filebin bool
+	// ProxyDailyBytes caps the bytes sent to and fetched from external
+	// storage per day (UTC), server-wide: the server carries that traffic
+	// twice, and the VPS has a traffic budget.
+	ProxyDailyBytes int64
 }
 
 // Defaults for the public service at filebunny.eu.
@@ -53,6 +60,7 @@ const (
 	DefaultListen             = ":8080"
 	DefaultDataDir            = "./data"
 	DefaultMaxSize            = 100 << 20 // 100 MiB
+	DefaultProxyDailyBytes    = 50 << 30  // 50 GiB
 	DefaultMaxTotalSize       = 20 << 30  // 20 GiB
 	DefaultDefaultExpiry      = 24 * time.Hour
 	DefaultMaxExpiry          = 7 * 24 * time.Hour
@@ -88,6 +96,7 @@ func FromEnv(getenv func(string) string) (Config, error) {
 		InboxMaxExpiry:     DefaultInboxMaxExpiry,
 		InboxMaxUploads:    DefaultInboxMaxUploads,
 		InboxMaxSize:       DefaultInboxMaxSize,
+		ProxyDailyBytes:    DefaultProxyDailyBytes,
 	}
 	var errs []error
 
@@ -104,6 +113,7 @@ func FromEnv(getenv func(string) string) (Config, error) {
 		{"FILEBUNNY_MAX_SIZE", &c.MaxSize},
 		{"FILEBUNNY_MAX_TOTAL_SIZE", &c.MaxTotalSize},
 		{"FILEBUNNY_INBOX_MAX_SIZE", &c.InboxMaxSize},
+		{"FILEBUNNY_PROXY_DAILY_BYTES", &c.ProxyDailyBytes},
 	}
 	for _, sz := range sizes {
 		v := getenv(sz.name)
@@ -162,13 +172,24 @@ func FromEnv(getenv func(string) string) (Config, error) {
 		*n.dst = i
 	}
 
-	if v := getenv("FILEBUNNY_WKD_PROXY"); v != "" {
-		b, err := strconv.ParseBool(v)
-		if err != nil {
-			errs = append(errs, fmt.Errorf("FILEBUNNY_WKD_PROXY: want true or false, got %q", v))
-		} else {
-			c.WKDProxy = b
+	bools := []struct {
+		name string
+		dst  *bool
+	}{
+		{"FILEBUNNY_WKD_PROXY", &c.WKDProxy},
+		{"FILEBUNNY_FILEBIN", &c.Filebin},
+	}
+	for _, b := range bools {
+		v := getenv(b.name)
+		if v == "" {
+			continue
 		}
+		val, err := strconv.ParseBool(v)
+		if err != nil {
+			errs = append(errs, fmt.Errorf("%s: want true or false, got %q", b.name, v))
+			continue
+		}
+		*b.dst = val
 	}
 
 	if c.DefaultExpiry < MinExpiry {
