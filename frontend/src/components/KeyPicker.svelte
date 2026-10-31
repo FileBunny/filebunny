@@ -19,7 +19,6 @@
     type SourceResult,
     type WkdCheck,
   } from '../lib/keylookup.ts';
-  import { siteBase } from '../lib/api.ts';
   import { copyText } from '../lib/format.ts';
   import ErrorMessage from './ErrorMessage.svelte';
   import Info from './Info.svelte';
@@ -33,7 +32,6 @@
 
   /** Whether this server offers the WKD proxy; hidden otherwise. */
   let wkdOffered = $state(false);
-  const server = new URL(siteBase()).host;
   onMount(async () => {
     wkdOffered = await wkdAvailable();
   });
@@ -336,7 +334,7 @@
       <Info label="Why compare the fingerprint?">
         A keyserver or a domain can hand out a key that is not the recipient's. Only the fingerprint, checked with the
         recipient in person or by phone, proves the key is theirs.
-        {#if wkdOffered}The domain check is optional: it asks the recipient's domain through {server}, which then sees
+        {#if wkdOffered}The domain check is optional: it asks the recipient's domain through FileBunny, which then sees
           the address (not logged or stored).{/if}
       </Info>
     </p>{/if}
@@ -419,17 +417,17 @@
         <p class="note">
           keys.openpgp.org sees your IP address and the address you look up.
           <Info label="About the keyserver lookup">
-            Your browser asks keys.openpgp.org directly, so {server} does not see the lookup. keys.openpgp.org only
+            Your browser asks keys.openpgp.org directly, so FileBunny does not see who you look up. keys.openpgp.org only
             publishes addresses it has verified by e-mail; that shows the address is real, not who holds the key.
           </Info>
         </p>
         {#if wkdOffered}
           <p class="checkbox">
             <label><input type="checkbox" bind:checked={useWkd} /> Also ask the recipient's domain (WKD)</label>
-            <span class="note">– {server} then sees the address.</span>
+            <span class="note">– FileBunny then sees the address.</span>
             <Info label="About WKD">
               With WKD the key comes from the recipient's own domain, for example example.org for bob@example.org. Your
-              browser cannot reach every domain, so {server} fetches it and sees the address; it does not log or store
+              browser cannot reach every domain, so FileBunny fetches it and sees the address; it does not log or store
               it. Most domains publish no keys.
             </Info>
           </p>
