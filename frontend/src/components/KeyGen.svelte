@@ -24,6 +24,7 @@
   let publicUrl = $state('');
   let savedPrivate = $state(false);
   let confirmed = $state(false);
+  let continueError = $state('');
 
   let publishing = $state(false);
   let published = $state.raw<PublishStatus[] | null>(null);
@@ -69,6 +70,7 @@
     pair = null;
     privateUrl = publicUrl = '';
     savedPrivate = confirmed = false;
+    continueError = '';
     published = null;
     publishError = '';
   }
@@ -83,6 +85,27 @@
       publishError = err instanceof Error ? err.message : 'Publishing failed.';
     } finally {
       publishing = false;
+    }
+  }
+
+  function savedIt() {
+    savedPrivate = true;
+    continueError = '';
+  }
+
+  // The button stays enabled and says what is missing: a greyed-out
+  // button does not tell you why.
+  function continueWith() {
+    if (!pair) return;
+    if (!savedPrivate) {
+      continueError = 'Save the private key first.';
+      document.getElementById('save-private')?.focus();
+    } else if (!confirmed) {
+      continueError = 'Tick the box to confirm you saved the private key.';
+      document.getElementById('confirm-saved')?.focus();
+    } else {
+      continueError = '';
+      onCreated?.(pair);
     }
   }
 
@@ -105,10 +128,10 @@
       <input type="email" bind:value={email} autocomplete="off" spellcheck="false" />
     </label>
     <p class="note">
-      Name and address end up in the public key, so everyone who gets the key sees them.
+      Anyone who gets your public key sees the name and address; leave both empty for an anonymous key.
       <Info label="Name and e-mail in the key">
-        Leave both empty for a key that only says "FileBunny key". An e-mail address lets others find your key on a
-        keyserver, if you choose to publish it.
+        Without them the key only says "FileBunny key". An e-mail address lets others find your key on a keyserver, if
+        you choose to publish it.
       </Info>
     </p>
     <SecretField label="Passphrase for the private key" bind:value={passphrase} />
@@ -125,17 +148,17 @@
 
     <h3>Save your private key</h3>
     <p class="warning">
-      Only this key, with its passphrase, opens what is sent to you. FileBunny keeps no copy: if you lose it, nobody can
-      open those files.
+      Your private key and its passphrase are the only way to open what is sent to you. FileBunny keeps no copy: if you
+      lose either, nobody can open those files.
     </p>
     <p class="row">
-      <a class="button primary" href={privateUrl} download={`${fileBase}-private-key.asc`} onclick={() => (savedPrivate = true)}>
+      <a id="save-private" class="button primary" href={privateUrl} download={`${fileBase}-private-key.asc`} onclick={savedIt}>
         Save private key (.asc)
       </a>
       <a class="button" href={publicUrl} download={`${fileBase}-public-key.asc`}>Save public key (.asc)</a>
     </p>
     <label class="checkbox">
-      <input type="checkbox" bind:checked={confirmed} disabled={!savedPrivate} />
+      <input id="confirm-saved" type="checkbox" bind:checked={confirmed} onchange={() => (continueError = '')} />
       I saved the private key in a safe place and I know its passphrase.
     </label>
 
@@ -170,11 +193,10 @@
 
     <p class="row">
       {#if onCreated}
-        <button type="button" class="primary" disabled={!confirmed} onclick={() => pair && onCreated?.(pair)}>
-          {continueLabel}
-        </button>
+        <button type="button" class="primary" onclick={continueWith}>{continueLabel}</button>
       {/if}
       <button type="button" onclick={startOver}>Start over</button>
     </p>
+    <ErrorMessage error={continueError} />
   </div>
 {/if}
