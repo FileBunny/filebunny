@@ -36,6 +36,9 @@ type createInboxResponse struct {
 	MaxSize     int64     `json:"max_size"`
 	// KeepSeconds is how long each upload is kept after it arrives.
 	KeepSeconds int64 `json:"keep_seconds"`
+	// Storage is the external service uploads go to; omitted for this
+	// server.
+	Storage string `json:"storage,omitempty"`
 }
 
 type inboxInfoResponse struct {
@@ -44,7 +47,8 @@ type inboxInfoResponse struct {
 	UploadsLeft int       `json:"uploads_left"`
 	BytesLeft   int64     `json:"bytes_left"`
 	// MaxFileSize is the most one upload may be now.
-	MaxFileSize int64 `json:"max_file_size"`
+	MaxFileSize int64  `json:"max_file_size"`
+	Storage     string `json:"storage,omitempty"`
 }
 
 type inboxFile struct {
@@ -69,12 +73,25 @@ type inboxUploadResponse struct {
 }
 
 // handleCreateInbox registers a public key (ASCII-armored, as the body).
-// Query: "expires" (Go duration, default and max from the config) and
-// "max_uploads" (1 to the configured max, default 10).
+// Query: "expires" (Go duration, default and max from the config),
+// "max_uploads" (1 to the configured max, default 10) and "storage" (an
+// external service from GET /api/v1/storage that uploads go to through
+// this server; "local" or empty: this server).
 func (s *Server) handleCreateInbox(w http.ResponseWriter, r *http.Request) {
 	expiry := s.cfg.InboxDefaultExpiry
 	maxUploads := min(defaultInboxUploads, s.cfg.InboxMaxUploads)
 	q := r.URL.Query()
+	var rem *remote
+	if v := q.Get("storage"); v != "" && v != "local" {
+		if rem = s.remotes[v]; rem == nil {
+			writeError(w, http.StatusBadRequest, "unknown storage")
+			return
+		}
+		if healthy, _ := rem.status(); !healthy {
+			writeRemoteError(w, errRemoteDown)
+			return
+		}
+	}
 	if v := q.Get("expires"); v != "" {
 		d, err := time.ParseDuration(v)
 		if err != nil || d < config.MinExpiry || d > s.cfg.InboxMaxExpiry {
@@ -101,8 +118,12 @@ func (s *Server) handleCreateInbox(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	var storageName string
+	if rem != nil {
+		storageName = rem.Name()
+	}
 	now := s.now()
-	in, token, err := s.store.CreateInbox(r.Context(), key, now, now.Add(expiry), maxUploads, s.cfg.InboxMaxSize, s.cfg.MaxInboxes)
+	in, token, err := s.store.CreateInbox(r.Context(), key, storageName, now, now.Add(expiry), maxUploads, s.cfg.InboxMaxSize, s.cfg.MaxInboxes)
 	if errors.Is(err, store.ErrTooManyInboxes) {
 		w.Header().Set("Retry-After", "3600")
 		writeError(w, http.StatusServiceUnavailable, "too many upload links, try again later")
@@ -115,7 +136,7 @@ func (s *Server) handleCreateInbox(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, http.StatusCreated, createInboxResponse{
 		ID: in.ID, ManageToken: token, ExpiresAt: in.ExpiresAt.UTC(), MaxUploads: in.MaxUploads, MaxSize: in.MaxBytes,
-		KeepSeconds: int64(s.cfg.MaxExpiry / time.Second),
+		KeepSeconds: int64(s.inboxKeep(in) / time.Second), Storage: in.Storage,
 	})
 }
 
@@ -154,7 +175,35 @@ func (s *Server) handleInboxInfo(w http.ResponseWriter, r *http.Request) {
 		UploadsLeft: in.UploadsLeft(),
 		BytesLeft:   in.BytesLeft(),
 		MaxFileSize: s.inboxMaxFileSize(in),
+		Storage:     in.Storage,
 	})
+}
+
+// inboxKeep is how long a file sent to the link is kept: the configured
+// max expiry, or the service's if that is shorter.
+func (s *Server) inboxKeep(in store.Inbox) time.Duration {
+	if rem := s.remotes[in.Storage]; rem != nil {
+		return min(s.cfg.MaxExpiry, rem.MaxExpiry())
+	}
+	return s.cfg.MaxExpiry
+}
+
+// inboxRemote returns the service uploads to the link go to (nil for this
+// server's disk) and whether uploading is possible now. If not, it has
+// answered with 503, before any data is sent.
+func (s *Server) inboxRemote(w http.ResponseWriter, in store.Inbox) (*remote, bool) {
+	if in.Storage == "" {
+		return nil, true
+	}
+	rem := s.remoteFor(w, in.Storage)
+	if rem == nil {
+		return nil, false
+	}
+	if healthy, _ := rem.status(); !healthy {
+		writeRemoteError(w, errRemoteDown)
+		return nil, false
+	}
+	return rem, true
 }
 
 func (s *Server) inboxMaxFileSize(in store.Inbox) int64 {
@@ -181,6 +230,10 @@ func (s *Server) handleInboxUpload(w http.ResponseWriter, r *http.Request) {
 	limit := s.inboxMaxFileSize(in)
 	if limit == 0 {
 		writeError(w, http.StatusConflict, "this upload link is full")
+		return
+	}
+	rem, ok := s.inboxRemote(w, in)
+	if !ok {
 		return
 	}
 	if r.ContentLength > limit {
@@ -230,14 +283,24 @@ func (s *Server) handleInboxUpload(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "upload is empty")
 		return
 	}
-	s.commitToInbox(w, r, p, id)
+	s.commitToInbox(w, r, p, in, rem)
 }
 
-// commitToInbox finishes an upload to a link (single or chunked) and
-// writes the response. p must not be used after.
-func (s *Server) commitToInbox(w http.ResponseWriter, r *http.Request, p *store.Pending, inboxID string) {
-	now := s.now()
-	f, err := s.store.CommitToInbox(r.Context(), p, inboxID, now, now.Add(s.cfg.MaxExpiry))
+// commitToInbox finishes an upload to a link (single or chunked), on this
+// server's disk or, if rem is not nil, at that service, and writes the
+// response. p must not be used after.
+func (s *Server) commitToInbox(w http.ResponseWriter, r *http.Request, p *store.Pending, in store.Inbox, rem *remote) {
+	var f store.File
+	var err error
+	if rem == nil {
+		now := s.now()
+		f, err = s.store.CommitToInbox(r.Context(), p, in.ID, now, now.Add(s.inboxKeep(in)))
+	} else {
+		f, err = s.commitRemoteToInbox(r.Context(), p, rem, in.ID, s.inboxKeep(in))
+	}
+	if writeRemoteError(w, err) {
+		return
+	}
 	switch {
 	case errors.Is(err, store.ErrNotFound):
 		writeError(w, http.StatusNotFound, "not found")
@@ -310,6 +373,19 @@ func (s *Server) handleInboxFile(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		s.log.Error("download from link failed", "err", err)
 		writeError(w, http.StatusInternalServerError, "download failed")
+		return
+	}
+	if blob == nil {
+		rem := s.remoteFor(w, f.Storage)
+		if rem == nil {
+			return
+		}
+		release, err := rem.acquire(f.Size, s.cfg.ProxyDailyBytes, s.now())
+		if writeRemoteError(w, err) {
+			return
+		}
+		defer release()
+		s.serveRemote(w, r, f, rem)
 		return
 	}
 	defer blob.Close()

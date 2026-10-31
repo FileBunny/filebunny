@@ -273,8 +273,7 @@ func (s *Server) handleDownload(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	var rem *remote
 	if f, err := s.store.Stat(r.Context(), id, s.now()); err == nil && f.Storage != "" {
-		if rem = s.remotes[f.Storage]; rem == nil {
-			writeError(w, http.StatusServiceUnavailable, "external storage is no longer offered")
+		if rem = s.remoteFor(w, f.Storage); rem == nil {
 			return
 		}
 		release, err := rem.acquire(f.Size, s.cfg.ProxyDailyBytes, s.now())

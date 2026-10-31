@@ -262,3 +262,94 @@ func TestRemoteCheck(t *testing.T) {
 		t.Errorf("check: %v", err)
 	}
 }
+
+// An upload link can send what it receives on to a service: single and
+// chunked uploads go there, the owner fetches through this server as often
+// as needed, and revoking the link deletes the blobs.
+func TestRemoteInbox(t *testing.T) {
+	e := newTestEnv(t)
+	if rec := e.do("POST", "/api/v1/inboxes?storage=filebin", strings.NewReader(testPublicKey)); rec.Code != http.StatusBadRequest {
+		t.Errorf("link to a service not offered: %d, want 400", rec.Code)
+	}
+	fake := withRemote(t, e)
+	in := e.createInbox(t, "?storage=filebin")
+	if in.Storage != "filebin" || in.KeepSeconds != int64(6*24*time.Hour/time.Second) {
+		t.Errorf("created %+v", in)
+	}
+	if rec := e.do("GET", "/api/v1/inboxes/"+in.ID, nil); !strings.Contains(rec.Body.String(), `"storage":"filebin"`) {
+		t.Errorf("info does not tell the uploader: %s", rec.Body)
+	}
+
+	if rec := e.do("POST", "/api/v1/inboxes/"+in.ID+"/files", strings.NewReader("ciphertext")); rec.Code != http.StatusCreated {
+		t.Fatalf("upload: %d %s", rec.Code, rec.Body)
+	}
+	up := e.createUpload(t, "?inbox="+in.ID)
+	e.chunk(up, 0, "chunked")
+	if rec := e.complete(up); rec.Code != http.StatusCreated {
+		t.Fatalf("complete: %d %s", rec.Code, rec.Body)
+	}
+	if fake.count() != 2 {
+		t.Fatalf("%d blobs at the service, want 2", fake.count())
+	}
+	if total, _ := e.srv.store.TotalSize(t.Context()); total != 0 || e.srv.reserved != 0 {
+		t.Errorf("local total %d, reserved %d, want 0", total, e.srv.reserved)
+	}
+
+	var list manageInboxResponse
+	json.Unmarshal(e.manage("GET", "/files", in).Body.Bytes(), &list)
+	if len(list.Files) != 2 || list.Files[0].ExpiresAt != e.clock.Add(6*24*time.Hour).UTC().Truncate(time.Second) {
+		t.Fatalf("list %+v", list)
+	}
+	first := list.Files[0]
+	if first.Size != 10 { // same second: the order is by ID
+		first = list.Files[1]
+	}
+	for range 2 {
+		if rec := e.manage("GET", "/files/"+first.ID, in); rec.Code != http.StatusOK || rec.Body.String() != "ciphertext" {
+			t.Fatalf("owner download: %d %q", rec.Code, rec.Body)
+		}
+	}
+
+	// Down: refused before the data, for both kinds of upload.
+	fake.fail = true
+	e.srv.remotes["filebin"].check(t.Context(), e.clock)
+	for _, target := range []string{"/api/v1/inboxes/" + in.ID + "/files", "/api/v1/uploads?inbox=" + in.ID} {
+		if rec := e.do("POST", target, strings.NewReader("x")); rec.Code != http.StatusServiceUnavailable {
+			t.Errorf("%s while down: %d, want 503", target, rec.Code)
+		}
+	}
+	if rec := e.do("POST", "/api/v1/inboxes?storage=filebin", strings.NewReader(testPublicKey)); rec.Code != http.StatusServiceUnavailable {
+		t.Errorf("new link while down: %d, want 503", rec.Code)
+	}
+	fake.fail = false
+	e.srv.remotes["filebin"].check(t.Context(), e.clock)
+
+	if rec := e.manage("DELETE", "", in); rec.Code != http.StatusNoContent {
+		t.Fatalf("revoke: %d", rec.Code)
+	}
+	e.srv.deleteDueRemote(t.Context())
+	if fake.count() != 0 {
+		t.Errorf("%d blobs left after revoking", fake.count())
+	}
+}
+
+// A link that fills up while its upload is on the way to the service
+// leaves nothing behind there.
+func TestRemoteInboxFullAfterSend(t *testing.T) {
+	e := newTestEnv(t)
+	fake := withRemote(t, e)
+	in := e.createInbox(t, "?storage=filebin&max_uploads=1")
+	a := e.createUpload(t, "?inbox="+in.ID)
+	b := e.createUpload(t, "?inbox="+in.ID)
+	e.chunk(a, 0, "one")
+	e.chunk(b, 0, "two")
+	if rec := e.complete(a); rec.Code != http.StatusCreated {
+		t.Fatalf("first: %d %s", rec.Code, rec.Body)
+	}
+	if rec := e.complete(b); rec.Code != http.StatusConflict {
+		t.Errorf("second: %d, want 409", rec.Code)
+	}
+	if fake.count() != 1 {
+		t.Errorf("%d blobs at the service, want 1", fake.count())
+	}
+}

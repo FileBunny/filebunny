@@ -200,24 +200,56 @@ func (s *Server) deleteDueRemote(ctx context.Context) {
 // commitRemote sends a received upload on to the service in lim and records
 // it; p is aborted afterwards in every case.
 func (s *Server) commitRemote(ctx context.Context, p *store.Pending, lim limits) (store.File, string, error) {
-	defer p.Abort()
-	r := lim.remote
-	release, err := r.acquire(p.Size(), s.cfg.ProxyDailyBytes, s.now())
+	ref, err := s.sendRemote(ctx, p, lim.remote)
 	if err != nil {
 		return store.File{}, "", err
+	}
+	now := s.now()
+	f, token, err := s.store.CommitRemote(ctx, p.Size(), lim.remote.Name(), ref, now, now.Add(lim.expiry), lim.maxDownloads)
+	if err != nil {
+		s.dropRemote(ctx, lim.remote, ref)
+		return store.File{}, "", err
+	}
+	return f, token, nil
+}
+
+// commitRemoteToInbox sends a received upload to an upload link on to rem
+// and records it; p is aborted afterwards in every case.
+func (s *Server) commitRemoteToInbox(ctx context.Context, p *store.Pending, rem *remote, inboxID string, keep time.Duration) (store.File, error) {
+	ref, err := s.sendRemote(ctx, p, rem)
+	if err != nil {
+		return store.File{}, err
+	}
+	now := s.now()
+	f, err := s.store.CommitRemoteToInbox(ctx, p.Size(), rem.Name(), ref, inboxID, now, now.Add(keep))
+	if err != nil {
+		// Also when the link filled up meanwhile: nobody can reach the blob.
+		s.dropRemote(ctx, rem, ref)
+		return store.File{}, err
+	}
+	return f, nil
+}
+
+// sendRemote uploads p to r under a new ref, within r's transfer slots and
+// the daily traffic cap; p is aborted afterwards in every case.
+func (s *Server) sendRemote(ctx context.Context, p *store.Pending, r *remote) (string, error) {
+	defer p.Abort()
+	release, err := r.acquire(p.Size(), s.cfg.ProxyDailyBytes, s.now())
+	if err != nil {
+		return "", err
 	}
 	defer release()
 
 	content, err := p.Content()
 	if err != nil {
-		return store.File{}, "", err
+		return "", err
 	}
 	h := sha256.New()
 	if _, err := io.Copy(h, content); err != nil {
-		return store.File{}, "", err
+		return "", err
 	}
 	if _, err := content.Seek(0, io.SeekStart); err != nil {
-		return store.File{}, "", err
+		return "", err
 	}
 	var sum [32]byte
 	h.Sum(sum[:0])
@@ -228,17 +260,26 @@ func (s *Server) commitRemote(ctx context.Context, p *store.Pending, lim limits)
 	err = r.Upload(tctx, ref, content, p.Size(), sum)
 	r.report(err)
 	if err != nil {
-		return store.File{}, "", errors.Join(errRemoteDown, err)
+		return "", errors.Join(errRemoteDown, err)
 	}
-	now := s.now()
-	f, token, err := s.store.CommitRemote(ctx, p.Size(), r.Name(), ref, now, now.Add(lim.expiry), lim.maxDownloads)
-	if err != nil {
-		dctx, dcancel := context.WithTimeout(context.WithoutCancel(ctx), time.Minute)
-		_ = r.Delete(dctx, ref)
-		dcancel()
-		return store.File{}, "", err
+	return ref, nil
+}
+
+// dropRemote deletes a blob that was uploaded but could not be recorded.
+func (s *Server) dropRemote(ctx context.Context, r *remote, ref string) {
+	dctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), time.Minute)
+	defer cancel()
+	_ = r.Delete(dctx, ref)
+}
+
+// remoteFor returns the service a stored file or link uses, or answers 503
+// and returns nil if it is no longer offered.
+func (s *Server) remoteFor(w http.ResponseWriter, name string) *remote {
+	rem := s.remotes[name]
+	if rem == nil {
+		writeError(w, http.StatusServiceUnavailable, "external storage is no longer offered")
 	}
-	return f, token, nil
+	return rem
 }
 
 // addRemote offers r as external storage.

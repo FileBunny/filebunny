@@ -308,7 +308,7 @@ so does the smoke test).
 | | |
 |---|---|
 | Date | 2026-10-31 |
-| Scope | Branch `phase-5`: `internal/storage` (Filebin adapter), `?storage=` on uploads, remote downloads, `remote_trash`, health checks, `GET /api/v1/storage`; frontend storage choice, direct route to Filebin, `#/x/filebin/…`, `#/status` |
+| Scope | Branch `phase-5`: `internal/storage` (Filebin adapter), `?storage=` on uploads, remote downloads, `remote_trash`, health checks, `GET /api/v1/storage`, `?storage=` on upload links (through FileBunny only); frontend storage choice, direct route to Filebin, `#/x/filebin/…`, `#/status` |
 | Reviewer | Claude Code (AI-assisted), during development |
 
 ### Requirement from phase 1: SSRF in outgoing requests

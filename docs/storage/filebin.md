@@ -6,7 +6,9 @@ It only ever stores ciphertext: encryption happens in the browser, as for
 local storage. Code: `backend/internal/storage/filebin.go`,
 `frontend/src/lib/filebin.ts`.
 
-Upload links (inboxes) always stay on this server.
+Upload links (inboxes) can keep what they receive there too, but only
+through FileBunny: the owner chooses when creating the link, and the owner
+fetches the files through FileBunny.
 
 ## Two routes
 

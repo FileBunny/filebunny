@@ -126,3 +126,50 @@ func TestPendingContent(t *testing.T) {
 		t.Errorf("content %q", data)
 	}
 }
+
+// Files of an upload link at an external service count against the link,
+// list with their storage, open without a local blob, and go to
+// remote_trash when the link is revoked.
+func TestRemoteInboxFiles(t *testing.T) {
+	s, _ := openTest(t)
+	ctx := context.Background()
+	in, _, err := s.CreateInbox(ctx, []byte(testKey), "filebin", t0, t0.Add(24*time.Hour), 1, 1000, 100)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := s.OpenInbox(ctx, in.ID, t0)
+	if err != nil || got.Storage != "filebin" {
+		t.Fatalf("OpenInbox: %+v, %v", got, err)
+	}
+
+	f, err := s.CommitRemoteToInbox(ctx, 100, "filebin", "bin1", in.ID, t0, t0.Add(time.Hour))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.CommitRemoteToInbox(ctx, 100, "filebin", "bin2", in.ID, t0, t0.Add(time.Hour)); err != ErrInboxFull {
+		t.Errorf("second upload to a one-upload link: %v, want ErrInboxFull", err)
+	}
+	if _, err := s.CommitRemoteToInbox(ctx, 100, "filebin", "bin3", "nope", t0, t0.Add(time.Hour)); err != ErrNotFound {
+		t.Errorf("unknown link: %v, want ErrNotFound", err)
+	}
+
+	list, err := s.InboxFiles(ctx, in.ID, t0)
+	if err != nil || len(list) != 1 || list[0].Storage != "filebin" || list[0].RemoteRef != "bin1" {
+		t.Fatalf("InboxFiles: %+v, %v", list, err)
+	}
+	gotFile, blob, err := s.InboxFile(ctx, in.ID, f.ID, t0)
+	if err != nil || blob != nil || gotFile.RemoteRef != "bin1" {
+		t.Fatalf("InboxFile: %+v, %v, %v", gotFile, blob, err)
+	}
+	// Not a share link: never downloadable without the management token.
+	if _, _, err := s.Get(ctx, f.ID, t0); err != ErrNotFound {
+		t.Errorf("Get of a link file: %v", err)
+	}
+
+	if err := s.DeleteInbox(ctx, in.ID); err != nil {
+		t.Fatal(err)
+	}
+	if want := []RemoteObject{{"filebin", "bin1"}}; !reflect.DeepEqual(due(t, s, t0), want) {
+		t.Errorf("due after revoke: %v, want %v", due(t, s, t0), want)
+	}
+}

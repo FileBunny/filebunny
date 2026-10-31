@@ -116,6 +116,8 @@ echo "external storage (off by default; CI never talks to Filebin)"
 [[ $("${curl[@]}" "$base/api/v1/storage") == '{"storage":[]}' ]] || fail "storage status"
 code=$("${curl[@]}" -o /dev/null -w '%{http_code}' --data-binary 'x' "$base/api/v1/files?storage=filebin")
 [[ $code == 400 ]] || fail "storage not offered: $code"
+code=$("${curl[@]}" -o /dev/null -w '%{http_code}' --data-binary "$key" "$base/api/v1/inboxes?storage=filebin")
+[[ $code == 400 ]] || fail "upload link storage not offered: $code"
 
 echo "error log with backend down"
 docker compose stop backend >/dev/null

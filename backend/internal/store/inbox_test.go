@@ -16,7 +16,7 @@ const testKey = "-----BEGIN PGP PUBLIC KEY BLOCK-----\n...\n-----END PGP PUBLIC 
 
 func createInbox(t *testing.T, s *Store, maxUploads int, maxBytes int64) (Inbox, string) {
 	t.Helper()
-	in, token, err := s.CreateInbox(context.Background(), []byte(testKey), t0, t0.Add(24*time.Hour), maxUploads, maxBytes, 100)
+	in, token, err := s.CreateInbox(context.Background(), []byte(testKey), "", t0, t0.Add(24*time.Hour), maxUploads, maxBytes, 100)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -212,15 +212,15 @@ func TestInboxCap(t *testing.T) {
 	s, _ := openTest(t)
 	ctx := context.Background()
 	for range 2 {
-		if _, _, err := s.CreateInbox(ctx, []byte(testKey), t0, t0.Add(time.Hour), 1, 10, 2); err != nil {
+		if _, _, err := s.CreateInbox(ctx, []byte(testKey), "", t0, t0.Add(time.Hour), 1, 10, 2); err != nil {
 			t.Fatal(err)
 		}
 	}
-	if _, _, err := s.CreateInbox(ctx, []byte(testKey), t0, t0.Add(time.Hour), 1, 10, 2); !errors.Is(err, ErrTooManyInboxes) {
+	if _, _, err := s.CreateInbox(ctx, []byte(testKey), "", t0, t0.Add(time.Hour), 1, 10, 2); !errors.Is(err, ErrTooManyInboxes) {
 		t.Errorf("third link: %v", err)
 	}
 	// Expired links do not count.
-	if _, _, err := s.CreateInbox(ctx, []byte(testKey), t0.Add(2*time.Hour), t0.Add(3*time.Hour), 1, 10, 2); err != nil {
+	if _, _, err := s.CreateInbox(ctx, []byte(testKey), "", t0.Add(2*time.Hour), t0.Add(3*time.Hour), 1, 10, 2); err != nil {
 		t.Errorf("after the others expired: %v", err)
 	}
 }

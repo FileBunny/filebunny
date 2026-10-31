@@ -214,7 +214,7 @@ only served with the management token, never through `/api/v1/files`.
 ### Create
 
 ```
-POST /api/v1/inboxes?expires=168h&max_uploads=10
+POST /api/v1/inboxes?expires=168h&max_uploads=10&storage=<name>
 Content-Type: text/plain
 
 -----BEGIN PGP PUBLIC KEY BLOCK-----
@@ -226,6 +226,11 @@ Content-Type: text/plain
 |---|---|---|
 | `expires` | `168h` (`FILEBUNNY_INBOX_DEFAULT_EXPIRY`) | `1m` to `720h` (`FILEBUNNY_INBOX_MAX_EXPIRY`) |
 | `max_uploads` | 10 | 1 to 100 (`FILEBUNNY_INBOX_MAX_UPLOADS`) |
+| `storage` | `local` (this server) | a name from [Storage](#storage), e.g. `filebin` |
+
+With `storage`, everything sent to the link goes on to that service
+through this server, as for share links: the service sees this server,
+not the uploader or the owner.
 
 The body must be an ASCII-armored public key of at most 64 KiB. The
 server only checks its shape (armor lines, printable ASCII); it does not
@@ -241,15 +246,16 @@ in total (default 100 MiB).
 ```
 
 `keep_seconds` is how long each upload is kept after it arrives
-(`FILEBUNNY_MAX_EXPIRY`).
+(`FILEBUNNY_MAX_EXPIRY`, or the service's maximum if that is shorter).
+With external storage the answer also has `"storage": "filebin"`.
 
 Only a SHA-256 of the management token is stored.
 
 | Status | When |
 |---|---|
-| 400 | Not an armored public key, or a parameter out of range |
+| 400 | Not an armored public key, a parameter out of range, or `storage` not offered |
 | 413 | Key over 64 KiB |
-| 503 | Too many open links on this server (`FILEBUNNY_MAX_INBOXES`, default 1000) |
+| 503 | Too many open links on this server (`FILEBUNNY_MAX_INBOXES`, default 1000), or the external storage is unavailable |
 
 ### Info (public)
 
@@ -258,7 +264,8 @@ GET /api/v1/inboxes/{id}
 ```
 
 **200 OK**: `{"public_key": "-----BEGIN PGP…", "expires_at": "…",
-"uploads_left": 9, "bytes_left": 104857586, "max_file_size": 104857586}`.
+"uploads_left": 9, "bytes_left": 104857586, "max_file_size": 104857586}`,
+plus `"storage": "filebin"` when uploads go to external storage.
 A full link is still returned (with nothing left). **404** when unknown,
 expired or revoked.
 
@@ -272,7 +279,8 @@ Body: the ciphertext, at most `max_file_size`. Larger files use the
 chunked upload with `POST /api/v1/uploads?inbox={id}` (no `expires` or
 `max_downloads`; `max_size` is what the link has left); `complete` then
 answers like this endpoint. Files of a link are kept for 7 days
-(`FILEBUNNY_MAX_EXPIRY`) after the upload, independent of the link.
+(`FILEBUNNY_MAX_EXPIRY`; 6 at Filebin) after the upload, independent of
+the link.
 
 **201 Created**: `{"size": 14}`. The uploader gets no ID and no delete
 token. The upload and byte counters are updated atomically with storing
@@ -284,6 +292,7 @@ the file, so parallel uploads cannot exceed the limits.
 | 404 | Unknown, expired or revoked link |
 | 409 | No uploads or bytes left |
 | 413 | Larger than what the link has left |
+| 503 | The link's external storage is unavailable, busy or no longer offered (checked before the body is read) |
 | 507 | Server storage full |
 
 ### Manage (management token)
@@ -295,7 +304,7 @@ after the link expired, as long as it still holds files.
 | Request | Answer |
 |---|---|
 | `GET /api/v1/inboxes/{id}/files` | `{"expires_at", "open", "uploads", "max_uploads", "bytes", "max_bytes", "files": [{"id", "size", "received_at", "expires_at"}]}` |
-| `GET /api/v1/inboxes/{id}/files/{file}` | The ciphertext, with the download headers above; not counted, can be fetched again |
+| `GET /api/v1/inboxes/{id}/files/{file}` | The ciphertext, with the download headers above; not counted, can be fetched again. At external storage also 502/503 as for downloads |
 | `DELETE /api/v1/inboxes/{id}/files/{file}` | 204; the upload it used stays used |
 | `DELETE /api/v1/inboxes/{id}` | 204; revokes the link and deletes everything it received |
 

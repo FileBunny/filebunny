@@ -118,6 +118,9 @@ var migrations = []string{
 		delete_after INTEGER NOT NULL,
 		PRIMARY KEY (storage, remote_ref)
 	) STRICT;`,
+	// The external service that files sent to an upload link go to; NULL
+	// means this server's disk.
+	`ALTER TABLE inboxes ADD COLUMN storage TEXT;`,
 }
 
 // Open opens (or creates) the store in dataDir.
@@ -311,20 +314,8 @@ func (s *Store) commit(ctx context.Context, p *Pending, now, expiresAt time.Time
 	}
 	defer tx.Rollback() // no-op after Commit
 	if inboxID != "" {
-		res, err := tx.ExecContext(ctx,
-			`UPDATE inboxes SET uploads = uploads + 1, bytes = bytes + ?
-			WHERE id = ? AND expires_at > ? AND uploads < max_uploads AND bytes + ? <= max_bytes`,
-			p.size, inboxID, now.Unix(), p.size)
-		if err != nil {
+		if err := s.claimInboxUpload(ctx, tx, inboxID, p.size, now); err != nil {
 			return File{}, err
-		}
-		if n, err := res.RowsAffected(); err != nil {
-			return File{}, err
-		} else if n == 0 {
-			if _, err := s.openInbox(ctx, tx, inboxID, now); err != nil {
-				return File{}, err
-			}
-			return File{}, ErrInboxFull
 		}
 	}
 	// Insert the row before the rename: the primary key guarantees the ID
@@ -345,6 +336,28 @@ func (s *Store) commit(ctx context.Context, p *Pending, now, expiresAt time.Time
 		return File{}, err
 	}
 	return f, nil
+}
+
+// claimInboxUpload counts one upload of size bytes against an upload link,
+// in tx: ErrInboxFull when the link has not enough left, ErrNotFound when
+// it is gone or expired.
+func (s *Store) claimInboxUpload(ctx context.Context, tx *sql.Tx, inboxID string, size int64, now time.Time) error {
+	res, err := tx.ExecContext(ctx,
+		`UPDATE inboxes SET uploads = uploads + 1, bytes = bytes + ?
+		WHERE id = ? AND expires_at > ? AND uploads < max_uploads AND bytes + ? <= max_bytes`,
+		size, inboxID, now.Unix(), size)
+	if err != nil {
+		return err
+	}
+	if n, err := res.RowsAffected(); err != nil {
+		return err
+	} else if n == 0 {
+		if _, err := s.openInbox(ctx, tx, inboxID, now); err != nil {
+			return err
+		}
+		return ErrInboxFull
+	}
+	return nil
 }
 
 // available is the SQL condition for a file that can still be downloaded.

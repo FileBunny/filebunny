@@ -175,8 +175,11 @@ mails a verification link.
 
 A share link's ciphertext can be kept at an external service instead of
 on this server's disk (`backend/internal/storage`, step 3 on Send). For
-now one service: [Filebin](storage/filebin.md). Upload links always stay
-on this server. The sender chooses:
+now one service: [Filebin](storage/filebin.md). The owner of an upload
+link can choose external storage too, through FileBunny only
+(`inboxes.storage`): uploads to the link are sent on like share links, and
+the owner's downloads are streamed back. The sender of a share link
+chooses:
 
 - **On FileBunny** (default).
 - **Through FileBunny:** the server receives the ciphertext as usual
@@ -263,7 +266,7 @@ after a crash).
 | Client IP address | Nowhere | — |
 | Looked-up e-mail addresses (WKD) | Nowhere; in memory during the request only | — |
 | Upload links: the owner's public key (incl. its user IDs), SHA-256 of the management token, expiry, limits and counters | SQLite | Until the link is revoked, or expired and empty |
-| Files received by an upload link | `data/blobs/<id>`, row with `inbox_id` | 7 days after arrival, or until deleted or the link is revoked |
+| Files received by an upload link | `data/blobs/<id>`, row with `inbox_id`; or at the link's external storage, as above | 7 days after arrival (6 at Filebin), or until deleted or the link is revoked |
 | Private keys and passphrases of generated key pairs | Nowhere (browser only) | — |
 | File name, content type, plaintext | Nowhere (encrypted inside the ciphertext from phase 2) | — |
 | Logs | Container stdout | No IPs, no IDs, no tokens; see below |
