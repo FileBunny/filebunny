@@ -34,6 +34,8 @@ type createInboxResponse struct {
 	ExpiresAt   time.Time `json:"expires_at"`
 	MaxUploads  int       `json:"max_uploads"`
 	MaxSize     int64     `json:"max_size"`
+	// KeepSeconds is how long each upload is kept after it arrives.
+	KeepSeconds int64 `json:"keep_seconds"`
 }
 
 type inboxInfoResponse struct {
@@ -113,6 +115,7 @@ func (s *Server) handleCreateInbox(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, http.StatusCreated, createInboxResponse{
 		ID: in.ID, ManageToken: token, ExpiresAt: in.ExpiresAt.UTC(), MaxUploads: in.MaxUploads, MaxSize: in.MaxBytes,
+		KeepSeconds: int64(s.cfg.MaxExpiry / time.Second),
 	})
 }
 

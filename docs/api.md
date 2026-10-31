@@ -221,8 +221,12 @@ in total (default 100 MiB).
 
 ```json
 {"id": "Qm9vZ2llV29vZ2llQm9vZ2ll", "manage_token": "…43 characters…",
- "expires_at": "2026-11-05T12:00:00Z", "max_uploads": 10, "max_size": 104857600}
+ "expires_at": "2026-11-05T12:00:00Z", "max_uploads": 10, "max_size": 104857600,
+ "keep_seconds": 604800}
 ```
+
+`keep_seconds` is how long each upload is kept after it arrives
+(`FILEBUNNY_MAX_EXPIRY`).
 
 Only a SHA-256 of the management token is stored.
 

@@ -31,7 +31,8 @@ func (e *testEnv) manage(method, path string, in createInboxResponse) *httptest.
 func TestCreateInbox(t *testing.T) {
 	e := newTestEnv(t)
 	in := e.createInbox(t, "")
-	if in.ID == "" || len(in.ManageToken) != 43 || in.MaxUploads != 10 || in.MaxSize != 100<<20 {
+	if in.ID == "" || len(in.ManageToken) != 43 || in.MaxUploads != 10 || in.MaxSize != 100<<20 ||
+		in.KeepSeconds != int64(e.srv.cfg.MaxExpiry/time.Second) {
 		t.Errorf("response %+v", in)
 	}
 	if want := e.clock.Add(7 * 24 * time.Hour); !in.ExpiresAt.Equal(want) {

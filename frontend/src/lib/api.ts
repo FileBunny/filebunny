@@ -261,6 +261,8 @@ export type InboxCreated = {
   expiresAt: Date;
   maxUploads: number;
   maxSize: number;
+  /** How long each upload is kept after it arrives, in seconds. */
+  keepSeconds: number;
 };
 
 export type InboxInfo = {
@@ -288,8 +290,22 @@ export type InboxStatus = {
 export async function createInbox(publicKey: string, opts: { expires: string; maxUploads: number }): Promise<InboxCreated> {
   const q = new URLSearchParams({ expires: opts.expires, max_uploads: String(opts.maxUploads) });
   const res = await request('POST', `/api/v1/inboxes?${q}`, { body: new Blob([publicKey]) });
-  const r = (await res.json()) as { id: string; manage_token: string; expires_at: string; max_uploads: number; max_size: number };
-  return { id: r.id, manageToken: r.manage_token, expiresAt: new Date(r.expires_at), maxUploads: r.max_uploads, maxSize: r.max_size };
+  const r = (await res.json()) as {
+    id: string;
+    manage_token: string;
+    expires_at: string;
+    max_uploads: number;
+    max_size: number;
+    keep_seconds: number;
+  };
+  return {
+    id: r.id,
+    manageToken: r.manage_token,
+    expiresAt: new Date(r.expires_at),
+    maxUploads: r.max_uploads,
+    maxSize: r.max_size,
+    keepSeconds: r.keep_seconds,
+  };
 }
 
 /** The public side of an upload link; null when it is gone or expired. */
