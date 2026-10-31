@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { generatePassword } from '../src/lib/format.ts';
-import { deleteLink, manageLink, parseRoute, shareLink, uploadLink } from '../src/lib/route.ts';
+import { deleteLink, filebinLink, manageLink, parseRoute, shareLink, uploadLink } from '../src/lib/route.ts';
 
 const id = 'bXqU3xr4yS2NwJ0qkJ8W4A';
 const token = 'OQaeFws2C8_yPR0PH6IIJP0vrUBbycKlesYhrODkODM';
@@ -43,6 +43,16 @@ test('upload link routes', () => {
   assert.deepEqual(parseRoute(new URL(up).hash), { page: 'inbox-upload', id, fingerprint: fp });
   assert.deepEqual(parseRoute(new URL(manageLink(base, id, token)).hash), { page: 'inbox-manage', id, token });
   for (const bad of [`#/u/${id}`, `#/u/${id}/${fp.slice(1)}`, `#/u/${id}/${fp.toUpperCase()}`, `#/m/${id}/short`, `#/u/${id}/${fp}/`]) {
+    assert.deepEqual(parseRoute(bad), { page: 'not-found' }, bad);
+  }
+});
+
+test('external storage routes', () => {
+  const bin = '0123456789abcdef0123456789abcdef';
+  const base = 'https://filebunny.eu';
+  assert.deepEqual(parseRoute(new URL(filebinLink(base, bin)).hash), { page: 'external', service: 'filebin', bin });
+  assert.deepEqual(parseRoute('#/status'), { page: 'status' });
+  for (const bad of [`#/x/filebin/${bin.toUpperCase()}`, `#/x/filebin/${bin}0`, '#/x/filebin/../api', `#/x/other/${bin}`]) {
     assert.deepEqual(parseRoute(bad), { page: 'not-found' }, bad);
   }
 });

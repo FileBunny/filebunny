@@ -3,7 +3,8 @@
 //
 // - keys.openpgp.org is asked directly from the browser: the keyserver
 //   sees the visitor's IP address and the address looked up; FileBunny
-//   sees nothing. It is the only host besides the API in connect-src.
+//   sees nothing. Besides the API, only this host and Filebin (filebin.ts)
+//   are in connect-src.
 // - WKD (the recipient's domain) goes through our backend, because those
 //   domains cannot be listed in the CSP. Off unless the user asks for it.
 //

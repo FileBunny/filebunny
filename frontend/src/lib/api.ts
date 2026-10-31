@@ -33,6 +33,19 @@ export type Limits = {
   expires: string;
   /** 0 means unlimited. */
   maxDownloads: number;
+  /** An external service the server passes the file on to; omitted: this server. */
+  storage?: string;
+};
+
+/** The most ciphertext a share link may hold (the server's default limit). */
+export const maxCiphertext = 100 << 20;
+
+export type StorageStatus = {
+  name: string;
+  available: boolean;
+  /** null before the first check. */
+  checkedAt: Date | null;
+  maxExpirySeconds: number;
 };
 
 export type Uploaded = {
@@ -225,16 +238,25 @@ export async function download(id: string, onProgress: Progress = () => {}, sign
   return readBody(await request('GET', filePath(id), { signal }), onProgress);
 }
 
-async function readBody(res: Response, onProgress: Progress): Promise<Uint8Array> {
-  if (!res.body) return new Uint8Array(await res.arrayBuffer());
+/** Reads a response body; more than max bytes is an error. */
+export async function readBody(res: Response, onProgress: Progress = () => {}, max = Infinity): Promise<Uint8Array> {
+  if (!res.body) {
+    const all = new Uint8Array(await res.arrayBuffer());
+    if (all.length > max) throw new RangeError('response too large');
+    return all;
+  }
   const parts: Uint8Array[] = [];
   let received = 0;
   const reader = res.body.getReader();
   for (;;) {
     const { value, done } = await reader.read();
     if (done) break;
-    parts.push(value);
     received += value.length;
+    if (received > max) {
+      void reader.cancel();
+      throw new RangeError('response too large');
+    }
+    parts.push(value);
     onProgress(received);
   }
   const out = new Uint8Array(received);
@@ -248,6 +270,19 @@ async function readBody(res: Response, onProgress: Progress): Promise<Uint8Array
 
 export async function deleteFile(id: string, deleteToken: string): Promise<void> {
   await request('DELETE', filePath(id), { headers: { Authorization: `Bearer ${deleteToken}` } });
+}
+
+/** The external services this server offers (the status page). */
+export async function storageStatus(): Promise<StorageStatus[]> {
+  const r = (await (await request('GET', '/api/v1/storage')).json()) as {
+    storage: { name: string; available: boolean; checked_at?: string; max_expiry_seconds: number }[];
+  };
+  return r.storage.map((s) => ({
+    name: s.name,
+    available: s.available,
+    checkedAt: s.checked_at ? new Date(s.checked_at) : null,
+    maxExpirySeconds: s.max_expiry_seconds,
+  }));
 }
 
 /** The command-line equivalent of a download, for the gpg instructions. */
@@ -383,6 +418,7 @@ function filePath(id: string): string {
 function limitsQuery(l: Limits): string {
   const q = new URLSearchParams({ expires: l.expires });
   if (l.maxDownloads > 0) q.set('max_downloads', String(l.maxDownloads));
+  if (l.storage) q.set('storage', l.storage);
   return q.toString();
 }
 

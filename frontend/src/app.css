@@ -446,3 +446,12 @@ header nav a[aria-current='page'] {
   font-size: 1rem;
   margin: 1rem 0 0.25rem;
 }
+
+ul.status {
+  list-style: none;
+  padding: 0;
+}
+
+ul.status li {
+  margin: 0.25rem 0;
+}

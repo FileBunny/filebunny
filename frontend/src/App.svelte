@@ -7,6 +7,8 @@
   import KeyPage from './pages/KeyPage.svelte';
   import InboxUpload from './pages/InboxUpload.svelte';
   import InboxManage from './pages/InboxManage.svelte';
+  import External from './pages/External.svelte';
+  import Status from './pages/Status.svelte';
 
   let route = $state(parseRoute(location.hash));
   const tab = $derived(route.page === 'inbox-manage' ? 'receive' : route.page);
@@ -55,6 +57,12 @@
     {#key route.id}
       <InboxManage id={route.id} token={route.token} />
     {/key}
+  {:else if route.page === 'external'}
+    {#key route.bin}
+      <External bin={route.bin} />
+    {/key}
+  {:else if route.page === 'status'}
+    <Status />
   {:else}
     <h1>Page not found</h1>
     <p>Check the link, or <a href="#/">share something new</a>.</p>
