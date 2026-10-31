@@ -388,8 +388,12 @@ details.info summary::-webkit-details-marker {
   display: none;
 }
 
+/* Same look wherever the ⓘ is, also outside a .note. */
 details.info[open] .info-text {
   display: block;
+  color: var(--muted);
+  font-size: 0.9rem;
+  font-weight: normal;
   margin: 0.25rem 0 0.5rem;
   padding: 0.5rem 0.75rem;
   border-left: 3px solid var(--border);
