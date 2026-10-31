@@ -27,6 +27,10 @@ var (
 	ErrNotFound = errors.New("store: not found")
 	// ErrForbidden means the delete token does not match.
 	ErrForbidden = errors.New("store: wrong delete token")
+	// ErrInboxFull means an upload link has no uploads or bytes left.
+	ErrInboxFull = errors.New("store: upload link full")
+	// ErrTooManyInboxes means the server-wide cap on open links is reached.
+	ErrTooManyInboxes = errors.New("store: too many upload links")
 )
 
 // File is the metadata of a stored blob.
@@ -77,6 +81,22 @@ var migrations = []string{
 	// max_downloads NULL means unlimited.
 	`ALTER TABLE files ADD COLUMN max_downloads INTEGER;
 	ALTER TABLE files ADD COLUMN downloads INTEGER NOT NULL DEFAULT 0;`,
+	// Upload links. Files with an inbox_id belong to the link's owner and
+	// are only served through the management token.
+	`CREATE TABLE inboxes (
+		id                TEXT PRIMARY KEY,
+		manage_token_hash BLOB NOT NULL,
+		public_key        BLOB NOT NULL,
+		created_at        INTEGER NOT NULL,
+		expires_at        INTEGER NOT NULL,
+		max_uploads       INTEGER NOT NULL,
+		uploads           INTEGER NOT NULL DEFAULT 0,
+		max_bytes         INTEGER NOT NULL,
+		bytes             INTEGER NOT NULL DEFAULT 0
+	) STRICT;
+	CREATE INDEX inboxes_expires_at ON inboxes(expires_at);
+	ALTER TABLE files ADD COLUMN inbox_id TEXT;
+	CREATE INDEX files_inbox_id ON files(inbox_id);`,
 }
 
 // Open opens (or creates) the store in dataDir.
@@ -200,6 +220,28 @@ func (p *Pending) Abort() {
 // maxDownloads 0 means unlimited. It returns the metadata and the delete
 // token; only a hash of the token is stored.
 func (s *Store) Commit(ctx context.Context, p *Pending, now, expiresAt time.Time, maxDownloads int) (File, string, error) {
+	token := newRandom(tokenBytes)
+	f, err := s.commit(ctx, p, now, expiresAt, maxDownloads, hashToken(token), "")
+	if err != nil {
+		return File{}, "", err
+	}
+	return f, token, nil
+}
+
+// CommitToInbox makes a pending upload a file of an upload link; p must
+// not be used after. The link's upload and byte counters are updated in
+// the same transaction, so parallel uploads can never exceed its limits:
+// ErrInboxFull when they would, ErrNotFound when the link is gone or
+// expired. Nobody gets a delete token; the link's owner deletes.
+func (s *Store) CommitToInbox(ctx context.Context, p *Pending, inboxID string, now, expiresAt time.Time) (File, error) {
+	if !idPattern.MatchString(inboxID) {
+		p.Abort()
+		return File{}, ErrNotFound
+	}
+	return s.commit(ctx, p, now, expiresAt, 0, hashToken(newRandom(tokenBytes)), inboxID)
+}
+
+func (s *Store) commit(ctx context.Context, p *Pending, now, expiresAt time.Time, maxDownloads int, tokenHash []byte, inboxID string) (File, error) {
 	tmpName := p.f.Name()
 	defer os.Remove(tmpName) // no-op once renamed
 
@@ -208,33 +250,59 @@ func (s *Store) Commit(ctx context.Context, p *Pending, now, expiresAt time.Time
 		err = cerr
 	}
 	if err != nil {
-		return File{}, "", err
+		return File{}, err
 	}
 
 	id := newRandom(idBytes)
-	token := newRandom(tokenBytes)
 	// The database stores whole seconds; return what Get will return.
 	now, expiresAt = now.Truncate(time.Second), expiresAt.Truncate(time.Second)
 	f := File{ID: id, Size: p.size, CreatedAt: now, ExpiresAt: expiresAt, MaxDownloads: maxDownloads}
 
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return File{}, err
+	}
+	defer tx.Rollback() // no-op after Commit
+	if inboxID != "" {
+		res, err := tx.ExecContext(ctx,
+			`UPDATE inboxes SET uploads = uploads + 1, bytes = bytes + ?
+			WHERE id = ? AND expires_at > ? AND uploads < max_uploads AND bytes + ? <= max_bytes`,
+			p.size, inboxID, now.Unix(), p.size)
+		if err != nil {
+			return File{}, err
+		}
+		if n, err := res.RowsAffected(); err != nil {
+			return File{}, err
+		} else if n == 0 {
+			if _, err := s.openInbox(ctx, tx, inboxID, now); err != nil {
+				return File{}, err
+			}
+			return File{}, ErrInboxFull
+		}
+	}
 	// Insert the row before the rename: the primary key guarantees the ID
 	// is unused, so the rename can never overwrite another file's blob.
 	// Until the rename, Get reports the file as not found.
-	_, err = s.db.ExecContext(ctx,
-		`INSERT INTO files (id, delete_token_hash, size, created_at, expires_at, max_downloads) VALUES (?, ?, ?, ?, ?, ?)`,
-		id, hashToken(token), p.size, now.Unix(), expiresAt.Unix(), nullIfZero(maxDownloads))
+	_, err = tx.ExecContext(ctx,
+		`INSERT INTO files (id, delete_token_hash, size, created_at, expires_at, max_downloads, inbox_id) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+		id, tokenHash, p.size, now.Unix(), expiresAt.Unix(), nullIfZero(maxDownloads), nullIfEmpty(inboxID))
 	if err != nil {
-		return File{}, "", err
+		return File{}, err
+	}
+	if err := tx.Commit(); err != nil {
+		return File{}, err
 	}
 	if err := os.Rename(tmpName, s.blobPath(id)); err != nil {
+		// Leaves the link's counters as they are: that upload is used up.
 		s.db.ExecContext(context.WithoutCancel(ctx), `DELETE FROM files WHERE id = ?`, id)
-		return File{}, "", err
+		return File{}, err
 	}
-	return f, token, nil
+	return f, nil
 }
 
 // available is the SQL condition for a file that can still be downloaded.
-const available = `expires_at > ? AND (max_downloads IS NULL OR downloads < max_downloads)`
+// Files of an upload link are never available this way.
+const available = `expires_at > ? AND (max_downloads IS NULL OR downloads < max_downloads) AND inbox_id IS NULL`
 
 const fileColumns = `size, created_at, expires_at, downloads, max_downloads`
 
@@ -303,7 +371,7 @@ func (s *Store) Delete(ctx context.Context, id, token string, now time.Time) err
 	}
 	var stored []byte
 	err := s.db.QueryRowContext(ctx,
-		`SELECT delete_token_hash FROM files WHERE id = ? AND expires_at > ?`,
+		`SELECT delete_token_hash FROM files WHERE id = ? AND expires_at > ? AND inbox_id IS NULL`,
 		id, now.Unix()).Scan(&stored)
 	if errors.Is(err, sql.ErrNoRows) {
 		return ErrNotFound
@@ -353,7 +421,12 @@ func (s *Store) DeleteExpired(ctx context.Context, now time.Time) (int, error) {
 		}
 		n++
 	}
-	return n, nil
+	// An expired upload link stays while it holds files, so its owner can
+	// still fetch them; then it goes too.
+	_, err = s.db.ExecContext(ctx,
+		`DELETE FROM inboxes WHERE expires_at <= ? AND NOT EXISTS (SELECT 1 FROM files WHERE inbox_id = inboxes.id)`,
+		now.Unix())
+	return n, err
 }
 
 // RemoveOrphans deletes leftover temp files and blobs without a database
@@ -413,6 +486,13 @@ func newRandom(n int) string {
 	b := make([]byte, n)
 	rand.Read(b) // never returns an error since Go 1.24
 	return base64.RawURLEncoding.EncodeToString(b)
+}
+
+func nullIfEmpty(s string) any {
+	if s == "" {
+		return nil
+	}
+	return s
 }
 
 func nullIfZero(n int) any {

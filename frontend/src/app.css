@@ -388,8 +388,12 @@ details.info summary::-webkit-details-marker {
   display: none;
 }
 
+/* Same look wherever the ⓘ is, also outside a .note. */
 details.info[open] .info-text {
   display: block;
+  color: var(--muted);
+  font-size: 0.9rem;
+  font-weight: normal;
   margin: 0.25rem 0 0.5rem;
   padding: 0.5rem 0.75rem;
   border-left: 3px solid var(--border);
@@ -404,4 +408,41 @@ details.more summary {
 
 p.checkbox {
   margin: 0.5rem 0;
+}
+
+/* The main menu looks like tabs: one per task. It stays a <nav> with
+   aria-current, because each tab is its own page. */
+header nav {
+  display: flex;
+  gap: 0.25rem;
+  width: 100%;
+  margin-top: 0.75rem;
+  border-bottom: 1px solid var(--border);
+}
+
+header nav a {
+  padding: 0.45rem 1rem;
+  border: 1px solid transparent;
+  border-bottom: none;
+  border-radius: 6px 6px 0 0;
+  margin-bottom: -1px;
+  color: var(--muted);
+  text-decoration: none;
+}
+
+header nav a:hover {
+  color: var(--fg);
+}
+
+header nav a[aria-current='page'] {
+  background: var(--surface);
+  color: var(--fg);
+  font-weight: 600;
+  border-color: var(--border);
+  border-bottom: 1px solid var(--surface);
+}
+
+.keygen h3 {
+  font-size: 1rem;
+  margin: 1rem 0 0.25rem;
 }

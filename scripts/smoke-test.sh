@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # End-to-end check of the Docker Compose stack: headers, upload, download,
-# download limits, chunked upload, CORS, delete, the WKD proxy, and that no
-# client address, token or looked-up e-mail address reaches any container
-# log.
+# download limits, chunked upload, CORS, delete, the WKD proxy, upload
+# links, and that no client address, token or looked-up e-mail address
+# reaches any container log.
 # Usage: docker compose up -d --build && scripts/smoke-test.sh
 set -euo pipefail
 
@@ -88,6 +88,30 @@ code=$(wkd "$wkd_local@$wkd_domain")
 code=$("${curl[@]}" -o /dev/null -w '%{http_code}' "$base/api/v1/wkd?email=$wkd_local@$wkd_domain")
 [[ $code == 405 ]] || fail "WKD over GET: $code"
 
+echo "upload link"
+key=$'-----BEGIN PGP PUBLIC KEY BLOCK-----\n\nmDMEsmoketest\n=AAAA\n-----END PGP PUBLIC KEY BLOCK-----\n'
+resp=$("${curl[@]}" --data-binary "$key" "$base/api/v1/inboxes?max_uploads=1")
+inbox=$(sed -n 's/.*"id":"\([^"]*\)".*/\1/p' <<<"$resp")
+manage=$(sed -n 's/.*"manage_token":"\([^"]*\)".*/\1/p' <<<"$resp")
+[[ -n $inbox && -n $manage ]] || fail "create upload link: $resp"
+"${curl[@]}" "$base/api/v1/inboxes/$inbox" | grep -q '"uploads_left":1' || fail "upload link info"
+"${curl[@]}" --data-binary 'inbox-ciphertext' "$base/api/v1/inboxes/$inbox/files" | grep -q '"size":16' || fail "upload to link"
+code=$("${curl[@]}" -o /dev/null -w '%{http_code}' --data-binary 'more' "$base/api/v1/inboxes/$inbox/files")
+[[ $code == 409 ]] || fail "upload to a full link: $code"
+mauth=(-H "Authorization: Bearer $manage")
+list=$("${curl[@]}" "${mauth[@]}" "$base/api/v1/inboxes/$inbox/files")
+inbox_file=$(sed -n 's/.*"files":\[{"id":"\([^"]*\)".*/\1/p' <<<"$list")
+[[ -n $inbox_file ]] || fail "list upload link: $list"
+[[ $("${curl[@]}" "${mauth[@]}" "$base/api/v1/inboxes/$inbox/files/$inbox_file") == inbox-ciphertext ]] || fail "download from link"
+code=$("${curl[@]}" -o /dev/null -w '%{http_code}' "$base/api/v1/files/$inbox_file")
+[[ $code == 404 ]] || fail "link file reachable without the management token: $code"
+code=$("${curl[@]}" -o /dev/null -w '%{http_code}' -H 'Authorization: Bearer wrong' "$base/api/v1/inboxes/$inbox/files")
+[[ $code == 403 ]] || fail "wrong management token: $code"
+code=$("${curl[@]}" -o /dev/null -w '%{http_code}' "${mauth[@]}" -X DELETE "$base/api/v1/inboxes/$inbox")
+[[ $code == 204 ]] || fail "revoke upload link: $code"
+code=$("${curl[@]}" -o /dev/null -w '%{http_code}' "$base/api/v1/inboxes/$inbox")
+[[ $code == 404 ]] || fail "revoked link still there: $code"
+
 echo "error log with backend down"
 docker compose stop backend >/dev/null
 code=$("${curl[@]}" -o /dev/null -w '%{http_code}' -H "Authorization: Bearer $token" "$base/api/v1/files/$id")
@@ -96,7 +120,7 @@ docker compose start backend >/dev/null
 
 echo "logs"
 logs=$(docker compose logs --no-color 2>&1)
-for secret in "$fake_ip" "$token" "$id" "$up" "$up_token" "$once" "$chunked" "$wkd_local" "$wkd_domain"; do
+for secret in "$fake_ip" "$token" "$id" "$up" "$up_token" "$once" "$chunked" "$wkd_local" "$wkd_domain" "$inbox" "$manage" "$inbox_file"; do
 	grep -qF -- "$secret" <<<"$logs" && fail "log contains $secret"
 done
 grep -qE '"(remote|client)_ip"' <<<"$logs" && fail "log contains remote_ip/client_ip"

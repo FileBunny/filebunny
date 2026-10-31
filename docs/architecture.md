@@ -126,6 +126,46 @@ and proxying it would show our server every looked-up address.
 **CSP:** `connect-src` is `'self'` plus exactly `https://keys.openpgp.org`
 (in `deploy/Caddyfile` and in the single HTML's CSP); no wildcard.
 
+## Upload links
+
+An upload link lets anyone send something that only its owner can open
+(`frontend/src/pages/Receive.svelte`, `InboxUpload.svelte`,
+`InboxManage.svelte`; `backend/internal/server/inbox.go`).
+
+1. **The owner** picks a public key: a new key pair generated in the
+   browser (see below) or an existing key (from the device or looked
+   up). The browser sends the armored public key to
+   `POST /api/v1/inboxes` and gets an ID and a management token. The
+   page shows two links:
+   - the **upload link** `#/u/<id>/<fingerprint>`, to give to senders;
+   - the **management link** `#/m/<id>/<token>`, to keep.
+2. **A sender** opens the upload link. The page fetches the key
+   (`GET /api/v1/inboxes/{id}`) and **checks that its fingerprint equals
+   the one in the link**; otherwise it refuses to send anything. So a
+   server or database that swapped the key is caught, as long as the
+   link reached the sender intact. Then it encrypts in the browser and
+   uploads, in one request or chunked. The sender gets no ID or token.
+3. **The owner** opens the management link: lists what arrived, unlocks
+   the private key once in the page (never uploaded), opens items (text
+   as text, files as downloads), saves them encrypted for gpg, deletes
+   them, or revokes the link (stops uploads, deletes everything).
+
+Files of a link are only served with the management token; the public
+`/api/v1/files/{id}` routes never return them. Limits per link: uploads
+(1–100, default 10), 100 MiB in total, open 1 day to 30 days (default
+7); each file is kept 7 days after it arrived, also when the link closes
+earlier. Counters are updated in the same transaction as the file row.
+
+**Key pairs** (`#/key`, and inside the Receive page) are generated with
+OpenPGP.js as Curve25519 in the v4 "legacy" format (EdDSA + ECDH): gpg
+2.4 cannot import the RFC 9580 keys OpenPGP.js makes by default. The
+private key always gets a passphrase, and the page only lets the user
+go on after saving it (as an `.asc` file from a `blob:` URL) and
+confirming. Name and e-mail are optional; without both the user ID is
+"FileBunny key". With an e-mail address the public key can be published
+on keys.openpgp.org (VKS API, directly from the browser), which then
+mails a verification link.
+
 ## Request flow
 
 **Upload** — `POST /api/v1/files`
@@ -180,6 +220,9 @@ after a crash).
 | SHA-256 of the delete token | SQLite | Same |
 | Client IP address | Nowhere | — |
 | Looked-up e-mail addresses (WKD) | Nowhere; in memory during the request only | — |
+| Upload links: the owner's public key (incl. its user IDs), SHA-256 of the management token, expiry, limits and counters | SQLite | Until the link is revoked, or expired and empty |
+| Files received by an upload link | `data/blobs/<id>`, row with `inbox_id` | 7 days after arrival, or until deleted or the link is revoked |
+| Private keys and passphrases of generated key pairs | Nowhere (browser only) | — |
 | File name, content type, plaintext | Nowhere (encrypted inside the ciphertext from phase 2) | — |
 | Logs | Container stdout | No IPs, no IDs, no tokens; see below |
 
@@ -222,6 +265,12 @@ after a crash).
   person; a domain can be compromised). The page warns when sources
   disagree and offers a WKD check, but only comparing the fingerprint with
   the recipient through another channel proves the key is theirs.
+- **A swapped key behind an upload link** if the link itself was
+  changed on its way to the sender: the fingerprint check only proves
+  that the server sends the key the link names. Send upload links
+  through a channel you trust.
+- **The server knows whose upload link it is** when the key's user IDs
+  contain a name or address. A generated key without them avoids that.
 - **Lookups revealing who you write to.** keys.openpgp.org sees your IP
   address and the address you look up; with WKD on, FileBunny's server
   sees the address (not stored). Loading the key from your device avoids
@@ -237,6 +286,8 @@ after a crash).
 | Total storage | 20 GiB | `FILEBUNNY_MAX_TOTAL_SIZE` |
 | Expiry | 24 h default, 1 min – 7 days | `FILEBUNNY_DEFAULT_EXPIRY`, `FILEBUNNY_MAX_EXPIRY` |
 | Stalled transfer | 1 minute without progress | fixed |
+| Open upload links | 1000 server-wide | `FILEBUNNY_MAX_INBOXES` |
+| Per upload link | 10 uploads (max 100), 100 MiB, open 7 days (max 30) | `FILEBUNNY_INBOX_*` |
 | WKD lookups in progress | 8 server-wide, 10 s and 1 MiB each | fixed; switch off with `FILEBUNNY_WKD_PROXY` |
 
 Rate limiting, proof of work and abuse reporting follow in phase 7.

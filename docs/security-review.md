@@ -123,7 +123,7 @@ IDs, tokens or addresses.
 | 2 | XSS through decrypted content | Done in phase 2, see below |
 | 2 | Download counting / one-time download | Done in phase 2, see below |
 | 3 | SSRF in the key-lookup proxy (WKD fallback) | Done in phase 3, see below |
-| 4 | Upload-link management link | Same model as the delete token: long random secret, stored hashed, never in logs |
+| 4 | Upload-link management link | Done in phase 4, see below |
 | 5 | SSRF and data leaks through proxy adapters | Fixed list of adapter hosts; no URLs from clients; health-check data must not contain user content |
 | 6 | Mail abuse | Fixed templates, rate limits per recipient/sender/global, block link |
 | 7 | Abuse of the whole quota by one client | Rate limiting with a daily rotating salt, proof of work |
@@ -253,6 +253,55 @@ failure, and proxying it would show the server every looked-up address.
   through another channel.
 - **DNS answers come from the host's resolver**; a poisoned resolver can
   point a lookup at any public address (but not an internal one).
+
+## Phase 4 (upload links, key pairs)
+
+| | |
+|---|---|
+| Date | 2026-10-29 |
+| Scope | Branch `phase-4`: upload links (`/api/v1/inboxes…`, chunked uploads with `?inbox=`), key pair generation, publishing on keys.openpgp.org, Receive / upload / management pages |
+| Reviewer | Claude Code (AI-assisted), during development |
+
+### Requirement from phase 1: the management link
+
+The management token is 256 random bits, returned once, stored only as
+SHA-256 and compared in constant time; it travels in the URL fragment
+and in `Authorization` headers, never in a path or query, and is never
+logged (`TestNoClientAddressInLogs` covers link IDs, tokens and file IDs;
+so does the smoke test).
+
+### New attack surface
+
+| Area | Measure | Test |
+|---|---|---|
+| Key substitution by the server or database | The upload link carries the fingerprint; the upload page refuses a key that does not match it exactly (and a key that cannot encrypt) | Chromium walk-through (tampered fingerprint) |
+| Reading someone else's received files | Files of a link are excluded from the public download, info and delete routes; listing, fetching and deleting need the management token of that link | `TestInboxFilesAreNotPublic`, `TestInboxManageAuth`, `TestInboxUploadAndManage`, smoke test |
+| Exceeding a link's limits with parallel uploads | Upload and byte counters are updated in the same transaction as the file row, with the limits in the `WHERE` clause | `TestInboxUploadLimitConcurrent`, `TestInboxLimits` |
+| Disk and quota exhaustion | Per link 100 MiB and ≤ 100 uploads; the global quota and the upload reservations still apply; chunked uploads to a link are capped at what it has left | `TestInboxLimits`, `TestInboxChunkedUpload` |
+| Free storage through "public keys" | Key body ≤ 64 KiB, printable ASCII between public key armor lines, served only as JSON; at most 1000 open links server-wide (one atomic `INSERT … WHERE count <`) | `TestCreateInbox`, `TestInboxCap` |
+| Content of keys and received files | Never rendered as HTML: user IDs and decrypted text as text, files as `blob:` downloads of type `application/octet-stream` | `grep` for `{@html}`/`innerHTML`, Chromium walk-through |
+| Weak or unusable generated keys | v4 Curve25519 legacy (gpg 2.4 compatible), passphrase of at least 8 characters required, private key must be saved before use | `crypto.test.ts`, `gpg.test.ts` |
+| Publishing on keys.openpgp.org | Directly from the browser (CORS allowed), only on click, only with an address in the key; keys.openpgp.org verifies the address by mail | `keylookup.test.ts` |
+
+### Residual risks
+
+- **The server knows the owner of an upload link** when the key has a
+  name or e-mail address in its user IDs. The page says so and suggests
+  a generated key without them.
+- **A changed upload link** (other ID and fingerprint) points senders to
+  another key; the fingerprint check cannot catch that. Links must reach
+  senders through a trusted channel; comparing the fingerprint with the
+  owner remains the real check.
+- **No per-client rate limit** on creating links or uploading to them
+  (phase 7). One client can use up the 1000 open links (others get
+  `503` until they expire) or fill one link it knows.
+- **Anyone with the upload link can fill it** up to its limits; the owner
+  can revoke it. Notifications follow in phase 6.
+- **The private key is in the page's memory** while unlocked on the
+  management page, as on the download page; "Forget it" or closing the
+  page removes it.
+- **Lost private key or passphrase:** nothing sent to the link can be
+  opened. The page requires saving the key and says there is no recovery.
 
 ## How to re-run the checks
 

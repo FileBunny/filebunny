@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { afterEach, test } from 'node:test';
-import { ApiError, chunkSize, upload } from '../src/lib/api.ts';
+import { ApiError, chunkSize, inboxInfo, inboxStatus, upload, uploadToInbox } from '../src/lib/api.ts';
 import { randomBytes, streamOf } from './helpers.ts';
 
 type Call = { method: string; url: string; size: number };
@@ -27,6 +27,10 @@ function fakeServer() {
     if (method === 'POST' && url.startsWith('/api/v1/files?')) {
       stored = body;
       return created(body.length);
+    }
+    if (method === 'POST' && url === `/api/v1/inboxes/${'i'.repeat(22)}/files`) {
+      stored = body;
+      return ok({ size: body.length }, 201);
     }
     if (method === 'POST' && url.startsWith('/api/v1/uploads?')) {
       return ok({ id: 'u'.repeat(22), upload_token: 'secret', max_chunk_size: 16 << 20, max_size: 100 << 20 }, 201);
@@ -124,4 +128,51 @@ test('a failing upload is aborted on the server', async () => {
   }) as typeof fetch;
   await assert.rejects(upload(streamOf(randomBytes(chunkSize + 1)), limits), ApiError);
   assert.equal(srv.calls.at(-1)?.method, 'DELETE');
+});
+
+const inbox = 'i'.repeat(22);
+
+test('upload link: small message in one request, large file chunked with ?inbox=', async () => {
+  const server = fakeServer();
+  assert.equal(await uploadToInbox(inbox, streamOf(randomBytes(100))), 100);
+  assert.deepEqual(server.calls.map((c) => `${c.method} ${c.url}`), [`POST /api/v1/inboxes/${inbox}/files`]);
+
+  const big = fakeServer();
+  const size = chunkSize + 5;
+  assert.equal(await uploadToInbox(inbox, streamOf(randomBytes(size))), size);
+  assert.equal(big.calls[0]!.url, `/api/v1/uploads?inbox=${inbox}`);
+  assert.ok(big.calls.at(-1)!.url.endsWith('/complete'));
+});
+
+test('upload link info and status', async () => {
+  const seen: RequestInit[] = [];
+  globalThis.fetch = async (input: string | URL | Request, init?: RequestInit) => {
+    seen.push(init ?? {});
+    const url = String(input);
+    if (url === '/api/v1/inboxes/gone') return new Response('{"error":"not found"}', { status: 404 });
+    if (url.endsWith('/files')) {
+      return new Response(
+        JSON.stringify({
+          expires_at: '2026-11-05T12:00:00Z',
+          open: true,
+          uploads: 1,
+          max_uploads: 10,
+          bytes: 14,
+          max_bytes: 100,
+          files: [{ id: 'f', size: 14, received_at: '2026-10-29T12:00:00Z', expires_at: '2026-11-05T12:00:00Z' }],
+        }),
+      );
+    }
+    return new Response(
+      JSON.stringify({ public_key: 'K', expires_at: '2026-11-05T12:00:00Z', uploads_left: 9, bytes_left: 86, max_file_size: 86 }),
+    );
+  };
+  assert.equal(await inboxInfo('gone'), null);
+  const info = await inboxInfo(inbox);
+  assert.equal(info?.publicKey, 'K');
+  assert.equal(info?.maxFileSize, 86);
+  const st = await inboxStatus(inbox, 'manage-token');
+  assert.equal(st.files[0]!.receivedAt.toISOString(), '2026-10-29T12:00:00.000Z');
+  assert.deepEqual(seen.at(-1)!.headers, { Authorization: 'Bearer manage-token' });
+  assert.equal(seen.at(-1)!.credentials, 'omit');
 });

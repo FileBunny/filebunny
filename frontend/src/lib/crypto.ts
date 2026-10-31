@@ -137,6 +137,40 @@ export async function readPublicKeys(file: string | Uint8Array): Promise<KeyInfo
   );
 }
 
+export type NewKeyPair = {
+  /** ASCII-armored; safe to share. */
+  publicKey: string;
+  /** ASCII-armored and protected by the passphrase. */
+  privateKey: string;
+  info: KeyInfo;
+};
+
+/** User ID of a generated key without a name or address. */
+export const defaultKeyName = 'FileBunny key';
+
+/**
+ * Generates a key pair in this browser. Curve25519 in the v4 "legacy"
+ * format (EdDSA + ECDH): gpg 2.4 cannot import the RFC 9580 X25519 keys
+ * that OpenPGP.js makes by default. The private key is always protected
+ * with a passphrase, and never leaves the page unless the user saves it.
+ */
+export async function generateKeyPair(opts: { name: string; email: string; passphrase: string }): Promise<NewKeyPair> {
+  if (opts.passphrase === '') throw new Error('A passphrase is required.');
+  const name = opts.name.trim();
+  const email = opts.email.trim();
+  const userID = email === '' ? { name: name || defaultKeyName } : name === '' ? { email } : { name, email };
+  const { publicKey, privateKey } = await openpgp.generateKey({
+    type: 'ecc',
+    curve: 'curve25519Legacy',
+    userIDs: [userID],
+    passphrase: opts.passphrase,
+    format: 'armored',
+    config,
+  });
+  const [info] = await readPublicKeys(publicKey);
+  return { publicKey, privateKey, info: info! };
+}
+
 /** Splits text into its "-----BEGIN PGP" blocks (the whole text if none). */
 function armorBlocks(text: string): string[] {
   const blocks = text.match(/-----BEGIN PGP [^-]+-----[\s\S]*?-----END PGP [^-]+-----/g);

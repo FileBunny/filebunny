@@ -35,19 +35,35 @@ type Config struct {
 	// WKDProxy enables POST /api/v1/wkd, which fetches a key from the
 	// recipient's domain (Web Key Directory) for the browser.
 	WKDProxy bool
+	// MaxInboxes caps the upload links (inboxes) that accept uploads,
+	// server-wide.
+	MaxInboxes int
+	// InboxDefaultExpiry applies when a new upload link asks for none;
+	// InboxMaxExpiry is the longest it may ask for.
+	InboxDefaultExpiry time.Duration
+	InboxMaxExpiry     time.Duration
+	// InboxMaxUploads is the highest number of uploads a link may allow.
+	InboxMaxUploads int
+	// InboxMaxSize caps the combined size of the uploads to one link.
+	InboxMaxSize int64
 }
 
 // Defaults for the public service at filebunny.eu.
 const (
-	DefaultListen            = ":8080"
-	DefaultDataDir           = "./data"
-	DefaultMaxSize           = 100 << 20 // 100 MiB
-	DefaultMaxTotalSize      = 20 << 30  // 20 GiB
-	DefaultDefaultExpiry     = 24 * time.Hour
-	DefaultMaxExpiry         = 7 * 24 * time.Hour
-	DefaultCleanupInterval   = time.Minute
-	DefaultMaxDownloads      = 100
-	DefaultMaxPendingUploads = 50
+	DefaultListen             = ":8080"
+	DefaultDataDir            = "./data"
+	DefaultMaxSize            = 100 << 20 // 100 MiB
+	DefaultMaxTotalSize       = 20 << 30  // 20 GiB
+	DefaultDefaultExpiry      = 24 * time.Hour
+	DefaultMaxExpiry          = 7 * 24 * time.Hour
+	DefaultCleanupInterval    = time.Minute
+	DefaultMaxDownloads       = 100
+	DefaultMaxPendingUploads  = 50
+	DefaultMaxInboxes         = 1000
+	DefaultInboxDefaultExpiry = 7 * 24 * time.Hour
+	DefaultInboxMaxExpiry     = 30 * 24 * time.Hour
+	DefaultInboxMaxUploads    = 100
+	DefaultInboxMaxSize       = 100 << 20 // 100 MiB
 )
 
 // MinExpiry is the shortest expiry an upload may ask for.
@@ -66,6 +82,12 @@ func FromEnv(getenv func(string) string) (Config, error) {
 		MaxDownloads:      DefaultMaxDownloads,
 		MaxPendingUploads: DefaultMaxPendingUploads,
 		WKDProxy:          true,
+
+		MaxInboxes:         DefaultMaxInboxes,
+		InboxDefaultExpiry: DefaultInboxDefaultExpiry,
+		InboxMaxExpiry:     DefaultInboxMaxExpiry,
+		InboxMaxUploads:    DefaultInboxMaxUploads,
+		InboxMaxSize:       DefaultInboxMaxSize,
 	}
 	var errs []error
 
@@ -81,6 +103,7 @@ func FromEnv(getenv func(string) string) (Config, error) {
 	}{
 		{"FILEBUNNY_MAX_SIZE", &c.MaxSize},
 		{"FILEBUNNY_MAX_TOTAL_SIZE", &c.MaxTotalSize},
+		{"FILEBUNNY_INBOX_MAX_SIZE", &c.InboxMaxSize},
 	}
 	for _, sz := range sizes {
 		v := getenv(sz.name)
@@ -101,6 +124,8 @@ func FromEnv(getenv func(string) string) (Config, error) {
 		{"FILEBUNNY_DEFAULT_EXPIRY", &c.DefaultExpiry},
 		{"FILEBUNNY_MAX_EXPIRY", &c.MaxExpiry},
 		{"FILEBUNNY_CLEANUP_INTERVAL", &c.CleanupInterval},
+		{"FILEBUNNY_INBOX_DEFAULT_EXPIRY", &c.InboxDefaultExpiry},
+		{"FILEBUNNY_INBOX_MAX_EXPIRY", &c.InboxMaxExpiry},
 	}
 	for _, d := range durations {
 		v := getenv(d.name)
@@ -121,6 +146,8 @@ func FromEnv(getenv func(string) string) (Config, error) {
 	}{
 		{"FILEBUNNY_MAX_DOWNLOADS", &c.MaxDownloads},
 		{"FILEBUNNY_MAX_PENDING_UPLOADS", &c.MaxPendingUploads},
+		{"FILEBUNNY_MAX_INBOXES", &c.MaxInboxes},
+		{"FILEBUNNY_INBOX_MAX_UPLOADS", &c.InboxMaxUploads},
 	}
 	for _, n := range counts {
 		v := getenv(n.name)
@@ -149,6 +176,12 @@ func FromEnv(getenv func(string) string) (Config, error) {
 	}
 	if c.DefaultExpiry > c.MaxExpiry {
 		errs = append(errs, fmt.Errorf("default expiry %s exceeds max expiry %s", c.DefaultExpiry, c.MaxExpiry))
+	}
+	if c.InboxDefaultExpiry < MinExpiry || c.InboxDefaultExpiry > c.InboxMaxExpiry {
+		errs = append(errs, fmt.Errorf("upload link default expiry %s must be between %s and the max %s", c.InboxDefaultExpiry, MinExpiry, c.InboxMaxExpiry))
+	}
+	if c.InboxMaxSize > c.MaxTotalSize {
+		errs = append(errs, fmt.Errorf("upload link max size %d exceeds max total size %d", c.InboxMaxSize, c.MaxTotalSize))
 	}
 	if c.MaxSize > c.MaxTotalSize {
 		errs = append(errs, fmt.Errorf("max size %d exceeds max total size %d", c.MaxSize, c.MaxTotalSize))

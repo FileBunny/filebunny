@@ -3,10 +3,11 @@
   import type { Recipient } from '../lib/keylookup.ts';
   import { ApiError, siteBase, upload, type Uploaded } from '../lib/api.ts';
   import { deleteLink, shareLink } from '../lib/route.ts';
-  import { formatBytes, formatDate, generatePassword } from '../lib/format.ts';
+  import { formatBytes, formatDate } from '../lib/format.ts';
   import CopyField from '../components/CopyField.svelte';
   import ErrorMessage from '../components/ErrorMessage.svelte';
   import KeyPicker from '../components/KeyPicker.svelte';
+  import SecretField from '../components/SecretField.svelte';
 
   // The server limit is 100 MiB of ciphertext; OpenPGP adds a little.
   const maxFileSize = 100_000_000;
@@ -30,7 +31,6 @@
 
   let mode = $state<'password' | 'key'>('password');
   let password = $state('');
-  let showPassword = $state(false);
   // Raw: OpenPGP key objects must not be wrapped in proxies.
   let recipients = $state.raw<Recipient[]>([]);
 
@@ -54,14 +54,34 @@
     error = file && file.size > maxFileSize ? `This file is ${formatBytes(file.size)}; the limit is 100 MB.` : '';
   }
 
-  function newPassword() {
-    password = generatePassword();
-    showPassword = true;
+  // The button stays enabled and says what is missing, with the focus on
+  // the field to fix.
+  function missing(): { message: string; focus: string } | null {
+    if (!contentReady) {
+      if (what === 'text') return { message: 'Type a message first.', focus: '#send-content' };
+      if (!file) return { message: 'Choose a file first.', focus: '#send-content' };
+      return { message: `This file is ${formatBytes(file.size)}; the limit is 100 MB.`, focus: '#send-content' };
+    }
+    if (!recipientsReady) {
+      if (mode === 'password') return { message: 'Choose a password first, or generate one.', focus: '#send-password' };
+      if (recipients.length === 0) return { message: "Add the recipient's public key first.", focus: '[role="tab"][aria-selected="true"]' };
+      return { message: 'Remove the keys that can no longer be used (expired or revoked).', focus: '.recipients button' };
+    }
+    return null;
   }
+
+  let tried = $state(false);
+  const gap = $derived(tried ? missing() : null);
 
   async function submit(e: SubmitEvent) {
     e.preventDefault();
-    if (!contentReady || !recipientsReady || busy) return;
+    if (busy) return;
+    const todo = missing();
+    if (todo) {
+      tried = true;
+      document.querySelector<HTMLElement>(todo.focus)?.focus();
+      return;
+    }
     busy = true;
     error = '';
     sent = 0;
@@ -84,6 +104,7 @@
 
   function startOver() {
     result = null;
+    tried = false;
     text = '';
     file = null;
     password = '';
@@ -121,12 +142,12 @@
       {#if what === 'text'}
         <label class="field">
           <span>Message</span>
-          <textarea bind:value={text} rows="8" spellcheck="false"></textarea>
+          <textarea id="send-content" bind:value={text} rows="8" spellcheck="false"></textarea>
         </label>
       {:else}
         <label class="field">
           <span>File (max 100 MB)</span>
-          <input type="file" onchange={pickFile} />
+          <input id="send-content" type="file" onchange={pickFile} />
         </label>
         {#if file}<p class="note">{file.name}, {formatBytes(file.size)}</p>{/if}
       {/if}
@@ -139,14 +160,7 @@
         <label><input type="radio" bind:group={mode} value="key" /> Holders of a public key</label>
       </div>
       {#if mode === 'password'}
-        <label class="field">
-          <span>Password</span>
-          <span class="row">
-            <input type={showPassword ? 'text' : 'password'} bind:value={password} autocomplete="new-password" />
-            <button type="button" onclick={() => (showPassword = !showPassword)}>{showPassword ? 'Hide' : 'Show'}</button>
-            <button type="button" onclick={newPassword}>Generate</button>
-          </span>
-        </label>
+        <SecretField id="send-password" label="Password" bind:value={password} />
       {:else}
         <KeyPicker bind:recipients />
       {/if}
@@ -170,12 +184,12 @@
       </div>
     </fieldset>
 
-    <ErrorMessage {error} />
+    <ErrorMessage error={gap?.message ?? error} />
     {#if busy}
       <progress max={total} value={Math.min(sent, total)}></progress>
       <button type="button" onclick={() => controller?.abort()}>Cancel</button>
     {:else}
-      <button type="submit" class="primary" disabled={!contentReady || !recipientsReady}>Encrypt and upload</button>
+      <button type="submit" class="primary">Encrypt and upload</button>
     {/if}
   </form>
 {/if}

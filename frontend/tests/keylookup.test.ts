@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import * as openpgp from 'openpgp';
 import { readPublicKeys } from '../src/lib/crypto.ts';
-import { checkKeyWithWkd, lookupKeys, wkdAvailable, type Deps } from '../src/lib/keylookup.ts';
+import { checkKeyWithWkd, lookupKeys, publishKey, wkdAvailable, type Deps } from '../src/lib/keylookup.ts';
 import { testKey } from './helpers.ts';
 
 const alice = '90E6 2DD2 7AF9 17D6 0D24 641B 896E 0850 A8FC 4BFF';
@@ -260,4 +260,33 @@ test('wkdAvailable follows the backend', async () => {
   assert.equal(await wkdAvailable(mockFetch({ features: ok('{"wkd":false}') }).deps), false);
   assert.equal(await wkdAvailable(mockFetch({ features: status(404) }).deps), false);
   assert.equal(await wkdAvailable(mockFetch({ features: () => Promise.reject(new TypeError('x')) }).deps), false);
+});
+
+test('publishKey: upload, then ask for verification of unpublished addresses', async () => {
+  const calls: { url: string; body: unknown }[] = [];
+  const fetch = (async (input: string | URL | Request, init: RequestInit = {}) => {
+    const url = String(input);
+    calls.push({ url, body: JSON.parse(String(init.body)) });
+    assert.equal(init.credentials, 'omit');
+    assert.equal(init.referrerPolicy, 'no-referrer');
+    if (url.endsWith('/vks/v1/upload')) {
+      return new Response(JSON.stringify({ key_fpr: 'X', token: 'tok', status: { 'a@example.org': 'unpublished', 'b@example.org': 'published' } }));
+    }
+    if (url.endsWith('/vks/v1/request-verify')) {
+      return new Response(JSON.stringify({ key_fpr: 'X', token: 'tok', status: { 'a@example.org': 'pending', 'b@example.org': 'published' } }));
+    }
+    throw new Error(url);
+  }) as typeof globalThis.fetch;
+  const result = await publishKey('-----BEGIN PGP PUBLIC KEY BLOCK-----', { fetch });
+  assert.deepEqual(calls.map((c) => c.url), ['https://keys.openpgp.org/vks/v1/upload', 'https://keys.openpgp.org/vks/v1/request-verify']);
+  assert.deepEqual(calls[1]!.body, { token: 'tok', addresses: ['a@example.org'] });
+  assert.deepEqual(result, [
+    { email: 'a@example.org', status: 'pending' },
+    { email: 'b@example.org', status: 'published' },
+  ]);
+
+  const refused = (async () => new Response('{"error":"Parsing of key data failed."}', { status: 400 })) as typeof globalThis.fetch;
+  await assert.rejects(publishKey('x', { fetch: refused }), /refused the key \(status 400\)/);
+  const down = (async () => Promise.reject(new TypeError('Failed to fetch'))) as typeof globalThis.fetch;
+  await assert.rejects(publishKey('x', { fetch: down }), /could not be reached/);
 });

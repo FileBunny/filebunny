@@ -187,6 +187,103 @@ Authorization: Bearer <delete_token>
 | 403 | Token does not belong to this file |
 | 404 | Unknown, malformed or expired ID |
 
+## Upload links
+
+An upload link (an "inbox") lets anyone send ciphertext to its owner.
+The owner registers their public key and gets a public link plus a
+secret management token. The browser of an uploader fetches the key,
+checks its fingerprint against the one in the link (`#/u/<id>/<fingerprint>`)
+and encrypts to it; the server never sees plaintext. Files of a link are
+only served with the management token, never through `/api/v1/files`.
+
+### Create
+
+```
+POST /api/v1/inboxes?expires=168h&max_uploads=10
+Content-Type: text/plain
+
+-----BEGIN PGP PUBLIC KEY BLOCK-----
+...
+-----END PGP PUBLIC KEY BLOCK-----
+```
+
+| Parameter | Default | Range |
+|---|---|---|
+| `expires` | `168h` (`FILEBUNNY_INBOX_DEFAULT_EXPIRY`) | `1m` to `720h` (`FILEBUNNY_INBOX_MAX_EXPIRY`) |
+| `max_uploads` | 10 | 1 to 100 (`FILEBUNNY_INBOX_MAX_UPLOADS`) |
+
+The body must be an ASCII-armored public key of at most 64 KiB. The
+server only checks its shape (armor lines, printable ASCII); it does not
+parse it. Every link may receive at most `FILEBUNNY_INBOX_MAX_SIZE` bytes
+in total (default 100 MiB).
+
+**201 Created**
+
+```json
+{"id": "Qm9vZ2llV29vZ2llQm9vZ2ll", "manage_token": "…43 characters…",
+ "expires_at": "2026-11-05T12:00:00Z", "max_uploads": 10, "max_size": 104857600,
+ "keep_seconds": 604800}
+```
+
+`keep_seconds` is how long each upload is kept after it arrives
+(`FILEBUNNY_MAX_EXPIRY`).
+
+Only a SHA-256 of the management token is stored.
+
+| Status | When |
+|---|---|
+| 400 | Not an armored public key, or a parameter out of range |
+| 413 | Key over 64 KiB |
+| 503 | Too many open links on this server (`FILEBUNNY_MAX_INBOXES`, default 1000) |
+
+### Info (public)
+
+```
+GET /api/v1/inboxes/{id}
+```
+
+**200 OK**: `{"public_key": "-----BEGIN PGP…", "expires_at": "…",
+"uploads_left": 9, "bytes_left": 104857586, "max_file_size": 104857586}`.
+A full link is still returned (with nothing left). **404** when unknown,
+expired or revoked.
+
+### Upload (public)
+
+```
+POST /api/v1/inboxes/{id}/files
+```
+
+Body: the ciphertext, at most `max_file_size`. Larger files use the
+chunked upload with `POST /api/v1/uploads?inbox={id}` (no `expires` or
+`max_downloads`; `max_size` is what the link has left); `complete` then
+answers like this endpoint. Files of a link are kept for 7 days
+(`FILEBUNNY_MAX_EXPIRY`) after the upload, independent of the link.
+
+**201 Created**: `{"size": 14}`. The uploader gets no ID and no delete
+token. The upload and byte counters are updated atomically with storing
+the file, so parallel uploads cannot exceed the limits.
+
+| Status | When |
+|---|---|
+| 400 | Empty body |
+| 404 | Unknown, expired or revoked link |
+| 409 | No uploads or bytes left |
+| 413 | Larger than what the link has left |
+| 507 | Server storage full |
+
+### Manage (management token)
+
+All with `Authorization: Bearer <manage_token>`; **401** without a token,
+**403** with a wrong one, **404** for an unknown link. They keep working
+after the link expired, as long as it still holds files.
+
+| Request | Answer |
+|---|---|
+| `GET /api/v1/inboxes/{id}/files` | `{"expires_at", "open", "uploads", "max_uploads", "bytes", "max_bytes", "files": [{"id", "size", "received_at", "expires_at"}]}` |
+| `GET /api/v1/inboxes/{id}/files/{file}` | The ciphertext, with the download headers above; not counted, can be fetched again |
+| `DELETE /api/v1/inboxes/{id}/files/{file}` | 204; the upload it used stays used |
+| `DELETE /api/v1/inboxes/{id}` | 204; revokes the link and deletes everything it received |
+
 ## Features
 
 ```

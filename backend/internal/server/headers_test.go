@@ -63,8 +63,30 @@ func TestNoClientAddressInLogs(t *testing.T) {
 	send("POST", "/api/v1/wkd", wkdBody("looked.up@private-domain.example:1"))
 	send("GET", "/api/v1/features", nil)
 
+	// Upload links: no link ID, management token or file ID either.
+	rec = send("POST", "/api/v1/inboxes", strings.NewReader(testPublicKey))
+	var in createInboxResponse
+	json.Unmarshal(rec.Body.Bytes(), &in)
+	manage := "Bearer " + in.ManageToken
+	send("GET", "/api/v1/inboxes/"+in.ID, nil)
+	send("POST", "/api/v1/inboxes/"+in.ID+"/files", strings.NewReader("x"))
+	send("POST", "/api/v1/inboxes/"+in.ID+"/files", strings.NewReader(""))
+	rec = send("GET", "/api/v1/inboxes/"+in.ID+"/files", nil, "Authorization", manage)
+	var list manageInboxResponse
+	json.Unmarshal(rec.Body.Bytes(), &list)
+	if len(list.Files) != 1 {
+		t.Fatalf("upload link list: %s", rec.Body)
+	}
+	inboxFile := list.Files[0].ID
+	send("GET", "/api/v1/inboxes/"+in.ID+"/files/"+inboxFile, nil, "Authorization", manage)
+	send("GET", "/api/v1/inboxes/"+in.ID+"/files", nil, "Authorization", "Bearer wrong")
+	send("DELETE", "/api/v1/inboxes/"+in.ID+"/files/"+inboxFile, nil, "Authorization", manage)
+	send("POST", "/api/v1/uploads?inbox="+in.ID, nil)
+	send("DELETE", "/api/v1/inboxes/"+in.ID, nil, "Authorization", manage)
+	send("POST", "/api/v1/inboxes", strings.NewReader("not a key"))
+
 	looked, _ := wkd.ParseAddress(email)
-	for _, secret := range []string{addr, "looked.up", "private-domain", looked.Hash()} {
+	for _, secret := range []string{addr, "looked.up", "private-domain", looked.Hash(), in.ID, in.ManageToken, inboxFile} {
 		if strings.Contains(e.logs.String(), secret) {
 			t.Errorf("%q in logs:\n%s", secret, e.logs)
 		}

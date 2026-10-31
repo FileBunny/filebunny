@@ -66,6 +66,13 @@ func New(cfg config.Config, st *store.Store, log *slog.Logger) *Server {
 	s.mux.HandleFunc("DELETE /api/v1/uploads/{id}", s.handleAbortUpload)
 	s.mux.HandleFunc("GET /api/v1/features", s.handleFeatures)
 	s.mux.HandleFunc("POST /api/v1/wkd", s.handleWKD)
+	s.mux.HandleFunc("POST /api/v1/inboxes", s.handleCreateInbox)
+	s.mux.HandleFunc("GET /api/v1/inboxes/{id}", s.handleInboxInfo)
+	s.mux.HandleFunc("POST /api/v1/inboxes/{id}/files", s.handleInboxUpload)
+	s.mux.HandleFunc("GET /api/v1/inboxes/{id}/files", s.handleInboxFiles)
+	s.mux.HandleFunc("GET /api/v1/inboxes/{id}/files/{file}", s.handleInboxFile)
+	s.mux.HandleFunc("DELETE /api/v1/inboxes/{id}/files/{file}", s.handleDeleteInboxFile)
+	s.mux.HandleFunc("DELETE /api/v1/inboxes/{id}", s.handleDeleteInbox)
 	s.handler = securityHeaders(nullOriginCORS(s.mux))
 	return s
 }

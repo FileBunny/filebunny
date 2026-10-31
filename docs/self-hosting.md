@@ -67,6 +67,11 @@ backend with defaults.
 | `FILEBUNNY_MAX_DOWNLOADS` | `100` | Highest download limit a client may ask for; uploads without a limit can be downloaded until they expire |
 | `FILEBUNNY_MAX_PENDING_UPLOADS` | `50` | Max chunked uploads in progress, server-wide; more get `503` |
 | `FILEBUNNY_WKD_PROXY` | `true` | Offer `POST /api/v1/wkd`, which fetches keys from recipients' domains (Web Key Directory). `false` switches it off and hides the WKD options in the frontend |
+| `FILEBUNNY_MAX_INBOXES` | `1000` | Max upload links that are open (not expired) at once, server-wide; more get `503` |
+| `FILEBUNNY_INBOX_DEFAULT_EXPIRY` | `168h` | How long a new upload link stays open when it asks for nothing else |
+| `FILEBUNNY_INBOX_MAX_EXPIRY` | `720h` | Longest a link may stay open |
+| `FILEBUNNY_INBOX_MAX_UPLOADS` | `100` | Highest number of uploads a link may allow (default per link: 10) |
+| `FILEBUNNY_INBOX_MAX_SIZE` | `104857600` | Max combined size of the uploads to one link, in bytes (100 MiB) |
 | `FILEBUNNY_CLEANUP_INTERVAL` | `1m` | How often expired files are removed |
 | `FILEBUNNY_LISTEN` | `:8080` | Backend listen address (inside the container) |
 | `FILEBUNNY_DATA_DIR` | `/data` in the container | Database and blobs |

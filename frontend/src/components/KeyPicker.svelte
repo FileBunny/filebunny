@@ -19,16 +19,19 @@
     type SourceResult,
     type WkdCheck,
   } from '../lib/keylookup.ts';
-  import { siteBase } from '../lib/api.ts';
   import { copyText } from '../lib/format.ts';
   import ErrorMessage from './ErrorMessage.svelte';
   import Info from './Info.svelte';
 
-  let { recipients = $bindable() }: { recipients: Recipient[] } = $props();
+  // single: exactly one key (your own, for an upload link), no "add another".
+  let {
+    recipients = $bindable(),
+    single = false,
+    title = '',
+  }: { recipients: Recipient[]; single?: boolean; title?: string } = $props();
 
   /** Whether this server offers the WKD proxy; hidden otherwise. */
   let wkdOffered = $state(false);
-  const server = new URL(siteBase()).host;
   onMount(async () => {
     wkdOffered = await wkdAvailable();
   });
@@ -276,9 +279,9 @@
 {/snippet}
 
 <section class="recipients" aria-labelledby="recipients-title">
-  <h3 id="recipients-title">{recipients.length > 1 ? `Recipients (${recipients.length})` : 'Recipient'}</h3>
+  <h3 id="recipients-title">{title || (recipients.length > 1 ? `Recipients (${recipients.length})` : 'Recipient')}</h3>
   {#if recipients.length === 0}
-    <p class="note">No recipient yet. Add the recipient's public key below.</p>
+    <p class="note">{single ? 'No key yet. Add your public key below.' : "No recipient yet. Add the recipient's public key below."}</p>
   {/if}
   {#if recipients.length > 1}
     <p class="multi" role="status">
@@ -321,18 +324,20 @@
         {#if recipients.length === 1}
           <button type="button" onclick={() => startAdding('change')}>Change key</button>
         {/if}
-        <button type="button" onclick={() => startAdding('another')}>+ Add another recipient</button>
+        {#if !single}
+          <button type="button" onclick={() => startAdding('another')}>+ Add another recipient</button>
+        {/if}
       </div>
     {/if}
-    <p class="note">
+    {#if !single}<p class="note">
       Compare the fingerprint with the recipient before you send anything.
       <Info label="Why compare the fingerprint?">
         A keyserver or a domain can hand out a key that is not the recipient's. Only the fingerprint, checked with the
         recipient in person or by phone, proves the key is theirs.
-        {#if wkdOffered}The domain check is optional: it asks the recipient's domain through {server}, which then sees
+        {#if wkdOffered}The domain check is optional: it asks the recipient's domain through FileBunny, which then sees
           the address (not logged or stored).{/if}
       </Info>
-    </p>
+    </p>{/if}
   {/if}
 </section>
 
@@ -412,17 +417,17 @@
         <p class="note">
           keys.openpgp.org sees your IP address and the address you look up.
           <Info label="About the keyserver lookup">
-            Your browser asks keys.openpgp.org directly, so {server} does not see the lookup. keys.openpgp.org only
+            Your browser asks keys.openpgp.org directly, so FileBunny does not see who you look up. keys.openpgp.org only
             publishes addresses it has verified by e-mail; that shows the address is real, not who holds the key.
           </Info>
         </p>
         {#if wkdOffered}
           <p class="checkbox">
             <label><input type="checkbox" bind:checked={useWkd} /> Also ask the recipient's domain (WKD)</label>
-            <span class="note">– {server} then sees the address.</span>
+            <span class="note">– FileBunny then sees the address.</span>
             <Info label="About WKD">
               With WKD the key comes from the recipient's own domain, for example example.org for bob@example.org. Your
-              browser cannot reach every domain, so {server} fetches it and sees the address; it does not log or store
+              browser cannot reach every domain, so FileBunny fetches it and sees the address; it does not log or store
               it. Most domains publish no keys.
             </Info>
           </p>
