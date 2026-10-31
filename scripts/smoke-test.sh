@@ -25,7 +25,7 @@ done
 echo "frontend headers"
 headers=$("${curl[@]}" -D - -o /dev/null "$base/")
 grep -qi "^content-security-policy: default-src 'none'; script-src 'self'" <<<"$headers" || fail "frontend CSP missing"
-grep -qi "^content-security-policy: .*connect-src 'self' https://keys.openpgp.org;" <<<"$headers" || fail "connect-src not exactly self + keys.openpgp.org"
+grep -qi "^content-security-policy: .*connect-src 'self' https://keys.openpgp.org https://filebin.net https://storage.filebin.net;" <<<"$headers" || fail "connect-src not exactly self + keys.openpgp.org + filebin"
 grep -qi '^strict-transport-security:' <<<"$headers" || fail "HSTS missing"
 grep -qi '^server:' <<<"$headers" && fail "Server header present"
 
@@ -111,6 +111,13 @@ code=$("${curl[@]}" -o /dev/null -w '%{http_code}' "${mauth[@]}" -X DELETE "$bas
 [[ $code == 204 ]] || fail "revoke upload link: $code"
 code=$("${curl[@]}" -o /dev/null -w '%{http_code}' "$base/api/v1/inboxes/$inbox")
 [[ $code == 404 ]] || fail "revoked link still there: $code"
+
+echo "external storage (off by default; CI never talks to Filebin)"
+[[ $("${curl[@]}" "$base/api/v1/storage") == '{"storage":[]}' ]] || fail "storage status"
+code=$("${curl[@]}" -o /dev/null -w '%{http_code}' --data-binary 'x' "$base/api/v1/files?storage=filebin")
+[[ $code == 400 ]] || fail "storage not offered: $code"
+code=$("${curl[@]}" -o /dev/null -w '%{http_code}' --data-binary "$key" "$base/api/v1/inboxes?storage=filebin")
+[[ $code == 400 ]] || fail "upload link storage not offered: $code"
 
 echo "error log with backend down"
 docker compose stop backend >/dev/null

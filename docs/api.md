@@ -18,13 +18,13 @@ has no cookies). Requests from any other origin get no CORS headers.
 ## Upload
 
 ```
-POST /api/v1/files?expires=<duration>&max_downloads=<n>
+POST /api/v1/files?expires=<duration>&max_downloads=<n>&storage=<name>
 Content-Type: application/octet-stream
 
 <ciphertext>
 ```
 
-Both parameters are optional:
+All parameters are optional:
 
 - `expires`: a Go duration such as `30m`, `24h` or `168h`, between
   1 minute and `FILEBUNNY_MAX_EXPIRY` (7 days). Default:
@@ -32,6 +32,12 @@ Both parameters are optional:
 - `max_downloads`: number of downloads allowed, 1 to
   `FILEBUNNY_MAX_DOWNLOADS` (100). `1` is a one-time download. Default:
   unlimited until expiry.
+- `storage`: where the ciphertext is kept. `local` or empty: this server.
+  Otherwise an external service this server offers (see
+  [Storage](#storage)), e.g. `filebin`: the server passes the ciphertext on
+  and keeps only the metadata. `expires` may then be at most that
+  service's `max_expiry_seconds`. Download limit, expiry and deletion work
+  the same.
 
 **201 Created**
 
@@ -53,8 +59,9 @@ Both parameters are optional:
 
 | Status | When |
 |---|---|
-| 400 | `expires` or `max_downloads` invalid or out of range; body aborted or stalled for 1 minute |
+| 400 | `expires`, `max_downloads` or `storage` invalid or out of range, or `storage` not offered; body aborted or stalled for 1 minute |
 | 413 | Body larger than `FILEBUNNY_MAX_SIZE` (checked on `Content-Length` and while streaming) |
+| 503 | External storage unavailable (checked before the body is read) or busy (8 transfers at a time, daily traffic cap); `Retry-After` is set. Store on this server instead |
 | 507 | Storage quota (`FILEBUNNY_MAX_TOTAL_SIZE`) reached; try later |
 
 ```sh
@@ -71,7 +78,7 @@ first need `Authorization: Bearer <upload_token>`.
 ### Start
 
 ```
-POST /api/v1/uploads?expires=<duration>&max_downloads=<n>
+POST /api/v1/uploads?expires=<duration>&max_downloads=<n>&storage=<name>
 ```
 
 Same optional parameters as a single upload; they apply when the upload
@@ -88,8 +95,8 @@ completes. **201 Created**:
 
 | Status | When |
 |---|---|
-| 400 | `expires` or `max_downloads` invalid |
-| 503 | `FILEBUNNY_MAX_PENDING_UPLOADS` (50) uploads are in progress server-wide; retry after `Retry-After` seconds |
+| 400 | `expires`, `max_downloads` or `storage` invalid, or `storage` not offered |
+| 503 | `FILEBUNNY_MAX_PENDING_UPLOADS` (50) uploads are in progress server-wide, or the external storage is unavailable; retry after `Retry-After` seconds |
 
 ### Send a chunk
 
@@ -122,7 +129,9 @@ POST /api/v1/uploads/{id}/complete
 
 **201 Created** with the same body as a single upload (ID, delete token,
 size, expiry, download limit). The expiry starts now. `400` if no bytes
-were received; `401`/`403`/`404`/`409` as above.
+were received; `401`/`403`/`404`/`409` as above. With external storage,
+the ciphertext is sent on now; `503` if the service is unavailable or
+busy (the upload is discarded).
 
 ### Abort
 
@@ -166,6 +175,12 @@ to show expiry and downloads left before the user decides to download.
 | Status | When |
 |---|---|
 | 404 | Unknown, malformed, deleted, expired or no downloads left (indistinguishable on purpose) |
+| 502 | External storage failed while fetching the file. The download **was** counted |
+| 503 | External storage is out of use or busy; checked before the download is counted. `Retry-After` is set |
+
+For a file at external storage, the server fetches it from the service
+and streams it; the client sees no difference. After the last download the
+server deletes it there as well.
 
 ```sh
 curl -o message.gpg https://filebunny.eu/api/v1/files/7v2AKiSorZYORZzGK4KQYg
@@ -199,7 +214,7 @@ only served with the management token, never through `/api/v1/files`.
 ### Create
 
 ```
-POST /api/v1/inboxes?expires=168h&max_uploads=10
+POST /api/v1/inboxes?expires=168h&max_uploads=10&storage=<name>
 Content-Type: text/plain
 
 -----BEGIN PGP PUBLIC KEY BLOCK-----
@@ -211,6 +226,11 @@ Content-Type: text/plain
 |---|---|---|
 | `expires` | `168h` (`FILEBUNNY_INBOX_DEFAULT_EXPIRY`) | `1m` to `720h` (`FILEBUNNY_INBOX_MAX_EXPIRY`) |
 | `max_uploads` | 10 | 1 to 100 (`FILEBUNNY_INBOX_MAX_UPLOADS`) |
+| `storage` | `local` (this server) | a name from [Storage](#storage), e.g. `filebin` |
+
+With `storage`, everything sent to the link goes on to that service
+through this server, as for share links: the service sees this server,
+not the uploader or the owner.
 
 The body must be an ASCII-armored public key of at most 64 KiB. The
 server only checks its shape (armor lines, printable ASCII); it does not
@@ -226,15 +246,16 @@ in total (default 100 MiB).
 ```
 
 `keep_seconds` is how long each upload is kept after it arrives
-(`FILEBUNNY_MAX_EXPIRY`).
+(`FILEBUNNY_MAX_EXPIRY`, or the service's maximum if that is shorter).
+With external storage the answer also has `"storage": "filebin"`.
 
 Only a SHA-256 of the management token is stored.
 
 | Status | When |
 |---|---|
-| 400 | Not an armored public key, or a parameter out of range |
+| 400 | Not an armored public key, a parameter out of range, or `storage` not offered |
 | 413 | Key over 64 KiB |
-| 503 | Too many open links on this server (`FILEBUNNY_MAX_INBOXES`, default 1000) |
+| 503 | Too many open links on this server (`FILEBUNNY_MAX_INBOXES`, default 1000), or the external storage is unavailable |
 
 ### Info (public)
 
@@ -243,7 +264,8 @@ GET /api/v1/inboxes/{id}
 ```
 
 **200 OK**: `{"public_key": "-----BEGIN PGP…", "expires_at": "…",
-"uploads_left": 9, "bytes_left": 104857586, "max_file_size": 104857586}`.
+"uploads_left": 9, "bytes_left": 104857586, "max_file_size": 104857586}`,
+plus `"storage": "filebin"` when uploads go to external storage.
 A full link is still returned (with nothing left). **404** when unknown,
 expired or revoked.
 
@@ -257,7 +279,8 @@ Body: the ciphertext, at most `max_file_size`. Larger files use the
 chunked upload with `POST /api/v1/uploads?inbox={id}` (no `expires` or
 `max_downloads`; `max_size` is what the link has left); `complete` then
 answers like this endpoint. Files of a link are kept for 7 days
-(`FILEBUNNY_MAX_EXPIRY`) after the upload, independent of the link.
+(`FILEBUNNY_MAX_EXPIRY`; 6 at Filebin) after the upload, independent of
+the link.
 
 **201 Created**: `{"size": 14}`. The uploader gets no ID and no delete
 token. The upload and byte counters are updated atomically with storing
@@ -269,6 +292,7 @@ the file, so parallel uploads cannot exceed the limits.
 | 404 | Unknown, expired or revoked link |
 | 409 | No uploads or bytes left |
 | 413 | Larger than what the link has left |
+| 503 | The link's external storage is unavailable, busy or no longer offered (checked before the body is read) |
 | 507 | Server storage full |
 
 ### Manage (management token)
@@ -280,7 +304,7 @@ after the link expired, as long as it still holds files.
 | Request | Answer |
 |---|---|
 | `GET /api/v1/inboxes/{id}/files` | `{"expires_at", "open", "uploads", "max_uploads", "bytes", "max_bytes", "files": [{"id", "size", "received_at", "expires_at"}]}` |
-| `GET /api/v1/inboxes/{id}/files/{file}` | The ciphertext, with the download headers above; not counted, can be fetched again |
+| `GET /api/v1/inboxes/{id}/files/{file}` | The ciphertext, with the download headers above; not counted, can be fetched again. At external storage also 502/503 as for downloads |
 | `DELETE /api/v1/inboxes/{id}/files/{file}` | 204; the upload it used stays used |
 | `DELETE /api/v1/inboxes/{id}` | 204; revokes the link and deletes everything it received |
 
@@ -292,6 +316,36 @@ GET /api/v1/features
 
 **200 OK**, `{"wkd": true}`: which optional endpoints this server offers.
 The frontend hides the WKD options when `wkd` is `false`.
+
+## Storage
+
+```
+GET /api/v1/storage
+```
+
+**200 OK**: the external services this server offers and whether they
+work now. Empty when none is configured (`FILEBUNNY_FILEBIN`).
+
+```json
+{
+  "storage": [
+    {
+      "name": "filebin",
+      "available": true,
+      "checked_at": "2026-10-31T16:51:03Z",
+      "max_expiry_seconds": 518400
+    }
+  ]
+}
+```
+
+- `available`: the last health check passed and recent transfers did not
+  fail repeatedly. A health check runs every 12 hours.
+- `checked_at`: the last health check; omitted before the first.
+- `max_expiry_seconds`: the longest `expires` for uploads there.
+
+Per service: [Filebin](storage/filebin.md). Files stored *directly* at a
+service from the browser never touch this API.
 
 ## WKD lookup
 

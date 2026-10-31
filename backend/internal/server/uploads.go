@@ -32,9 +32,9 @@ type pendingUpload struct {
 	id        string
 	tokenHash [sha256.Size]byte
 	lim       limits
-	// inbox is the upload link this upload goes to, if any; maxSize is
-	// the most it may hold.
-	inbox   string
+	// inbox is the upload link this upload goes to, if any (its ID is
+	// empty otherwise); maxSize is the most it may hold.
+	inbox   store.Inbox
 	maxSize int64
 
 	// mu is held for the whole of a request on this upload; a second
@@ -63,10 +63,11 @@ type chunkResponse struct {
 // upload to that link instead, limited by what the link has left.
 func (s *Server) handleCreateUpload(w http.ResponseWriter, r *http.Request) {
 	var lim limits
-	inbox := r.URL.Query().Get("inbox")
+	var in store.Inbox
 	maxSize := s.cfg.MaxSize
-	if inbox != "" {
-		in, err := s.store.OpenInbox(r.Context(), inbox, s.now())
+	if inbox := r.URL.Query().Get("inbox"); inbox != "" {
+		var err error
+		in, err = s.store.OpenInbox(r.Context(), inbox, s.now())
 		if errors.Is(err, store.ErrNotFound) {
 			writeError(w, http.StatusNotFound, "not found")
 			return
@@ -78,6 +79,10 @@ func (s *Server) handleCreateUpload(w http.ResponseWriter, r *http.Request) {
 		}
 		if maxSize = s.inboxMaxFileSize(in); maxSize == 0 {
 			writeError(w, http.StatusConflict, "this upload link is full")
+			return
+		}
+		var ok bool
+		if lim.remote, ok = s.inboxRemote(w, in); !ok {
 			return
 		}
 	} else {
@@ -105,7 +110,7 @@ func (s *Server) handleCreateUpload(w http.ResponseWriter, r *http.Request) {
 		id:         randomString(16),
 		tokenHash:  sha256.Sum256([]byte(token)),
 		lim:        lim,
-		inbox:      inbox,
+		inbox:      in,
 		maxSize:    maxSize,
 		p:          p,
 		lastActive: time.Now(),
@@ -193,17 +198,27 @@ func (s *Server) handleCompleteUpload(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "upload is empty")
 		return
 	}
-	if u.inbox != "" {
+	if u.inbox.ID != "" {
 		// Commit consumes the pending upload, also when it fails; release
 		// the quota only after the file counts in the stored total.
-		s.commitToInbox(w, r, u.p, u.inbox)
+		s.commitToInbox(w, r, u.p, u.inbox, u.lim.remote)
 		s.finishUpload(u)
 		return
 	}
 	now := s.now()
-	f, token, err := s.store.Commit(r.Context(), u.p, now, now.Add(u.lim.expiry), u.lim.maxDownloads)
-	// Commit consumes the pending upload, also when it fails.
+	var f store.File
+	var token string
+	var err error
+	if u.lim.remote == nil {
+		f, token, err = s.store.Commit(r.Context(), u.p, now, now.Add(u.lim.expiry), u.lim.maxDownloads)
+	} else {
+		f, token, err = s.commitRemote(r.Context(), u.p, u.lim)
+	}
+	// Both consume the pending upload, also when they fail.
 	s.finishUpload(u)
+	if writeRemoteError(w, err) {
+		return
+	}
 	if err != nil {
 		s.log.Error("complete upload failed", "err", err)
 		writeError(w, http.StatusInternalServerError, "complete upload failed")

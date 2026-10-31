@@ -72,6 +72,8 @@ backend with defaults.
 | `FILEBUNNY_INBOX_MAX_EXPIRY` | `720h` | Longest a link may stay open |
 | `FILEBUNNY_INBOX_MAX_UPLOADS` | `100` | Highest number of uploads a link may allow (default per link: 10) |
 | `FILEBUNNY_INBOX_MAX_SIZE` | `104857600` | Max combined size of the uploads to one link, in bytes (100 MiB) |
+| `FILEBUNNY_FILEBIN` | `false` | Offer Filebin (filebin.net) as external storage through this server; see [storage/filebin.md](storage/filebin.md) |
+| `FILEBUNNY_PROXY_DAILY_BYTES` | `53687091200` (50 GiB) | Traffic to and from external storage per UTC day, per service; beyond it uploads and downloads there get `503` |
 | `FILEBUNNY_CLEANUP_INTERVAL` | `1m` | How often expired files are removed |
 | `FILEBUNNY_LISTEN` | `:8080` | Backend listen address (inside the container) |
 | `FILEBUNNY_DATA_DIR` | `/data` in the container | Database and blobs |
@@ -86,6 +88,13 @@ If your firewall restricts egress, either allow outgoing 443 for the
 backend or set `FILEBUNNY_WKD_PROXY=false`. Keyserver lookups
 (keys.openpgp.org) go directly from the browser and need nothing from
 your server.
+
+External storage through the server (`FILEBUNNY_FILEBIN=true`) needs
+outgoing 443 to `filebin.net` and `storage.filebin.net`. The direct route
+to Filebin goes from the browser and needs nothing from your server
+except `connect-src` in the CSP, which `deploy/Caddyfile` already allows.
+Read the service's terms before you offer it. The adapter docs in
+[storage/](storage/) say what each service sees and how it is used.
 
 ## Downloadable single HTML file
 
@@ -119,6 +128,9 @@ FileBunny stores no IP addresses. Keep it that way on your server:
   looked up (not by whom). It never logs them; keep it that way, and
   switch it off (`FILEBUNNY_WKD_PROXY=false`) if you prefer not to see
   them at all.
+- External storage through the server shows the service only your
+  server's address. The direct route shows it the visitor's address; the
+  page says so before anything is sent.
 
 ## Updates
 

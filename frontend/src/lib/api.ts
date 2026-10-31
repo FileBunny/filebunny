@@ -33,6 +33,19 @@ export type Limits = {
   expires: string;
   /** 0 means unlimited. */
   maxDownloads: number;
+  /** An external service the server passes the file on to; omitted: this server. */
+  storage?: string;
+};
+
+/** The most ciphertext a share link may hold (the server's default limit). */
+export const maxCiphertext = 100 << 20;
+
+export type StorageStatus = {
+  name: string;
+  available: boolean;
+  /** null before the first check. */
+  checkedAt: Date | null;
+  maxExpirySeconds: number;
 };
 
 export type Uploaded = {
@@ -225,16 +238,25 @@ export async function download(id: string, onProgress: Progress = () => {}, sign
   return readBody(await request('GET', filePath(id), { signal }), onProgress);
 }
 
-async function readBody(res: Response, onProgress: Progress): Promise<Uint8Array> {
-  if (!res.body) return new Uint8Array(await res.arrayBuffer());
+/** Reads a response body; more than max bytes is an error. */
+export async function readBody(res: Response, onProgress: Progress = () => {}, max = Infinity): Promise<Uint8Array> {
+  if (!res.body) {
+    const all = new Uint8Array(await res.arrayBuffer());
+    if (all.length > max) throw new RangeError('response too large');
+    return all;
+  }
   const parts: Uint8Array[] = [];
   let received = 0;
   const reader = res.body.getReader();
   for (;;) {
     const { value, done } = await reader.read();
     if (done) break;
-    parts.push(value);
     received += value.length;
+    if (received > max) {
+      void reader.cancel();
+      throw new RangeError('response too large');
+    }
+    parts.push(value);
     onProgress(received);
   }
   const out = new Uint8Array(received);
@@ -250,6 +272,19 @@ export async function deleteFile(id: string, deleteToken: string): Promise<void>
   await request('DELETE', filePath(id), { headers: { Authorization: `Bearer ${deleteToken}` } });
 }
 
+/** The external services this server offers (the status page). */
+export async function storageStatus(): Promise<StorageStatus[]> {
+  const r = (await (await request('GET', '/api/v1/storage')).json()) as {
+    storage: { name: string; available: boolean; checked_at?: string; max_expiry_seconds: number }[];
+  };
+  return r.storage.map((s) => ({
+    name: s.name,
+    available: s.available,
+    checkedAt: s.checked_at ? new Date(s.checked_at) : null,
+    maxExpirySeconds: s.max_expiry_seconds,
+  }));
+}
+
 /** The command-line equivalent of a download, for the gpg instructions. */
 export function fileUrl(id: string): string {
   return siteBase() + filePath(id);
@@ -263,6 +298,8 @@ export type InboxCreated = {
   maxSize: number;
   /** How long each upload is kept after it arrives, in seconds. */
   keepSeconds: number;
+  /** The external service uploads go to; undefined for this server. */
+  storage?: string;
 };
 
 export type InboxInfo = {
@@ -272,6 +309,8 @@ export type InboxInfo = {
   bytesLeft: number;
   /** The most the next upload may be; 0 when the link is full. */
   maxFileSize: number;
+  /** The external service uploads go to; undefined for this server. */
+  storage?: string;
 };
 
 export type InboxFile = { id: string; size: number; receivedAt: Date; expiresAt: Date };
@@ -287,8 +326,12 @@ export type InboxStatus = {
 };
 
 /** Registers an armored public key as an upload link. */
-export async function createInbox(publicKey: string, opts: { expires: string; maxUploads: number }): Promise<InboxCreated> {
+export async function createInbox(
+  publicKey: string,
+  opts: { expires: string; maxUploads: number; storage?: string },
+): Promise<InboxCreated> {
   const q = new URLSearchParams({ expires: opts.expires, max_uploads: String(opts.maxUploads) });
+  if (opts.storage) q.set('storage', opts.storage);
   const res = await request('POST', `/api/v1/inboxes?${q}`, { body: new Blob([publicKey]) });
   const r = (await res.json()) as {
     id: string;
@@ -297,6 +340,7 @@ export async function createInbox(publicKey: string, opts: { expires: string; ma
     max_uploads: number;
     max_size: number;
     keep_seconds: number;
+    storage?: string;
   };
   return {
     id: r.id,
@@ -305,6 +349,7 @@ export async function createInbox(publicKey: string, opts: { expires: string; ma
     maxUploads: r.max_uploads,
     maxSize: r.max_size,
     keepSeconds: r.keep_seconds,
+    storage: r.storage,
   };
 }
 
@@ -317,6 +362,7 @@ export async function inboxInfo(id: string): Promise<InboxInfo | null> {
       uploads_left: number;
       bytes_left: number;
       max_file_size: number;
+      storage?: string;
     };
     return {
       publicKey: r.public_key,
@@ -324,6 +370,7 @@ export async function inboxInfo(id: string): Promise<InboxInfo | null> {
       uploadsLeft: r.uploads_left,
       bytesLeft: r.bytes_left,
       maxFileSize: r.max_file_size,
+      storage: r.storage,
     };
   } catch (err) {
     if (err instanceof ApiError && err.status === 404) return null;
@@ -383,6 +430,7 @@ function filePath(id: string): string {
 function limitsQuery(l: Limits): string {
   const q = new URLSearchParams({ expires: l.expires });
   if (l.maxDownloads > 0) q.set('max_downloads', String(l.maxDownloads));
+  if (l.storage) q.set('storage', l.storage);
   return q.toString();
 }
 

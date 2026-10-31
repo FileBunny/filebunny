@@ -49,14 +49,17 @@ func run(log *slog.Logger) error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	// Stop cleanup and wait for it on every return path, before st.Close.
+	// Stop the background work and wait for it on every return path,
+	// before st.Close.
+	api := server.New(cfg, st, log)
 	var wg sync.WaitGroup
 	defer func() { stop(); wg.Wait() }()
 	wg.Go(func() { cleanup.Run(ctx, st, cfg.CleanupInterval, log) })
+	wg.Go(func() { api.RunBackground(ctx) })
 
 	srv := &http.Server{
 		Addr:              cfg.Listen,
-		Handler:           server.New(cfg, st, log),
+		Handler:           api,
 		ErrorLog:          logging.ErrorLog(log),
 		MaxHeaderBytes:    64 << 10,
 		ReadHeaderTimeout: 10 * time.Second,

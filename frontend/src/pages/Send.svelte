@@ -1,22 +1,29 @@
 <script lang="ts">
   import { encrypt } from '../lib/crypto.ts';
   import type { Recipient } from '../lib/keylookup.ts';
-  import { ApiError, siteBase, upload, type Uploaded } from '../lib/api.ts';
-  import { deleteLink, shareLink } from '../lib/route.ts';
+  import { ApiError, maxCiphertext, siteBase, upload, type Uploaded } from '../lib/api.ts';
+  import { filebinUpload, newBin } from '../lib/filebin.ts';
+  import { storageByName, storages } from '../lib/storage.ts';
+  import { deleteLink, filebinLink, shareLink } from '../lib/route.ts';
   import { formatBytes, formatDate } from '../lib/format.ts';
   import CopyField from '../components/CopyField.svelte';
   import ErrorMessage from '../components/ErrorMessage.svelte';
   import KeyPicker from '../components/KeyPicker.svelte';
+  import Info from '../components/Info.svelte';
   import SecretField from '../components/SecretField.svelte';
+  import StorageStatus from '../components/StorageStatus.svelte';
 
   // The server limit is 100 MiB of ciphertext; OpenPGP adds a little.
   const maxFileSize = 100_000_000;
 
-  const expiryOptions = [
+  // Where the ciphertext is kept (docs/storage/), and whether it goes
+  // there through FileBunny or straight from this browser. Only the choice
+  // is sent; whether a service works is up to the server, which refuses
+  // with 503 before any data is sent.
+  const shortExpiry = [
     { value: '1h', label: '1 hour' },
     { value: '24h', label: '1 day' },
     { value: '72h', label: '3 days' },
-    { value: '168h', label: '7 days' },
   ];
   const downloadOptions = [
     { value: 1, label: 'Once' },
@@ -34,13 +41,27 @@
   // Raw: OpenPGP key objects must not be wrapped in proxies.
   let recipients = $state.raw<Recipient[]>([]);
 
+  let storageName = $state('local');
+  let via = $state<'server' | 'direct'>('server');
+  let statusOpen = $state(false);
+  const chosen = $derived(storageByName(storageName)!);
+  const direct = $derived(chosen.direct && via === 'direct');
   let expires = $state('24h');
   let maxDownloads = $state(0);
+  const expiries = $derived([
+    ...shortExpiry,
+    { value: `${chosen.maxExpiryHours}h`, label: `${chosen.maxExpiryHours / 24} days` },
+  ]);
+  $effect(() => {
+    if (!expiries.some((o) => o.value === expires)) expires = expiries.at(-1)!.value;
+  });
 
   let busy = $state(false);
   let sent = $state(0);
   let error = $state('');
   let result = $state<Uploaded | null>(null);
+  /** The bin of a direct upload to Filebin. */
+  let directBin = $state('');
   let controller: AbortController | null = null;
 
   const total = $derived(what === 'file' ? (file?.size ?? 0) : new TextEncoder().encode(text).length);
@@ -91,10 +112,23 @@
         what === 'text' ? { kind: 'text' as const, text } : { kind: 'file' as const, name: file!.name, data: file!.stream() };
       const to = mode === 'password' ? { password } : { publicKeys: recipients.map((r) => r.info.key) };
       const ciphertext = await encrypt(plaintext, to);
-      result = await upload(ciphertext, { expires, maxDownloads }, (n) => (sent = n), controller.signal);
+      if (direct) {
+        // Filebin is the only service with a direct route so far. One request without progress events: those would make it a
+        // preflighted request, which Filebin does not allow.
+        const blob = await new Response(ciphertext).blob();
+        if (blob.size > maxCiphertext) throw new TooLarge();
+        const bin = newBin();
+        await filebinUpload(bin, blob, controller.signal);
+        directBin = bin;
+      } else {
+        const storage = chosen.name === 'local' ? undefined : chosen.name;
+        result = await upload(ciphertext, { expires, maxDownloads, storage }, (n) => (sent = n), controller.signal);
+      }
     } catch (err) {
       if (controller.signal.aborted) error = 'Upload cancelled.';
+      else if (err instanceof TooLarge) error = 'The encrypted file is larger than 100 MB.';
       else if (err instanceof ApiError) error = `Upload failed: ${err.message}`;
+      else if (direct) error = `The upload to ${chosen.short} failed. Try again later, or upload through FileBunny.`;
       else error = 'Encryption or upload failed. Check your connection and try again.';
     } finally {
       busy = false;
@@ -102,8 +136,11 @@
     }
   }
 
+  class TooLarge extends Error {}
+
   function startOver() {
     result = null;
+    directBin = '';
     tried = false;
     text = '';
     file = null;
@@ -112,7 +149,25 @@
   }
 </script>
 
-{#if result}
+{#if directBin}
+  <section>
+    <h1>Encrypted and uploaded to {chosen.short}</h1>
+    <CopyField label="Share link" value={filebinLink(siteBase(), directBin)} />
+    {#if mode === 'password'}
+      <p class="note">
+        The link does not contain the password. Send the password through a different channel, for example by phone or
+        another messenger.
+      </p>
+    {:else}
+      <p class="note">Only the holders of the private keys can decrypt it.</p>
+    {/if}
+    <p>
+      {chosen.short} keeps it for about {chosen.keepsDays} days. Anyone with the link can download it as often as they
+      like, and delete it. FileBunny does not know about this file.
+    </p>
+    <button type="button" onclick={startOver}>Share something else</button>
+  </section>
+{:else if result}
   <section>
     <h1>Encrypted and uploaded</h1>
     <CopyField label="Share link" value={shareLink(siteBase(), result.id)} />
@@ -128,6 +183,9 @@
       Available until {formatDate(result.expiresAt)}{#if result.maxDownloads === 1}, for one download{:else if result.maxDownloads > 1},
         for {result.maxDownloads} downloads{/if}.
     </p>
+    {#if chosen.name !== 'local'}
+      <p class="note">Stored at {chosen.short} through FileBunny; {chosen.short} only sees this server.</p>
+    {/if}
     <CopyField label="Delete link (keep this to yourself)" value={deleteLink(siteBase(), result.id, result.deleteToken)} />
     <button type="button" onclick={startOver}>Share something else</button>
   </section>
@@ -167,25 +225,58 @@
     </fieldset>
 
     <fieldset disabled={busy}>
-      <legend>3. How long and how often?</legend>
-      <div class="row">
-        <label class="field">
-          <span>Expires after</span>
-          <select bind:value={expires}>
-            {#each expiryOptions as o (o.value)}<option value={o.value}>{o.label}</option>{/each}
-          </select>
-        </label>
-        <label class="field">
-          <span>Can be downloaded</span>
-          <select bind:value={maxDownloads}>
-            {#each downloadOptions as o (o.value)}<option value={o.value}>{o.label}</option>{/each}
-          </select>
-        </label>
-      </div>
+      <legend>3. Where, how long and how often?</legend>
+      <label class="field">
+        <span>Stored at</span>
+        <select bind:value={storageName}>
+          {#each storages as o (o.name)}<option value={o.name}>{o.label}</option>{/each}
+        </select>
+      </label>
+      {#if chosen.direct}
+        <div class="choice">
+          <label><input type="radio" bind:group={via} value="server" /> Through FileBunny</label>
+          <label><input type="radio" bind:group={via} value="direct" /> Directly from your browser</label>
+          <Info label="About the two ways">
+            {chosen.short} only ever gets the encrypted data. Through FileBunny, it sees this server instead of you, and
+            the limits below still apply. Directly, your browser uploads to {chosen.short} itself: it sees your IP address
+            and FileBunny does not know about the file.
+          </Info>
+        </div>
+      {:else if chosen.name !== 'local'}
+        <p class="note">Sent through FileBunny: {chosen.short} sees this server instead of you.</p>
+      {/if}
+      <details class="more" bind:open={statusOpen}>
+        <summary>Storage status</summary>
+        {#if statusOpen}<StorageStatus />{/if}
+      </details>
+      {#if direct}
+        <p class="note">
+          {chosen.short} sees your IP address and keeps the file for about {chosen.keepsDays} days. There is no download
+          limit and no delete link: anyone with the link can download it, and delete it.
+        </p>
+      {:else}
+        <div class="row">
+          <label class="field">
+            <span>Expires after</span>
+            <select bind:value={expires}>
+              {#each expiries as o (o.value)}<option value={o.value}>{o.label}</option>{/each}
+            </select>
+          </label>
+          <label class="field">
+            <span>Can be downloaded</span>
+            <select bind:value={maxDownloads}>
+              {#each downloadOptions as o (o.value)}<option value={o.value}>{o.label}</option>{/each}
+            </select>
+          </label>
+        </div>
+      {/if}
     </fieldset>
 
     <ErrorMessage error={gap?.message ?? error} />
-    {#if busy}
+    {#if busy && direct}
+      <progress></progress>
+      <button type="button" onclick={() => controller?.abort()}>Cancel</button>
+    {:else if busy}
       <progress max={total} value={Math.min(sent, total)}></progress>
       <button type="button" onclick={() => controller?.abort()}>Cancel</button>
     {:else}

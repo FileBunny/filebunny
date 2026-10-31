@@ -43,6 +43,16 @@ type File struct {
 	MaxDownloads int
 	// Downloads counts the downloads started so far.
 	Downloads int
+	// Storage names the external service that holds the blob; empty means
+	// this server's disk. RemoteRef is the server-generated name there.
+	Storage   string
+	RemoteRef string
+}
+
+// RemoteObject is a blob at an external service that must be deleted.
+type RemoteObject struct {
+	Storage string
+	Ref     string
 }
 
 // DownloadsLeft returns how many downloads remain, or -1 if unlimited.
@@ -97,6 +107,20 @@ var migrations = []string{
 	CREATE INDEX inboxes_expires_at ON inboxes(expires_at);
 	ALTER TABLE files ADD COLUMN inbox_id TEXT;
 	CREATE INDEX files_inbox_id ON files(inbox_id);`,
+	// Blobs at an external service (storage NULL means this server's
+	// disk). remote_trash holds blobs to delete there, not before
+	// delete_after, so a download in progress can finish.
+	`ALTER TABLE files ADD COLUMN storage TEXT;
+	ALTER TABLE files ADD COLUMN remote_ref TEXT;
+	CREATE TABLE remote_trash (
+		storage      TEXT NOT NULL,
+		remote_ref   TEXT NOT NULL,
+		delete_after INTEGER NOT NULL,
+		PRIMARY KEY (storage, remote_ref)
+	) STRICT;`,
+	// The external service that files sent to an upload link go to; NULL
+	// means this server's disk.
+	`ALTER TABLE inboxes ADD COLUMN storage TEXT;`,
 }
 
 // Open opens (or creates) the store in dataDir.
@@ -193,6 +217,15 @@ func (s *Store) Begin() (*Pending, error) {
 // Size returns the number of bytes appended so far.
 func (p *Pending) Size() int64 { return p.size }
 
+// Content returns the data appended so far, from the start, for sending
+// it on to an external service. Do not Append while reading it.
+func (p *Pending) Content() (io.ReadSeeker, error) {
+	if _, err := p.f.Seek(0, io.SeekStart); err != nil {
+		return nil, err
+	}
+	return io.NewSectionReader(p.f, 0, p.size), nil
+}
+
 // Append writes all of r. A part is all or nothing: if r fails, the data
 // it wrote is discarded, so the same part can be sent again.
 func (p *Pending) Append(r io.Reader) (int64, error) {
@@ -225,6 +258,23 @@ func (s *Store) Commit(ctx context.Context, p *Pending, now, expiresAt time.Time
 	if err != nil {
 		return File{}, "", err
 	}
+	return f, token, nil
+}
+
+// CommitRemote records a file whose blob is at an external service under
+// ref; the caller has uploaded it there. It returns the metadata and the
+// delete token, like Commit.
+func (s *Store) CommitRemote(ctx context.Context, size int64, storage, ref string, now, expiresAt time.Time, maxDownloads int) (File, string, error) {
+	token := newRandom(tokenBytes)
+	id := newRandom(idBytes)
+	now, expiresAt = now.Truncate(time.Second), expiresAt.Truncate(time.Second)
+	_, err := s.db.ExecContext(ctx,
+		`INSERT INTO files (id, delete_token_hash, size, created_at, expires_at, max_downloads, storage, remote_ref) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+		id, hashToken(token), size, now.Unix(), expiresAt.Unix(), nullIfZero(maxDownloads), storage, ref)
+	if err != nil {
+		return File{}, "", err
+	}
+	f := File{ID: id, Size: size, CreatedAt: now, ExpiresAt: expiresAt, MaxDownloads: maxDownloads, Storage: storage, RemoteRef: ref}
 	return f, token, nil
 }
 
@@ -264,20 +314,8 @@ func (s *Store) commit(ctx context.Context, p *Pending, now, expiresAt time.Time
 	}
 	defer tx.Rollback() // no-op after Commit
 	if inboxID != "" {
-		res, err := tx.ExecContext(ctx,
-			`UPDATE inboxes SET uploads = uploads + 1, bytes = bytes + ?
-			WHERE id = ? AND expires_at > ? AND uploads < max_uploads AND bytes + ? <= max_bytes`,
-			p.size, inboxID, now.Unix(), p.size)
-		if err != nil {
+		if err := s.claimInboxUpload(ctx, tx, inboxID, p.size, now); err != nil {
 			return File{}, err
-		}
-		if n, err := res.RowsAffected(); err != nil {
-			return File{}, err
-		} else if n == 0 {
-			if _, err := s.openInbox(ctx, tx, inboxID, now); err != nil {
-				return File{}, err
-			}
-			return File{}, ErrInboxFull
 		}
 	}
 	// Insert the row before the rename: the primary key guarantees the ID
@@ -300,17 +338,48 @@ func (s *Store) commit(ctx context.Context, p *Pending, now, expiresAt time.Time
 	return f, nil
 }
 
+// claimInboxUpload counts one upload of size bytes against an upload link,
+// in tx: ErrInboxFull when the link has not enough left, ErrNotFound when
+// it is gone or expired.
+func (s *Store) claimInboxUpload(ctx context.Context, tx *sql.Tx, inboxID string, size int64, now time.Time) error {
+	res, err := tx.ExecContext(ctx,
+		`UPDATE inboxes SET uploads = uploads + 1, bytes = bytes + ?
+		WHERE id = ? AND expires_at > ? AND uploads < max_uploads AND bytes + ? <= max_bytes`,
+		size, inboxID, now.Unix(), size)
+	if err != nil {
+		return err
+	}
+	if n, err := res.RowsAffected(); err != nil {
+		return err
+	} else if n == 0 {
+		if _, err := s.openInbox(ctx, tx, inboxID, now); err != nil {
+			return err
+		}
+		return ErrInboxFull
+	}
+	return nil
+}
+
 // available is the SQL condition for a file that can still be downloaded.
 // Files of an upload link are never available this way.
 const available = `expires_at > ? AND (max_downloads IS NULL OR downloads < max_downloads) AND inbox_id IS NULL`
 
-const fileColumns = `size, created_at, expires_at, downloads, max_downloads`
+const fileColumns = `size, created_at, expires_at, downloads, max_downloads, storage, remote_ref`
+
+// immediately is a deleteAfter for blobs that may go at once.
+var immediately = time.Unix(0, 0)
+
+// downloadGrace is how long a remote blob is kept after its last allowed
+// download started, so that download can finish.
+const downloadGrace = time.Hour
 
 // Get counts a download and returns the metadata and an open handle to the
-// blob. The caller must close the handle. Expired files and files without
-// downloads left are reported as ErrNotFound. The counter is updated in one
-// statement, so concurrent downloads can never exceed the limit; the last
-// allowed download removes the file (the open handle keeps working).
+// blob. The caller must close the handle. For a blob at an external service
+// the handle is nil and the caller fetches f.RemoteRef. Expired files and
+// files without downloads left are reported as ErrNotFound. The counter is
+// updated in one statement, so concurrent downloads can never exceed the
+// limit; the last allowed download removes the file (the open handle keeps
+// working, a remote blob stays for downloadGrace).
 func (s *Store) Get(ctx context.Context, id string, now time.Time) (File, *os.File, error) {
 	if !idPattern.MatchString(id) {
 		return File{}, nil, ErrNotFound
@@ -320,6 +389,12 @@ func (s *Store) Get(ctx context.Context, id string, now time.Time) (File, *os.Fi
 		id, now.Unix()))
 	if err != nil {
 		return File{}, nil, err
+	}
+	if f.Storage != "" {
+		if f.DownloadsLeft() == 0 {
+			_ = s.remove(context.WithoutCancel(ctx), id, now.Add(downloadGrace))
+		}
+		return f, nil, nil
 	}
 
 	blob, err := os.Open(s.blobPath(id))
@@ -332,7 +407,7 @@ func (s *Store) Get(ctx context.Context, id string, now time.Time) (File, *os.Fi
 	if f.DownloadsLeft() == 0 {
 		// If this fails, the row stays unavailable (no downloads left) and
 		// cleanup removes it when it expires.
-		_ = s.remove(context.WithoutCancel(ctx), id)
+		_ = s.remove(context.WithoutCancel(ctx), id, now)
 	}
 	return f, blob, nil
 }
@@ -351,7 +426,8 @@ func scanFile(id string, row *sql.Row) (File, error) {
 	f := File{ID: id}
 	var created, expires int64
 	var maxDownloads sql.NullInt64
-	err := row.Scan(&f.Size, &created, &expires, &f.Downloads, &maxDownloads)
+	var storage, ref sql.NullString
+	err := row.Scan(&f.Size, &created, &expires, &f.Downloads, &maxDownloads, &storage, &ref)
 	if errors.Is(err, sql.ErrNoRows) {
 		return File{}, ErrNotFound
 	}
@@ -360,6 +436,7 @@ func scanFile(id string, row *sql.Row) (File, error) {
 	}
 	f.CreatedAt, f.ExpiresAt = time.Unix(created, 0), time.Unix(expires, 0)
 	f.MaxDownloads = int(maxDownloads.Int64)
+	f.Storage, f.RemoteRef = storage.String, ref.String
 	return f, nil
 }
 
@@ -382,14 +459,15 @@ func (s *Store) Delete(ctx context.Context, id, token string, now time.Time) err
 	if subtle.ConstantTimeCompare(stored, hashToken(token)) != 1 {
 		return ErrForbidden
 	}
-	return s.remove(ctx, id)
+	return s.remove(ctx, id, now)
 }
 
-// TotalSize returns the combined size of all stored files, including
-// expired ones that cleanup has not removed yet (they still use disk).
+// TotalSize returns the combined size of all files on this server's disk,
+// including expired ones that cleanup has not removed yet (they still use
+// disk). Blobs at an external service do not count.
 func (s *Store) TotalSize(ctx context.Context) (int64, error) {
 	var total int64
-	err := s.db.QueryRowContext(ctx, `SELECT COALESCE(SUM(size), 0) FROM files`).Scan(&total)
+	err := s.db.QueryRowContext(ctx, `SELECT COALESCE(SUM(size), 0) FROM files WHERE storage IS NULL`).Scan(&total)
 	return total, err
 }
 
@@ -416,7 +494,7 @@ func (s *Store) DeleteExpired(ctx context.Context, now time.Time) (int, error) {
 
 	n := 0
 	for _, id := range ids {
-		if err := s.remove(ctx, id); err != nil {
+		if err := s.remove(ctx, id, now); err != nil {
 			return n, err
 		}
 		n++
@@ -466,11 +544,60 @@ func (s *Store) RemoveOrphans(ctx context.Context) (int, error) {
 	return n, nil
 }
 
+// RemoteDue returns remote blobs whose deletion is due at now.
+func (s *Store) RemoteDue(ctx context.Context, now time.Time) ([]RemoteObject, error) {
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT storage, remote_ref FROM remote_trash WHERE delete_after <= ?`, now.Unix())
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []RemoteObject
+	for rows.Next() {
+		var o RemoteObject
+		if err := rows.Scan(&o.Storage, &o.Ref); err != nil {
+			return nil, err
+		}
+		out = append(out, o)
+	}
+	return out, rows.Err()
+}
+
+// RemoteDeleted records that a remote blob is gone.
+func (s *Store) RemoteDeleted(ctx context.Context, o RemoteObject) error {
+	_, err := s.db.ExecContext(ctx, `DELETE FROM remote_trash WHERE storage = ? AND remote_ref = ?`, o.Storage, o.Ref)
+	return err
+}
+
 // remove deletes the row first, so the file is unreachable even if removing
-// the blob fails; RemoveOrphans picks up such leftovers.
-func (s *Store) remove(ctx context.Context, id string) error {
-	if _, err := s.db.ExecContext(ctx, `DELETE FROM files WHERE id = ?`, id); err != nil {
+// the blob fails; RemoveOrphans picks up such leftovers. A remote blob goes
+// to remote_trash in the same transaction, to be deleted from deleteAfter.
+func (s *Store) remove(ctx context.Context, id string, deleteAfter time.Time) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
 		return err
+	}
+	defer tx.Rollback() // no-op after Commit
+	var storage, ref sql.NullString
+	err = tx.QueryRowContext(ctx, `DELETE FROM files WHERE id = ? RETURNING storage, remote_ref`, id).Scan(&storage, &ref)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if storage.Valid {
+		if _, err := tx.ExecContext(ctx,
+			`INSERT OR IGNORE INTO remote_trash (storage, remote_ref, delete_after) VALUES (?, ?, ?)`,
+			storage.String, ref.String, deleteAfter.Unix()); err != nil {
+			return err
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return err
+	}
+	if storage.Valid {
+		return nil
 	}
 	if err := os.Remove(s.blobPath(id)); err != nil && !errors.Is(err, os.ErrNotExist) {
 		return err

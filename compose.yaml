@@ -12,6 +12,9 @@ services:
       FILEBUNNY_DEFAULT_EXPIRY: ${FILEBUNNY_DEFAULT_EXPIRY:-24h}
       FILEBUNNY_MAX_EXPIRY: ${FILEBUNNY_MAX_EXPIRY:-168h}
       FILEBUNNY_WKD_PROXY: ${FILEBUNNY_WKD_PROXY:-true}
+      # External storage at filebin.net through this server (docs/storage/filebin.md).
+      FILEBUNNY_FILEBIN: ${FILEBUNNY_FILEBIN:-false}
+      FILEBUNNY_PROXY_DAILY_BYTES: ${FILEBUNNY_PROXY_DAILY_BYTES:-53687091200}
     volumes:
       - data:/data
     read_only: true

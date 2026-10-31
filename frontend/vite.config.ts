@@ -24,11 +24,13 @@ export default defineConfig(({ mode }) => {
 
 /** Keep in sync with connect-src in deploy/Caddyfile and src/lib/keylookup.ts. */
 const keyserver = 'https://keys.openpgp.org';
+/** Filebin for direct uploads and downloads; keep in sync with src/lib/filebin.ts. */
+const filebin = 'https://filebin.net https://storage.filebin.net';
 
 /**
  * Inlines the one script and the one stylesheet into the HTML and adds a
- * CSP that allows exactly those (by hash) and connections to the API and
- * the keyserver only.
+ * CSP that allows exactly those (by hash) and connections to the API, the
+ * keyserver and Filebin only.
  * Fails the build if anything else would be left as a separate file.
  */
 function singleFile(): Plugin {
@@ -75,8 +77,8 @@ function singleFile(): Plugin {
         "default-src 'none'",
         `script-src ${await sha256(script)}`,
         `style-src ${await sha256(style)}`,
-        // The API, and the one keyserver the browser asks directly.
-        `connect-src ${api} ${keyserver}`,
+        // The API, the one keyserver and Filebin, which the browser asks directly.
+        `connect-src ${api} ${keyserver} ${filebin}`,
         "img-src 'self' data:",
         "base-uri 'none'",
         "form-action 'none'",

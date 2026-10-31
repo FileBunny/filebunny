@@ -23,6 +23,9 @@ type Inbox struct {
 	Uploads    int
 	MaxBytes   int64
 	Bytes      int64
+	// Storage names the external service that uploads go to; empty means
+	// this server's disk.
+	Storage string
 }
 
 // UploadsLeft and BytesLeft never go below zero.
@@ -34,7 +37,7 @@ func (in Inbox) Open(now time.Time) bool {
 	return now.Before(in.ExpiresAt) && in.UploadsLeft() > 0 && in.BytesLeft() > 0
 }
 
-const inboxColumns = `public_key, created_at, expires_at, max_uploads, uploads, max_bytes, bytes`
+const inboxColumns = `public_key, created_at, expires_at, max_uploads, uploads, max_bytes, bytes, storage`
 
 // querier is *sql.DB or *sql.Tx.
 type querier interface {
@@ -42,18 +45,19 @@ type querier interface {
 }
 
 // CreateInbox stores a new upload link and returns it with its management
-// token; only a hash of the token is stored. At most maxOpen links may be
-// unexpired at once (ErrTooManyInboxes); the check and the insert are one
-// statement, so parallel requests cannot overshoot it.
-func (s *Store) CreateInbox(ctx context.Context, publicKey []byte, now, expiresAt time.Time, maxUploads int, maxBytes int64, maxOpen int) (Inbox, string, error) {
+// token; only a hash of the token is stored. Uploads go to the external
+// service storage, or to this server's disk if it is empty. At most maxOpen
+// links may be unexpired at once (ErrTooManyInboxes); the check and the
+// insert are one statement, so parallel requests cannot overshoot it.
+func (s *Store) CreateInbox(ctx context.Context, publicKey []byte, storage string, now, expiresAt time.Time, maxUploads int, maxBytes int64, maxOpen int) (Inbox, string, error) {
 	id := newRandom(idBytes)
 	token := newRandom(tokenBytes)
 	now, expiresAt = now.Truncate(time.Second), expiresAt.Truncate(time.Second)
 	res, err := s.db.ExecContext(ctx,
-		`INSERT INTO inboxes (id, manage_token_hash, public_key, created_at, expires_at, max_uploads, max_bytes)
-		SELECT ?, ?, ?, ?, ?, ?, ?
+		`INSERT INTO inboxes (id, manage_token_hash, public_key, created_at, expires_at, max_uploads, max_bytes, storage)
+		SELECT ?, ?, ?, ?, ?, ?, ?, ?
 		WHERE (SELECT COUNT(*) FROM inboxes WHERE expires_at > ?) < ?`,
-		id, hashToken(token), publicKey, now.Unix(), expiresAt.Unix(), maxUploads, maxBytes, now.Unix(), maxOpen)
+		id, hashToken(token), publicKey, now.Unix(), expiresAt.Unix(), maxUploads, maxBytes, nullIfEmpty(storage), now.Unix(), maxOpen)
 	if err != nil {
 		return Inbox{}, "", err
 	}
@@ -62,7 +66,7 @@ func (s *Store) CreateInbox(ctx context.Context, publicKey []byte, now, expiresA
 	} else if n == 0 {
 		return Inbox{}, "", ErrTooManyInboxes
 	}
-	return Inbox{ID: id, PublicKey: publicKey, CreatedAt: now, ExpiresAt: expiresAt, MaxUploads: maxUploads, MaxBytes: maxBytes}, token, nil
+	return Inbox{ID: id, PublicKey: publicKey, CreatedAt: now, ExpiresAt: expiresAt, MaxUploads: maxUploads, MaxBytes: maxBytes, Storage: storage}, token, nil
 }
 
 // OpenInbox returns an unexpired upload link, also when it is full, so the
@@ -103,7 +107,8 @@ func (s *Store) ManageInbox(ctx context.Context, id, token string) (Inbox, error
 func scanInbox(id string, row *sql.Row) (Inbox, error) {
 	in := Inbox{ID: id}
 	var created, expires int64
-	err := row.Scan(&in.PublicKey, &created, &expires, &in.MaxUploads, &in.Uploads, &in.MaxBytes, &in.Bytes)
+	var storage sql.NullString
+	err := row.Scan(&in.PublicKey, &created, &expires, &in.MaxUploads, &in.Uploads, &in.MaxBytes, &in.Bytes, &storage)
 	if errors.Is(err, sql.ErrNoRows) {
 		return Inbox{}, ErrNotFound
 	}
@@ -111,6 +116,7 @@ func scanInbox(id string, row *sql.Row) (Inbox, error) {
 		return Inbox{}, err
 	}
 	in.CreatedAt, in.ExpiresAt = time.Unix(created, 0), time.Unix(expires, 0)
+	in.Storage = storage.String
 	return in, nil
 }
 
@@ -129,10 +135,12 @@ func (s *Store) InboxFiles(ctx context.Context, inboxID string, now time.Time) (
 		var f File
 		var created, expires int64
 		var maxDownloads sql.NullInt64
-		if err := rows.Scan(&f.ID, &f.Size, &created, &expires, &f.Downloads, &maxDownloads); err != nil {
+		var storage, ref sql.NullString
+		if err := rows.Scan(&f.ID, &f.Size, &created, &expires, &f.Downloads, &maxDownloads, &storage, &ref); err != nil {
 			return nil, err
 		}
 		f.CreatedAt, f.ExpiresAt = time.Unix(created, 0), time.Unix(expires, 0)
+		f.Storage, f.RemoteRef = storage.String, ref.String
 		files = append(files, f)
 	}
 	return files, rows.Err()
@@ -140,7 +148,8 @@ func (s *Store) InboxFiles(ctx context.Context, inboxID string, now time.Time) (
 
 // InboxFile opens an unexpired file of an upload link. Downloads are not
 // counted: the owner may fetch it as often as needed. The caller has
-// checked the management token and must close the handle.
+// checked the management token and must close the handle. For a blob at an
+// external service the handle is nil and the caller fetches f.RemoteRef.
 func (s *Store) InboxFile(ctx context.Context, inboxID, fileID string, now time.Time) (File, *os.File, error) {
 	if !idPattern.MatchString(fileID) {
 		return File{}, nil, ErrNotFound
@@ -151,6 +160,9 @@ func (s *Store) InboxFile(ctx context.Context, inboxID, fileID string, now time.
 	if err != nil {
 		return File{}, nil, err
 	}
+	if f.Storage != "" {
+		return f, nil, nil
+	}
 	blob, err := os.Open(s.blobPath(fileID))
 	if errors.Is(err, os.ErrNotExist) {
 		return File{}, nil, ErrNotFound
@@ -159,6 +171,35 @@ func (s *Store) InboxFile(ctx context.Context, inboxID, fileID string, now time.
 		return File{}, nil, err
 	}
 	return f, blob, nil
+}
+
+// CommitRemoteToInbox records a file of an upload link whose blob is at an
+// external service under ref; the caller has uploaded it there. The link's
+// counters are updated as in CommitToInbox, with the same errors.
+func (s *Store) CommitRemoteToInbox(ctx context.Context, size int64, storage, ref, inboxID string, now, expiresAt time.Time) (File, error) {
+	if !idPattern.MatchString(inboxID) {
+		return File{}, ErrNotFound
+	}
+	id := newRandom(idBytes)
+	now, expiresAt = now.Truncate(time.Second), expiresAt.Truncate(time.Second)
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return File{}, err
+	}
+	defer tx.Rollback() // no-op after Commit
+	if err := s.claimInboxUpload(ctx, tx, inboxID, size, now); err != nil {
+		return File{}, err
+	}
+	_, err = tx.ExecContext(ctx,
+		`INSERT INTO files (id, delete_token_hash, size, created_at, expires_at, inbox_id, storage, remote_ref) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+		id, hashToken(newRandom(tokenBytes)), size, now.Unix(), expiresAt.Unix(), inboxID, storage, ref)
+	if err != nil {
+		return File{}, err
+	}
+	if err := tx.Commit(); err != nil {
+		return File{}, err
+	}
+	return File{ID: id, Size: size, CreatedAt: now, ExpiresAt: expiresAt, Storage: storage, RemoteRef: ref}, nil
 }
 
 // DeleteInboxFile removes one file of an upload link. The upload it used
@@ -175,7 +216,7 @@ func (s *Store) DeleteInboxFile(ctx context.Context, inboxID, fileID string) err
 	if err != nil {
 		return err
 	}
-	return s.remove(ctx, fileID)
+	return s.remove(ctx, fileID, immediately)
 }
 
 // DeleteInbox revokes an upload link: its files go first, then the link,
@@ -204,7 +245,7 @@ func (s *Store) DeleteInbox(ctx context.Context, inboxID string) error {
 		return err
 	}
 	for _, id := range ids {
-		if err := s.remove(ctx, id); err != nil {
+		if err := s.remove(ctx, id, immediately); err != nil {
 			return err
 		}
 	}

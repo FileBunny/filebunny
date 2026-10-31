@@ -11,12 +11,17 @@ export type Route =
   /** fingerprint: lowercase hex, checked against the key the server sends. */
   | { page: 'inbox-upload'; id: string; fingerprint: string }
   | { page: 'inbox-manage'; id: string; token: string }
+  /** A file stored directly at an external service; the server knows nothing of it. */
+  | { page: 'external'; service: 'filebin'; bin: string }
+  | { page: 'status' }
   | { page: 'not-found' };
 
 const id = '([A-Za-z0-9_-]{22})';
 const token = '([A-Za-z0-9_-]{43})';
 // v4 (40 hex) or v6 (64 hex) fingerprints.
 const fingerprint = '([0-9a-f]{40}|[0-9a-f]{64})';
+// Filebin bin names as made by FileBunny (see filebin.ts).
+const bin = '([0-9a-f]{32})';
 
 export function parseRoute(hash: string): Route {
   const path = hash.replace(/^#/, '');
@@ -31,6 +36,9 @@ export function parseRoute(hash: string): Route {
   if (m) return { page: 'inbox-upload', id: m[1]!, fingerprint: m[2]! };
   m = path.match(new RegExp(`^/m/${id}/${token}$`));
   if (m) return { page: 'inbox-manage', id: m[1]!, token: m[2]! };
+  m = path.match(new RegExp(`^/x/filebin/${bin}$`));
+  if (m) return { page: 'external', service: 'filebin', bin: m[1]! };
+  if (path === '/status') return { page: 'status' };
   return { page: 'not-found' };
 }
 
@@ -58,4 +66,9 @@ export function uploadLink(base: string, inboxId: string, fingerprint: string): 
 
 export function manageLink(base: string, inboxId: string, manageToken: string): string {
   return `${base}/#/m/${inboxId}/${manageToken}`;
+}
+
+/** The share link of a file stored directly at Filebin. */
+export function filebinLink(base: string, bin: string): string {
+  return `${base}/#/x/filebin/${bin}`;
 }

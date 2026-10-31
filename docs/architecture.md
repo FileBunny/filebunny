@@ -10,6 +10,8 @@ flowchart LR
     G --> F[(Disk<br/>ciphertext blobs)]
     B -- "key lookup by e-mail" --> K[keys.openpgp.org]
     G -. "WKD, only when asked" .-> W[Recipient's domain]
+    G -. "external storage, when chosen" .-> X[Filebin]
+    B -. "direct to Filebin, when chosen" .-> X
 ```
 
 | Component | Role |
@@ -19,6 +21,7 @@ flowchart LR
 | Go backend | Stores and serves ciphertext by random ID, enforces limits, removes expired files; optional WKD proxy (phase 3) |
 | SQLite | One row per file: ID, hash of the delete token, size, created, expires, download limit and count |
 | Disk | One file per upload in `data/blobs/<id>`, written via `data/tmp/` and an atomic rename |
+| External storage | Optional (phase 5): ciphertext at a service such as Filebin instead of on disk, through the server or directly from the browser; see [External storage](#external-storage) |
 
 ## Encryption
 
@@ -124,7 +127,9 @@ and proxying it would show our server every looked-up address.
 | WKD (lookup or check) | FileBunny's server (never logged or stored) and the recipient's domain | Only FileBunny's server; the recipient's domain sees the server's address |
 
 **CSP:** `connect-src` is `'self'` plus exactly `https://keys.openpgp.org`
-(in `deploy/Caddyfile` and in the single HTML's CSP); no wildcard.
+and, for the direct route to external storage, `https://filebin.net
+https://storage.filebin.net` (in `deploy/Caddyfile` and in the single
+HTML's CSP); no wildcard.
 
 ## Upload links
 
@@ -165,6 +170,45 @@ confirming. Name and e-mail are optional; without both the user ID is
 "FileBunny key". With an e-mail address the public key can be published
 on keys.openpgp.org (VKS API, directly from the browser), which then
 mails a verification link.
+
+## External storage
+
+A share link's ciphertext can be kept at an external service instead of
+on this server's disk (`backend/internal/storage`, step 3 on Send). For
+now one service: [Filebin](storage/filebin.md). The owner of an upload
+link can choose external storage too, through FileBunny only
+(`inboxes.storage`): uploads to the link are sent on like share links, and
+the owner's downloads are streamed back. The sender of a share link
+chooses:
+
+- **On FileBunny** (default).
+- **Through FileBunny:** the server receives the ciphertext as usual
+  (single or chunked), sends it on with its SHA-256 and drops its local
+  copy. Downloads are fetched from the service and streamed; download
+  limit, expiry and delete link work as for local files. The service sees
+  only this server. The blob is named by a server-generated random
+  reference; nothing from the client goes into a URL. When the file is
+  deleted, expires or has its last download, the reference moves to a
+  `remote_trash` table in the same transaction and is deleted at the
+  service in the background (after the last download: right after the
+  transfer, otherwise after an hour of grace for a running transfer),
+  retried until it succeeds.
+- **Directly:** the browser uploads to the service itself; the server
+  knows nothing about the file. The link is `#/x/filebin/<bin>`, with the
+  service's reference only in the fragment. No download limit or delete
+  link; the service's own expiry applies, and it sees the sender's and
+  recipients' IP addresses. If the browser cannot fetch the file (the
+  service wants to check the browser first), the page sends the recipient
+  to the service in a new tab and decrypts the saved file.
+
+Each service gets a health check every 12 hours (a random 1 KiB blob:
+upload, download, compare, delete) and is taken out of use after 3 failed
+transfers in a row. While out of use, uploads there are refused with `503`
+before any data is sent. Transfers are capped at 8 at a time per service,
+15 minutes each, and a daily traffic cap for the whole server
+(`FILEBUNNY_PROXY_DAILY_BYTES`). `GET /api/v1/storage` and `#/status` show
+the state. Outgoing requests use their own client with the same address
+checks as WKD, fixed hosts and at most one redirect between them.
 
 ## Request flow
 
@@ -215,13 +259,14 @@ after a crash).
 
 | Data | Where | How long |
 |---|---|---|
-| Ciphertext | `data/blobs/<id>` | Until expiry (max 7 days) or deletion |
+| Ciphertext | `data/blobs/<id>`, or at the external service chosen | Until expiry (max 7 days, 6 at Filebin) or deletion |
+| Storage name and reference at the external service | SQLite (`files`; `remote_trash` until it is deleted there) | Same as the file, plus until the service confirms the deletion |
 | ID, size, created, expires, download limit and count | SQLite | Same, or until the last allowed download |
 | SHA-256 of the delete token | SQLite | Same |
 | Client IP address | Nowhere | — |
 | Looked-up e-mail addresses (WKD) | Nowhere; in memory during the request only | — |
 | Upload links: the owner's public key (incl. its user IDs), SHA-256 of the management token, expiry, limits and counters | SQLite | Until the link is revoked, or expired and empty |
-| Files received by an upload link | `data/blobs/<id>`, row with `inbox_id` | 7 days after arrival, or until deleted or the link is revoked |
+| Files received by an upload link | `data/blobs/<id>`, row with `inbox_id`; or at the link's external storage, as above | 7 days after arrival (6 at Filebin), or until deleted or the link is revoked |
 | Private keys and passphrases of generated key pairs | Nowhere (browser only) | — |
 | File name, content type, plaintext | Nowhere (encrypted inside the ciphertext from phase 2) | — |
 | Logs | Container stdout | No IPs, no IDs, no tokens; see below |
@@ -275,6 +320,10 @@ after a crash).
   address and the address you look up; with WKD on, FileBunny's server
   sees the address (not stored). Loading the key from your device avoids
   both.
+- **External storage** you chose: the service can delete the file at any
+  time, and with the direct route it sees your IP address and so does
+  anyone who learns the link's bin name; that person can also delete it.
+  It can never decrypt it.
 - **Someone you gave the link to** sharing it further. Use public-key mode
   if only a specific person may read it.
 
@@ -289,6 +338,7 @@ after a crash).
 | Open upload links | 1000 server-wide | `FILEBUNNY_MAX_INBOXES` |
 | Per upload link | 10 uploads (max 100), 100 MiB, open 7 days (max 30) | `FILEBUNNY_INBOX_*` |
 | WKD lookups in progress | 8 server-wide, 10 s and 1 MiB each | fixed; switch off with `FILEBUNNY_WKD_PROXY` |
+| External storage | 8 transfers per service, 15 min each; 50 GiB of traffic per UTC day | fixed; `FILEBUNNY_PROXY_DAILY_BYTES`; off unless `FILEBUNNY_FILEBIN` |
 
 Rate limiting, proof of work and abuse reporting follow in phase 7.
 

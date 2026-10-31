@@ -98,6 +98,19 @@ test('large file: exact chunks, then complete', async () => {
   assert.deepEqual(sent, [chunkSize, 2 * chunkSize, data.length]);
 });
 
+test('external storage goes in the query of both kinds of upload', async () => {
+  const creates: string[] = [];
+  for (const size of [1, chunkSize + 1]) {
+    const srv = fakeServer();
+    await upload(streamOf(randomBytes(size)), { ...limits, storage: 'filebin' });
+    creates.push(srv.calls[0]!.url);
+  }
+  assert.deepEqual(creates, [
+    '/api/v1/files?expires=1h&max_downloads=1&storage=filebin',
+    '/api/v1/uploads?expires=1h&max_downloads=1&storage=filebin',
+  ]);
+});
+
 test('exactly one chunk: no empty chunk is sent', async () => {
   const srv = fakeServer();
   await upload(streamOf(randomBytes(chunkSize)), limits);

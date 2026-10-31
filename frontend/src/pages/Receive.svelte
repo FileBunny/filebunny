@@ -8,11 +8,13 @@
   import type { Recipient } from '../lib/keylookup.ts';
   import { manageLink, uploadLink } from '../lib/route.ts';
   import { formatBytes, formatDate } from '../lib/format.ts';
+  import { storageLabel, storages } from '../lib/storage.ts';
   import CopyField from '../components/CopyField.svelte';
   import ErrorMessage from '../components/ErrorMessage.svelte';
   import Info from '../components/Info.svelte';
   import KeyGen from '../components/KeyGen.svelte';
   import KeyPicker from '../components/KeyPicker.svelte';
+  import StorageStatus from '../components/StorageStatus.svelte';
 
   const expiryOptions = [
     { value: '24h', label: '1 day' },
@@ -29,6 +31,10 @@
 
   let expires = $state('168h');
   let maxUploads = $state(10);
+  // Where uploads to the link are kept; always through FileBunny, so the
+  // limits of the link work and the service sees neither side.
+  let storageName = $state('local');
+  let statusOpen = $state(false);
   let busy = $state(false);
   let error = $state('');
   let missingKey = $state(false);
@@ -78,11 +84,14 @@
       const armored = keySource === 'new' ? generatedArmored : key.key.armor();
       const [check] = await readPublicKeys(armored);
       if (!check || check.fingerprint !== key.fingerprint) throw new Error('key changed');
-      const inbox = await createInbox(armored, { expires, maxUploads });
+      const storage = storageName === 'local' ? undefined : storageName;
+      const inbox = await createInbox(armored, { expires, maxUploads, storage });
       result = { inbox, fingerprint: key.fingerprint };
     } catch (err) {
       error =
-        err instanceof ApiError && err.status === 503
+        err instanceof ApiError && err.status === 503 && storageName !== 'local'
+          ? `${storageLabel(storageName)} is not available right now. Try again later, or keep uploads on FileBunny.`
+          : err instanceof ApiError && err.status === 503
           ? 'This server has too many open upload links right now. Try again later.'
           : err instanceof ApiError
             ? `Creating the upload link failed: ${err.message}`
@@ -103,6 +112,12 @@
       {formatBytes(result.inbox.maxSize)} in total; each upload is deleted {days(result.inbox.keepSeconds)} after it
       arrives. Everything sent is encrypted to your key <code>{result.fingerprint}</code>.
     </p>
+    {#if result.inbox.storage}
+      <p class="note">
+        Uploads are kept at {storageLabel(result.inbox.storage)} through FileBunny; {storageLabel(result.inbox.storage)}
+        only sees this server.
+      </p>
+    {/if}
     <CopyField label="Management link: keep this to yourself" value={manageLink(siteBase(), result.inbox.id, result.inbox.manageToken)} />
     <p class="warning">
       Save the management link now. It is the only way to see, download and delete what you receive, and it cannot be
@@ -180,6 +195,26 @@
       </label>
     </div>
     <p class="note">You see how much senders can upload, and how long each upload is kept, once the link is created.</p>
+  </fieldset>
+
+  <fieldset disabled={busy}>
+    <legend>3. Where are uploads kept?</legend>
+    <label class="field">
+      <span>Stored at</span>
+      <select bind:value={storageName}>
+        {#each storages as o (o.name)}<option value={o.name}>{o.label}</option>{/each}
+      </select>
+    </label>
+    {#if storageName !== 'local'}
+      <p class="note">
+        Sent through FileBunny: {storageLabel(storageName)} sees this server, not the senders or you, and only gets
+        encrypted data. You fetch the files through FileBunny.
+      </p>
+    {/if}
+    <details class="more" bind:open={statusOpen}>
+      <summary>Storage status</summary>
+      {#if statusOpen}<StorageStatus />{/if}
+    </details>
   </fieldset>
 
   <ErrorMessage error={missingKey && !key ? 'Choose your key first: create a new key pair or use one you have.' : error} />
