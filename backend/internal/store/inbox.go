@@ -129,7 +129,8 @@ func (s *Store) InboxFiles(ctx context.Context, inboxID string, now time.Time) (
 		var f File
 		var created, expires int64
 		var maxDownloads sql.NullInt64
-		if err := rows.Scan(&f.ID, &f.Size, &created, &expires, &f.Downloads, &maxDownloads); err != nil {
+		var storage, ref sql.NullString // always NULL: upload links use this server's disk
+		if err := rows.Scan(&f.ID, &f.Size, &created, &expires, &f.Downloads, &maxDownloads, &storage, &ref); err != nil {
 			return nil, err
 		}
 		f.CreatedAt, f.ExpiresAt = time.Unix(created, 0), time.Unix(expires, 0)
@@ -175,7 +176,7 @@ func (s *Store) DeleteInboxFile(ctx context.Context, inboxID, fileID string) err
 	if err != nil {
 		return err
 	}
-	return s.remove(ctx, fileID)
+	return s.remove(ctx, fileID, immediately)
 }
 
 // DeleteInbox revokes an upload link: its files go first, then the link,
@@ -204,7 +205,7 @@ func (s *Store) DeleteInbox(ctx context.Context, inboxID string) error {
 		return err
 	}
 	for _, id := range ids {
-		if err := s.remove(ctx, id); err != nil {
+		if err := s.remove(ctx, id, immediately); err != nil {
 			return err
 		}
 	}
