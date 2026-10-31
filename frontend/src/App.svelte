@@ -9,6 +9,7 @@
   import InboxManage from './pages/InboxManage.svelte';
 
   let route = $state(parseRoute(location.hash));
+  const tab = $derived(route.page === 'inbox-manage' ? 'receive' : route.page);
 
   $effect(() => {
     const update = () => (route = parseRoute(location.hash));
@@ -20,11 +21,15 @@
 <header>
   <a href="#/" class="brand">FileBunny</a>
   <span class="tagline">Encrypt in your browser with OpenPGP, share anonymously.</span>
-  <nav aria-label="Main">
-    <a href="#/" aria-current={route.page === 'send' ? 'page' : undefined}>Send</a>
-    <a href="#/receive" aria-current={route.page === 'receive' ? 'page' : undefined}>Receive</a>
-    <a href="#/key" aria-current={route.page === 'key' ? 'page' : undefined}>Create a key</a>
-  </nav>
+  <!-- Someone sending to an upload link has no task to choose; the
+       management page belongs to Receive. -->
+  {#if route.page !== 'inbox-upload'}
+    <nav aria-label="Main">
+      <a href="#/" aria-current={tab === 'send' ? 'page' : undefined}>Send</a>
+      <a href="#/receive" aria-current={tab === 'receive' ? 'page' : undefined}>Receive</a>
+      <a href="#/key" aria-current={tab === 'key' ? 'page' : undefined}>Create a key</a>
+    </nav>
+  {/if}
 </header>
 
 <main>
