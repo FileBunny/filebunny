@@ -9,6 +9,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/http/cookiejar"
 	"net/netip"
 	"net/url"
 	"strconv"
@@ -37,9 +38,11 @@ const filebinFile = "data.bin"
 //
 // Filebin keeps a bin for about 7 days; MaxExpiry leaves a day of margin.
 // Anyone who knows a bin's name can read or delete it; the names are random
-// and only this server knows them. The service shows browsers a
-// verification page before a download; that is never bypassed: such an
-// answer counts as ErrUnavailable.
+// and only this server knows them.
+//
+// A download may first answer with a verification page that sets a cookie;
+// as the API documentation says, the request is then repeated once with the
+// cookie. Another page after that counts as ErrUnavailable.
 type Filebin struct {
 	base string
 	http *http.Client
@@ -129,8 +132,14 @@ func newFilebin(o filebinOptions) *Filebin {
 		MaxIdleConnsPerHost:    2,
 		IdleConnTimeout:        time.Minute,
 	}
+	apiHost := ""
+	if base, err := url.Parse(o.base); err == nil {
+		apiHost = base.Hostname()
+	}
+	jar, _ := cookiejar.New(nil) // never fails without options
 	return &Filebin{base: o.base, http: &http.Client{
 		Transport: transport,
+		Jar:       hostJar{host: apiHost, jar: jar},
 		// One redirect, only over https to one of the fixed hosts.
 		CheckRedirect: func(req *http.Request, via []*http.Request) error {
 			if len(via) > 1 || req.URL.Scheme != "https" || !o.hosts[req.URL.Hostname()] {
@@ -173,13 +182,14 @@ func (f *Filebin) Upload(ctx context.Context, ref string, r io.Reader, size int6
 
 // Download implements Remote.
 func (f *Filebin) Download(ctx context.Context, ref string, size int64) (io.ReadCloser, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, f.fileURL(ref), nil)
+	resp, err := f.get(ctx, ref)
+	if err == nil && resp.StatusCode == http.StatusOK && isHTML(resp.Header.Get("Content-Type")) {
+		// The verification page has set its cookie: repeat once.
+		drain(resp.Body)
+		resp, err = f.get(ctx, ref)
+	}
 	if err != nil {
 		return nil, err
-	}
-	resp, err := f.http.Do(req)
-	if err != nil {
-		return nil, unavailable(err)
 	}
 	switch {
 	case resp.StatusCode == http.StatusNotFound:
@@ -189,7 +199,7 @@ func (f *Filebin) Download(ctx context.Context, ref string, size int64) (io.Read
 		drain(resp.Body)
 		return nil, fmt.Errorf("%w: download status %d", ErrUnavailable, resp.StatusCode)
 	case isHTML(resp.Header.Get("Content-Type")):
-		// A verification page, not the blob.
+		// Still a verification page, not the blob.
 		drain(resp.Body)
 		return nil, fmt.Errorf("%w: got a web page instead of the file", ErrUnavailable)
 	case resp.ContentLength >= 0 && resp.ContentLength != size:
@@ -197,6 +207,38 @@ func (f *Filebin) Download(ctx context.Context, ref string, size int64) (io.Read
 		return nil, fmt.Errorf("%w: %w", ErrUnavailable, errSize)
 	}
 	return &exactReader{r: resp.Body, left: size}, nil
+}
+
+func (f *Filebin) get(ctx context.Context, ref string) (*http.Response, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, f.fileURL(ref), nil)
+	if err != nil {
+		return nil, err
+	}
+	resp, err := f.http.Do(req)
+	if err != nil {
+		return nil, unavailable(err)
+	}
+	return resp, nil
+}
+
+// hostJar keeps cookies for the API host only, so none go to the object
+// storage host.
+type hostJar struct {
+	host string
+	jar  http.CookieJar
+}
+
+func (h hostJar) SetCookies(u *url.URL, cookies []*http.Cookie) {
+	if u.Hostname() == h.host {
+		h.jar.SetCookies(u, cookies)
+	}
+}
+
+func (h hostJar) Cookies(u *url.URL) []*http.Cookie {
+	if u.Hostname() != h.host {
+		return nil
+	}
+	return h.jar.Cookies(u)
 }
 
 // Delete implements Remote. It deletes the whole bin.

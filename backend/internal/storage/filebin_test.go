@@ -22,8 +22,15 @@ import (
 type fakeFilebin struct {
 	mu    sync.Mutex
 	blobs map[string][]byte
-	// html makes downloads answer with a verification page.
+	// html makes downloads always answer with a verification page.
 	html bool
+	// verify makes downloads without the cookie answer with a
+	// verification page that sets it, as the real service may.
+	verify bool
+	// pages counts verification pages served.
+	pages int
+	// storageCookies counts requests to the storage host with a cookie.
+	storageCookies int
 	// redirectTo overrides the storage host of the download redirect.
 	redirectTo string
 	// extra is appended to downloaded blobs.
@@ -36,6 +43,9 @@ func (f *fakeFilebin) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	defer f.mu.Unlock()
 	switch {
 	case r.Host == "storage.filebin.net" && r.Method == http.MethodGet:
+		if r.Header.Get("Cookie") != "" {
+			f.storageCookies++
+		}
 		blob, ok := f.blobs[strings.TrimPrefix(r.URL.Path, "/s")]
 		if !ok {
 			http.NotFound(w, r)
@@ -54,7 +64,9 @@ func (f *fakeFilebin) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusCreated)
 		io.WriteString(w, `{"bin":{}}`)
 	case r.Method == http.MethodGet:
-		if f.html {
+		if _, err := r.Cookie("verified"); f.html || f.verify && err != nil {
+			f.pages++
+			http.SetCookie(w, &http.Cookie{Name: "verified", Value: "yes", Domain: "filebin.net", Path: "/"})
 			w.Header().Set("Content-Type", "text/html; charset=utf-8")
 			io.WriteString(w, "<html>verify</html>")
 			return
@@ -149,7 +161,34 @@ func TestFilebinChecksumMismatch(t *testing.T) {
 	}
 }
 
-// A verification page is never bypassed: the service is unavailable.
+// After a verification page the download is repeated once with its cookie,
+// as the API documentation says; the cookie never goes to the storage host.
+func TestFilebinVerificationCookie(t *testing.T) {
+	fb, fake := newTestFilebin(t)
+	ref := NewRef()
+	upload(t, fb, ref, "ciphertext")
+	fake.verify = true
+	for i := range 2 {
+		rc, err := fb.Download(t.Context(), ref, 10)
+		if err != nil {
+			t.Fatalf("download %d: %v", i, err)
+		}
+		data, err := io.ReadAll(rc)
+		rc.Close()
+		if err != nil || string(data) != "ciphertext" {
+			t.Fatalf("download %d: %q, %v", i, data, err)
+		}
+	}
+	// The second download reuses the cookie.
+	if fake.pages != 1 {
+		t.Errorf("%d verification pages, want 1", fake.pages)
+	}
+	if fake.storageCookies != 0 {
+		t.Errorf("cookie sent to the storage host")
+	}
+}
+
+// A page after the repeat makes the service unavailable; no further tries.
 func TestFilebinVerificationPage(t *testing.T) {
 	fb, fake := newTestFilebin(t)
 	ref := NewRef()
@@ -157,6 +196,9 @@ func TestFilebinVerificationPage(t *testing.T) {
 	fake.html = true
 	if _, err := fb.Download(t.Context(), ref, 10); !errors.Is(err, ErrUnavailable) {
 		t.Errorf("err %v, want ErrUnavailable", err)
+	}
+	if fake.pages != 2 {
+		t.Errorf("%d pages, want 2 (one repeat)", fake.pages)
 	}
 }
 
