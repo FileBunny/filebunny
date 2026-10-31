@@ -201,9 +201,19 @@ func (s *Server) handleCompleteUpload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	now := s.now()
-	f, token, err := s.store.Commit(r.Context(), u.p, now, now.Add(u.lim.expiry), u.lim.maxDownloads)
-	// Commit consumes the pending upload, also when it fails.
+	var f store.File
+	var token string
+	var err error
+	if u.lim.remote == nil {
+		f, token, err = s.store.Commit(r.Context(), u.p, now, now.Add(u.lim.expiry), u.lim.maxDownloads)
+	} else {
+		f, token, err = s.commitRemote(r.Context(), u.p, u.lim)
+	}
+	// Both consume the pending upload, also when they fail.
 	s.finishUpload(u)
+	if writeRemoteError(w, err) {
+		return
+	}
 	if err != nil {
 		s.log.Error("complete upload failed", "err", err)
 		writeError(w, http.StatusInternalServerError, "complete upload failed")

@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/FileBunny/filebunny/backend/internal/config"
+	"github.com/FileBunny/filebunny/backend/internal/storage"
 	"github.com/FileBunny/filebunny/backend/internal/store"
 	"github.com/FileBunny/filebunny/backend/internal/wkd"
 )
@@ -46,6 +47,9 @@ type Server struct {
 	// lookups in progress.
 	wkd      keyLookup
 	wkdSlots chan struct{}
+
+	// remotes are the external storage services offered, by name.
+	remotes map[string]*remote
 }
 
 // New returns a Server with all routes registered.
@@ -54,6 +58,10 @@ func New(cfg config.Config, st *store.Store, log *slog.Logger) *Server {
 		uploads: make(map[string]*pendingUpload), wkdSlots: make(chan struct{}, maxWKDLookups)}
 	if cfg.WKDProxy {
 		s.wkd = wkd.NewClient()
+	}
+	s.remotes = make(map[string]*remote)
+	if cfg.Filebin {
+		s.addRemote(storage.NewFilebin())
 	}
 	s.mux.HandleFunc("GET /healthz", s.handleHealth)
 	s.mux.HandleFunc("POST /api/v1/files", s.handleUpload)
@@ -65,6 +73,7 @@ func New(cfg config.Config, st *store.Store, log *slog.Logger) *Server {
 	s.mux.HandleFunc("POST /api/v1/uploads/{id}/complete", s.handleCompleteUpload)
 	s.mux.HandleFunc("DELETE /api/v1/uploads/{id}", s.handleAbortUpload)
 	s.mux.HandleFunc("GET /api/v1/features", s.handleFeatures)
+	s.mux.HandleFunc("GET /api/v1/storage", s.handleStorage)
 	s.mux.HandleFunc("POST /api/v1/wkd", s.handleWKD)
 	s.mux.HandleFunc("POST /api/v1/inboxes", s.handleCreateInbox)
 	s.mux.HandleFunc("GET /api/v1/inboxes/{id}", s.handleInboxInfo)
@@ -109,19 +118,38 @@ func newUploadResponse(f store.File, token string) uploadResponse {
 type limits struct {
 	expiry       time.Duration
 	maxDownloads int // 0: unlimited
+	// remote is the external service to store at; nil means this server.
+	remote *remote
 }
 
-// parseLimits reads the optional query parameters "expires", a Go duration
-// (e.g. "1h", "168h") between config.MinExpiry and the configured max, and
-// "max_downloads", between 1 and the configured max. On error it writes the
-// response and returns false.
+// parseLimits reads the optional query parameters "storage", the name of
+// an external service from GET /api/v1/storage ("local" or empty: this
+// server), "expires", a Go duration (e.g. "1h", "168h") between
+// config.MinExpiry and the configured max (or the service's, if lower),
+// and "max_downloads", between 1 and the configured max. On error it writes
+// the response and returns false.
 func (s *Server) parseLimits(w http.ResponseWriter, r *http.Request) (limits, bool) {
 	l := limits{expiry: s.cfg.DefaultExpiry}
 	q := r.URL.Query()
+	maxExpiry := s.cfg.MaxExpiry
+	if v := q.Get("storage"); v != "" && v != "local" {
+		l.remote = s.remotes[v]
+		if l.remote == nil {
+			writeError(w, http.StatusBadRequest, "unknown storage")
+			return limits{}, false
+		}
+		// Refuse before the data is sent, not after.
+		if healthy, _ := l.remote.status(); !healthy {
+			writeRemoteError(w, errRemoteDown)
+			return limits{}, false
+		}
+		maxExpiry = min(maxExpiry, l.remote.MaxExpiry())
+		l.expiry = min(l.expiry, maxExpiry)
+	}
 	if v := q.Get("expires"); v != "" {
 		d, err := time.ParseDuration(v)
-		if err != nil || d < config.MinExpiry || d > s.cfg.MaxExpiry {
-			writeError(w, http.StatusBadRequest, "expires must be a duration between "+config.MinExpiry.String()+" and "+s.cfg.MaxExpiry.String())
+		if err != nil || d < config.MinExpiry || d > maxExpiry {
+			writeError(w, http.StatusBadRequest, "expires must be a duration between "+config.MinExpiry.String()+" and "+maxExpiry.String())
 			return limits{}, false
 		}
 		l.expiry = d
@@ -169,7 +197,16 @@ func (s *Server) handleUpload(w http.ResponseWriter, r *http.Request) {
 	body := http.MaxBytesReader(w, r.Body, s.cfg.MaxSize)
 	rc := http.NewResponseController(w)
 	now := s.now()
-	f, token, err := s.store.Put(r.Context(), stallReader{body, rc, s.stall}, now, now.Add(lim.expiry), lim.maxDownloads)
+	var f store.File
+	var token string
+	if lim.remote == nil {
+		f, token, err = s.store.Put(r.Context(), stallReader{body, rc, s.stall}, now, now.Add(lim.expiry), lim.maxDownloads)
+	} else {
+		f, token, err = s.putRemote(r.Context(), stallReader{body, rc, s.stall}, lim)
+	}
+	if writeRemoteError(w, err) {
+		return
+	}
 	if err != nil {
 		if _, ok := errors.AsType[*http.MaxBytesError](err); ok {
 			writeError(w, http.StatusRequestEntityTooLarge, "file exceeds "+strconv.FormatInt(s.cfg.MaxSize, 10)+" bytes")
@@ -230,8 +267,23 @@ func (s *Server) handleInfo(w http.ResponseWriter, r *http.Request) {
 
 // handleDownload counts a download, also when the client aborts it: counting
 // at the end would let parallel downloads of a one-time file all succeed.
+// For a file at an external service, a transfer is claimed first, so a busy
+// or failing service does not use up a download.
 func (s *Server) handleDownload(w http.ResponseWriter, r *http.Request) {
-	f, blob, err := s.store.Get(r.Context(), r.PathValue("id"), s.now())
+	id := r.PathValue("id")
+	var rem *remote
+	if f, err := s.store.Stat(r.Context(), id, s.now()); err == nil && f.Storage != "" {
+		if rem = s.remotes[f.Storage]; rem == nil {
+			writeError(w, http.StatusServiceUnavailable, "external storage is no longer offered")
+			return
+		}
+		release, err := rem.acquire(f.Size, s.cfg.ProxyDailyBytes, s.now())
+		if writeRemoteError(w, err) {
+			return
+		}
+		defer release()
+	}
+	f, blob, err := s.store.Get(r.Context(), id, s.now())
 	if errors.Is(err, store.ErrNotFound) {
 		writeError(w, http.StatusNotFound, "not found")
 		return
@@ -239,6 +291,14 @@ func (s *Server) handleDownload(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		s.log.Error("download failed", "err", err)
 		writeError(w, http.StatusInternalServerError, "download failed")
+		return
+	}
+	if blob == nil {
+		if rem == nil { // only if the file appeared between Stat and Get
+			writeError(w, http.StatusServiceUnavailable, "try again")
+			return
+		}
+		s.serveRemote(w, r, f, rem)
 		return
 	}
 	defer blob.Close()

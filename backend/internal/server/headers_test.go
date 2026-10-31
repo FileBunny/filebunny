@@ -85,8 +85,31 @@ func TestNoClientAddressInLogs(t *testing.T) {
 	send("DELETE", "/api/v1/inboxes/"+in.ID, nil, "Authorization", manage)
 	send("POST", "/api/v1/inboxes", strings.NewReader("not a key"))
 
+	// External storage: no file ID or remote reference either, also when
+	// the service fails.
+	fake := withRemote(t, e)
+	rec = send("POST", "/api/v1/files?storage=filebin", strings.NewReader("x"))
+	var remoteUp uploadResponse
+	json.Unmarshal(rec.Body.Bytes(), &remoteUp)
+	var ref string
+	for k := range fake.blobs {
+		ref = k
+	}
+	send("GET", "/api/v1/files/"+remoteUp.ID, nil)
+	fake.fail = true
+	send("GET", "/api/v1/files/"+remoteUp.ID, nil)
+	send("POST", "/api/v1/files?storage=filebin", strings.NewReader("x"))
+	send("DELETE", "/api/v1/files/"+remoteUp.ID, nil, "Authorization", "Bearer "+remoteUp.DeleteToken)
+	e.srv.deleteDueRemote(t.Context())
+	e.srv.checkRemotes(t.Context())
+	send("GET", "/api/v1/storage", nil)
+	if ref == "" {
+		t.Fatal("remote upload failed")
+	}
+
 	looked, _ := wkd.ParseAddress(email)
-	for _, secret := range []string{addr, "looked.up", "private-domain", looked.Hash(), in.ID, in.ManageToken, inboxFile} {
+	for _, secret := range []string{addr, "looked.up", "private-domain", looked.Hash(), in.ID, in.ManageToken, inboxFile,
+		remoteUp.ID, remoteUp.DeleteToken, ref} {
 		if strings.Contains(e.logs.String(), secret) {
 			t.Errorf("%q in logs:\n%s", secret, e.logs)
 		}
