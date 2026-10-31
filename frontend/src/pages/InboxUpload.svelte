@@ -7,6 +7,7 @@
   import { encrypt, readPublicKeys, type KeyInfo } from '../lib/crypto.ts';
   import { linkFingerprint } from '../lib/route.ts';
   import { formatBytes, formatDate } from '../lib/format.ts';
+  import { storageLabel } from '../lib/storage.ts';
   import ErrorMessage from '../components/ErrorMessage.svelte';
   import Info from '../components/Info.svelte';
 
@@ -88,6 +89,7 @@
       if (controller.signal.aborted) error = 'Upload cancelled.';
       else if (err instanceof ApiError && err.status === 409) error = 'This upload link is full.';
       else if (err instanceof ApiError && err.status === 404) error = 'This upload link has expired or was revoked.';
+      else if (err instanceof ApiError && err.status === 503) error = 'The storage behind this upload link is not available right now. Try again later.';
       else if (err instanceof ApiError) error = `Upload failed: ${err.message}`;
       else error = 'Encryption or upload failed. Check your connection and try again.';
     } finally {
@@ -143,7 +145,8 @@
   {:else}
     <p class="note">
       Open until {formatDate(info.expiresAt)}; {info.uploadsLeft} {info.uploadsLeft === 1 ? 'upload' : 'uploads'} and
-      {formatBytes(info.maxFileSize)} left.
+      {formatBytes(info.maxFileSize)} left.{#if info.storage}
+        Kept at {storageLabel(info.storage)} through FileBunny: {storageLabel(info.storage)} sees this server, not you.{/if}
     </p>
     <form onsubmit={submit}>
       <fieldset disabled={busy}>

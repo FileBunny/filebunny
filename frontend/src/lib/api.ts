@@ -298,6 +298,8 @@ export type InboxCreated = {
   maxSize: number;
   /** How long each upload is kept after it arrives, in seconds. */
   keepSeconds: number;
+  /** The external service uploads go to; undefined for this server. */
+  storage?: string;
 };
 
 export type InboxInfo = {
@@ -307,6 +309,8 @@ export type InboxInfo = {
   bytesLeft: number;
   /** The most the next upload may be; 0 when the link is full. */
   maxFileSize: number;
+  /** The external service uploads go to; undefined for this server. */
+  storage?: string;
 };
 
 export type InboxFile = { id: string; size: number; receivedAt: Date; expiresAt: Date };
@@ -322,8 +326,12 @@ export type InboxStatus = {
 };
 
 /** Registers an armored public key as an upload link. */
-export async function createInbox(publicKey: string, opts: { expires: string; maxUploads: number }): Promise<InboxCreated> {
+export async function createInbox(
+  publicKey: string,
+  opts: { expires: string; maxUploads: number; storage?: string },
+): Promise<InboxCreated> {
   const q = new URLSearchParams({ expires: opts.expires, max_uploads: String(opts.maxUploads) });
+  if (opts.storage) q.set('storage', opts.storage);
   const res = await request('POST', `/api/v1/inboxes?${q}`, { body: new Blob([publicKey]) });
   const r = (await res.json()) as {
     id: string;
@@ -332,6 +340,7 @@ export async function createInbox(publicKey: string, opts: { expires: string; ma
     max_uploads: number;
     max_size: number;
     keep_seconds: number;
+    storage?: string;
   };
   return {
     id: r.id,
@@ -340,6 +349,7 @@ export async function createInbox(publicKey: string, opts: { expires: string; ma
     maxUploads: r.max_uploads,
     maxSize: r.max_size,
     keepSeconds: r.keep_seconds,
+    storage: r.storage,
   };
 }
 
@@ -352,6 +362,7 @@ export async function inboxInfo(id: string): Promise<InboxInfo | null> {
       uploads_left: number;
       bytes_left: number;
       max_file_size: number;
+      storage?: string;
     };
     return {
       publicKey: r.public_key,
@@ -359,6 +370,7 @@ export async function inboxInfo(id: string): Promise<InboxInfo | null> {
       uploadsLeft: r.uploads_left,
       bytesLeft: r.bytes_left,
       maxFileSize: r.max_file_size,
+      storage: r.storage,
     };
   } catch (err) {
     if (err instanceof ApiError && err.status === 404) return null;
