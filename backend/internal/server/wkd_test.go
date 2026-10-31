@@ -99,12 +99,12 @@ func TestWKDSwitchedOff(t *testing.T) {
 		t.Errorf("status %d", rec.Code)
 	}
 	rec := e.do("GET", "/api/v1/features", nil)
-	if strings.TrimSpace(rec.Body.String()) != `{"wkd":false}` {
+	if strings.TrimSpace(rec.Body.String()) != `{"wkd":false,"mail":false}` {
 		t.Errorf("features %s", rec.Body)
 	}
 	e.srv.wkd = &fakeWKD{}
 	rec = e.do("GET", "/api/v1/features", nil)
-	if strings.TrimSpace(rec.Body.String()) != `{"wkd":true}` {
+	if strings.TrimSpace(rec.Body.String()) != `{"wkd":true,"mail":false}` {
 		t.Errorf("features %s", rec.Body)
 	}
 }

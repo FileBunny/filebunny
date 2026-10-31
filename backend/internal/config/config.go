@@ -4,7 +4,9 @@ package config
 import (
 	"errors"
 	"fmt"
+	"net/url"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -53,6 +55,19 @@ type Config struct {
 	// storage per day (UTC), server-wide: the server carries that traffic
 	// twice, and the VPS has a traffic budget.
 	ProxyDailyBytes int64
+	// SMTPFile names the JSON file with the sender address and the SMTP
+	// relays (see internal/mail). Empty, or a file without relays: no
+	// e-mail. It holds passwords, so it lives outside the repository and
+	// is mounted as a secret.
+	SMTPFile string
+	// PublicURL is the site's address (https://host), for the links in
+	// mails. Required when mail is on.
+	PublicURL string
+	// MailDaily caps the mails sent per UTC day, server-wide;
+	// MailPerRecipient per address; MailPerFile per share link (in total).
+	MailDaily        int
+	MailPerRecipient int
+	MailPerFile      int
 }
 
 // Defaults for the public service at filebunny.eu.
@@ -72,6 +87,9 @@ const (
 	DefaultInboxMaxExpiry     = 30 * 24 * time.Hour
 	DefaultInboxMaxUploads    = 100
 	DefaultInboxMaxSize       = 100 << 20 // 100 MiB
+	DefaultMailDaily          = 500
+	DefaultMailPerRecipient   = 3
+	DefaultMailPerFile        = 3
 )
 
 // MinExpiry is the shortest expiry an upload may ask for.
@@ -97,6 +115,9 @@ func FromEnv(getenv func(string) string) (Config, error) {
 		InboxMaxUploads:    DefaultInboxMaxUploads,
 		InboxMaxSize:       DefaultInboxMaxSize,
 		ProxyDailyBytes:    DefaultProxyDailyBytes,
+		MailDaily:          DefaultMailDaily,
+		MailPerRecipient:   DefaultMailPerRecipient,
+		MailPerFile:        DefaultMailPerFile,
 	}
 	var errs []error
 
@@ -105,6 +126,15 @@ func FromEnv(getenv func(string) string) (Config, error) {
 	}
 	if v := getenv("FILEBUNNY_DATA_DIR"); v != "" {
 		c.DataDir = v
+	}
+	c.SMTPFile = getenv("FILEBUNNY_SMTP_FILE")
+	if v := getenv("FILEBUNNY_PUBLIC_URL"); v != "" {
+		u, err := url.Parse(v)
+		if err != nil || u.Scheme != "https" || u.Host == "" || strings.Trim(u.Path, "/") != "" || u.RawQuery != "" || u.Fragment != "" || u.User != nil {
+			errs = append(errs, fmt.Errorf("FILEBUNNY_PUBLIC_URL: want https://host, got %q", v))
+		} else {
+			c.PublicURL = "https://" + u.Host
+		}
 	}
 	sizes := []struct {
 		name string
@@ -158,6 +188,9 @@ func FromEnv(getenv func(string) string) (Config, error) {
 		{"FILEBUNNY_MAX_PENDING_UPLOADS", &c.MaxPendingUploads},
 		{"FILEBUNNY_MAX_INBOXES", &c.MaxInboxes},
 		{"FILEBUNNY_INBOX_MAX_UPLOADS", &c.InboxMaxUploads},
+		{"FILEBUNNY_MAIL_DAILY", &c.MailDaily},
+		{"FILEBUNNY_MAIL_PER_RECIPIENT", &c.MailPerRecipient},
+		{"FILEBUNNY_MAIL_PER_FILE", &c.MailPerFile},
 	}
 	for _, n := range counts {
 		v := getenv(n.name)
