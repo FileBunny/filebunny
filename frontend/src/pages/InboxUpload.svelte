@@ -22,7 +22,7 @@
   let busy = $state(false);
   let sent = $state(0);
   let error = $state('');
-  let done = $state(false);
+  let done = $state<{ what: string; size: number } | null>(null);
   let controller: AbortController | null = null;
 
   onMount(load);
@@ -71,8 +71,8 @@
       const plaintext =
         what === 'text' ? { kind: 'text' as const, text } : { kind: 'file' as const, name: file!.name, data: file!.stream() };
       const ciphertext = await encrypt(plaintext, { publicKeys: [key.key] });
-      await uploadToInbox(id, ciphertext, (n) => (sent = n), controller.signal);
-      done = true;
+      const stored = await uploadToInbox(id, ciphertext, (n) => (sent = n), controller.signal);
+      done = { what: what === 'file' ? file!.name : 'Your message', size: stored };
     } catch (err) {
       if (controller.signal.aborted) error = 'Upload cancelled.';
       else if (err instanceof ApiError && err.status === 409) error = 'This upload link is full.';
@@ -86,7 +86,7 @@
   }
 
   async function again() {
-    done = false;
+    done = null;
     text = '';
     file = null;
     info = await inboxInfo(id).catch(() => info);
@@ -102,7 +102,11 @@
 {:else if keyProblem}
   <p class="warning" role="alert">{keyProblem}</p>
 {:else if done}
-  <p class="ok">Sent. Only the holder of the private key of {key?.userIDs[0] ?? 'this link'} can open it.</p>
+  <p class="ok" role="status">
+    {done.what} was encrypted and uploaded ({formatBytes(done.size)}). Only the holder of the private key of
+    {key?.userIDs[0] ?? 'this upload link'} can open it.
+  </p>
+  <p class="note">FileBunny does not notify the recipient; they see it when they check their upload link.</p>
   <button type="button" onclick={again}>Send something else</button>
 {:else if info && key}
   <section class="recipients" aria-labelledby="inbox-recipient">
@@ -114,8 +118,10 @@
     <p class="note">
       The key matches the fingerprint in this link.
       <Info label="About this check">
-        The link you received contains the key's fingerprint, and this page checked that the server sent exactly that
-        key. If you got the link through a channel you trust, the key belongs to whoever gave it to you.
+        The link you received contains the key's fingerprint. This page computed the fingerprint of the key the server
+        sent and compared the two: a changed database or a swapped key is caught, and nothing is sent. If you got the
+        link through a channel you trust, the key belongs to whoever gave it to you. The check runs in code from this
+        server, so it cannot protect against a fully compromised server; the signed single HTML file (later) can.
       </Info>
     </p>
   </section>
