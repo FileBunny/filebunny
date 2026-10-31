@@ -296,7 +296,8 @@ so does the smoke test).
   (phase 7). One client can use up the 1000 open links (others get
   `503` until they expire) or fill one link it knows.
 - **Anyone with the upload link can fill it** up to its limits; the owner
-  can revoke it. Notifications follow in phase 6.
+  can revoke it. There is no notification of new uploads (phase 6 mails
+  share links only).
 - **The private key is in the page's memory** while unlocked on the
   management page, as on the download page; "Forget it" or closing the
   page removes it.

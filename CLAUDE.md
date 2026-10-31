@@ -59,6 +59,7 @@ backend/internal/logging  slog logger that redacts IP addresses
 backend/internal/cleanup  periodic removal of expired files
 backend/internal/wkd      WKD client with SSRF protection (key lookup proxy)
 backend/internal/storage  external storage adapters (Filebin), SSRF-safe client
+backend/internal/mail     SMTP delivery through operator relays (TLS only); mailtest fake relay
 frontend/src/lib          crypto (OpenPGP.js), API client, key lookup, hash routes
 frontend/src/pages        send, download, delete, receive (upload links), key pair pages
 frontend/tests            node --test, incl. gpg interoperability
