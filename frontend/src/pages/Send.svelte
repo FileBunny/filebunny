@@ -2,7 +2,8 @@
   import { encrypt } from '../lib/crypto.ts';
   import type { Recipient } from '../lib/keylookup.ts';
   import { ApiError, maxCiphertext, siteBase, upload, type Uploaded } from '../lib/api.ts';
-  import { filebinKeepsDays, filebinUpload, newBin } from '../lib/filebin.ts';
+  import { filebinUpload, newBin } from '../lib/filebin.ts';
+  import { storageByName, storages } from '../lib/storage.ts';
   import { deleteLink, filebinLink, shareLink } from '../lib/route.ts';
   import { formatBytes, formatDate } from '../lib/format.ts';
   import CopyField from '../components/CopyField.svelte';
@@ -10,24 +11,20 @@
   import KeyPicker from '../components/KeyPicker.svelte';
   import Info from '../components/Info.svelte';
   import SecretField from '../components/SecretField.svelte';
+  import StorageStatus from '../components/StorageStatus.svelte';
 
   // The server limit is 100 MiB of ciphertext; OpenPGP adds a little.
   const maxFileSize = 100_000_000;
 
-  // Where the ciphertext is kept (docs/storage/filebin.md). Only the
-  // choice is sent; whether Filebin works is up to the server, which
-  // refuses with 503 before any data is sent.
-  type Where = 'local' | 'filebin' | 'filebin-direct';
+  // Where the ciphertext is kept (docs/storage/), and whether it goes
+  // there through FileBunny or straight from this browser. Only the choice
+  // is sent; whether a service works is up to the server, which refuses
+  // with 503 before any data is sent.
   const shortExpiry = [
     { value: '1h', label: '1 hour' },
     { value: '24h', label: '1 day' },
     { value: '72h', label: '3 days' },
   ];
-  // Filebin keeps bins about 7 days; the server allows 6 there.
-  const expiryOptions: Record<'local' | 'filebin', { value: string; label: string }[]> = {
-    local: [...shortExpiry, { value: '168h', label: '7 days' }],
-    filebin: [...shortExpiry, { value: '144h', label: '6 days' }],
-  };
   const downloadOptions = [
     { value: 1, label: 'Once' },
     { value: 5, label: '5 times' },
@@ -44,10 +41,17 @@
   // Raw: OpenPGP key objects must not be wrapped in proxies.
   let recipients = $state.raw<Recipient[]>([]);
 
-  let where = $state<Where>('local');
+  let storageName = $state('local');
+  let via = $state<'server' | 'direct'>('server');
+  let statusOpen = $state(false);
+  const chosen = $derived(storageByName(storageName)!);
+  const direct = $derived(chosen.direct && via === 'direct');
   let expires = $state('24h');
   let maxDownloads = $state(0);
-  const expiries = $derived(expiryOptions[where === 'filebin' ? 'filebin' : 'local']);
+  const expiries = $derived([
+    ...shortExpiry,
+    { value: `${chosen.maxExpiryHours}h`, label: `${chosen.maxExpiryHours / 24} days` },
+  ]);
   $effect(() => {
     if (!expiries.some((o) => o.value === expires)) expires = expiries.at(-1)!.value;
   });
@@ -108,8 +112,8 @@
         what === 'text' ? { kind: 'text' as const, text } : { kind: 'file' as const, name: file!.name, data: file!.stream() };
       const to = mode === 'password' ? { password } : { publicKeys: recipients.map((r) => r.info.key) };
       const ciphertext = await encrypt(plaintext, to);
-      if (where === 'filebin-direct') {
-        // One request without progress events: those would make it a
+      if (direct) {
+        // Filebin is the only service with a direct route so far. One request without progress events: those would make it a
         // preflighted request, which Filebin does not allow.
         const blob = await new Response(ciphertext).blob();
         if (blob.size > maxCiphertext) throw new TooLarge();
@@ -117,14 +121,14 @@
         await filebinUpload(bin, blob, controller.signal);
         directBin = bin;
       } else {
-        const storage = where === 'filebin' ? 'filebin' : undefined;
+        const storage = chosen.name === 'local' ? undefined : chosen.name;
         result = await upload(ciphertext, { expires, maxDownloads, storage }, (n) => (sent = n), controller.signal);
       }
     } catch (err) {
       if (controller.signal.aborted) error = 'Upload cancelled.';
       else if (err instanceof TooLarge) error = 'The encrypted file is larger than 100 MB.';
       else if (err instanceof ApiError) error = `Upload failed: ${err.message}`;
-      else if (where === 'filebin-direct') error = 'The upload to Filebin failed. Try again later, or store it on FileBunny.';
+      else if (direct) error = `The upload to ${chosen.short} failed. Try again later, or upload through FileBunny.`;
       else error = 'Encryption or upload failed. Check your connection and try again.';
     } finally {
       busy = false;
@@ -147,7 +151,7 @@
 
 {#if directBin}
   <section>
-    <h1>Encrypted and uploaded to Filebin</h1>
+    <h1>Encrypted and uploaded to {chosen.short}</h1>
     <CopyField label="Share link" value={filebinLink(siteBase(), directBin)} />
     {#if mode === 'password'}
       <p class="note">
@@ -158,8 +162,8 @@
       <p class="note">Only the holders of the private keys can decrypt it.</p>
     {/if}
     <p>
-      Filebin keeps it for about {filebinKeepsDays} days. Anyone with the link can download it as often as they like, and
-      delete it. FileBunny does not know about this file.
+      {chosen.short} keeps it for about {chosen.keepsDays} days. Anyone with the link can download it as often as they
+      like, and delete it. FileBunny does not know about this file.
     </p>
     <button type="button" onclick={startOver}>Share something else</button>
   </section>
@@ -179,8 +183,8 @@
       Available until {formatDate(result.expiresAt)}{#if result.maxDownloads === 1}, for one download{:else if result.maxDownloads > 1},
         for {result.maxDownloads} downloads{/if}.
     </p>
-    {#if where === 'filebin'}
-      <p class="note">Stored at Filebin through FileBunny; Filebin only sees this server.</p>
+    {#if chosen.name !== 'local'}
+      <p class="note">Stored at {chosen.short} through FileBunny; {chosen.short} only sees this server.</p>
     {/if}
     <CopyField label="Delete link (keep this to yourself)" value={deleteLink(siteBase(), result.id, result.deleteToken)} />
     <button type="button" onclick={startOver}>Share something else</button>
@@ -222,21 +226,33 @@
 
     <fieldset disabled={busy}>
       <legend>3. Where, how long and how often?</legend>
-      <div class="choice">
-        <label><input type="radio" bind:group={where} value="local" /> On FileBunny</label>
-        <label><input type="radio" bind:group={where} value="filebin" /> At Filebin, through FileBunny</label>
-        <label><input type="radio" bind:group={where} value="filebin-direct" /> At Filebin, directly</label>
-        <Info label="About the storage options">
-          Filebin (filebin.net) is a free file sharing service. It only ever gets the encrypted data. Through FileBunny,
-          Filebin sees this server instead of you, and the limits below still apply. Directly, your browser uploads to
-          Filebin itself: Filebin sees your IP address and FileBunny does not know about the file.
-          <a href="#/status">Storage status</a>
-        </Info>
-      </div>
-      {#if where === 'filebin-direct'}
+      <label class="field">
+        <span>Stored at</span>
+        <select bind:value={storageName}>
+          {#each storages as o (o.name)}<option value={o.name}>{o.label}</option>{/each}
+        </select>
+      </label>
+      {#if chosen.direct}
+        <div class="choice">
+          <label><input type="radio" bind:group={via} value="server" /> Through FileBunny</label>
+          <label><input type="radio" bind:group={via} value="direct" /> Directly from your browser</label>
+          <Info label="About the two ways">
+            {chosen.short} only ever gets the encrypted data. Through FileBunny, it sees this server instead of you, and
+            the limits below still apply. Directly, your browser uploads to {chosen.short} itself: it sees your IP address
+            and FileBunny does not know about the file.
+          </Info>
+        </div>
+      {:else if chosen.name !== 'local'}
+        <p class="note">Sent through FileBunny: {chosen.short} sees this server instead of you.</p>
+      {/if}
+      <details class="more" bind:open={statusOpen}>
+        <summary>Storage status</summary>
+        {#if statusOpen}<StorageStatus />{/if}
+      </details>
+      {#if direct}
         <p class="note">
-          Filebin sees your IP address and keeps the file for about {filebinKeepsDays} days. There is no download limit and
-          no delete link: anyone with the link can download it, and delete it.
+          {chosen.short} sees your IP address and keeps the file for about {chosen.keepsDays} days. There is no download
+          limit and no delete link: anyone with the link can download it, and delete it.
         </p>
       {:else}
         <div class="row">
@@ -257,7 +273,7 @@
     </fieldset>
 
     <ErrorMessage error={gap?.message ?? error} />
-    {#if busy && where === 'filebin-direct'}
+    {#if busy && direct}
       <progress></progress>
       <button type="button" onclick={() => controller?.abort()}>Cancel</button>
     {:else if busy}
