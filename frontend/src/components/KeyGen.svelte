@@ -5,10 +5,10 @@
   import { onDestroy } from 'svelte';
   import { generateKeyPair, type NewKeyPair } from '../lib/crypto.ts';
   import { publishKey, type PublishStatus } from '../lib/keylookup.ts';
-  import { generatePassword } from '../lib/format.ts';
   import CopyField from './CopyField.svelte';
   import ErrorMessage from './ErrorMessage.svelte';
   import Info from './Info.svelte';
+  import SecretField from './SecretField.svelte';
 
   let { onCreated, continueLabel = 'Continue' }: { onCreated?: (pair: NewKeyPair) => void; continueLabel?: string } =
     $props();
@@ -16,7 +16,6 @@
   let name = $state('');
   let email = $state('');
   let passphrase = $state('');
-  let showPassphrase = $state(false);
   let busy = $state(false);
   let error = $state('');
 
@@ -40,11 +39,6 @@
   function revokeUrls() {
     if (privateUrl) URL.revokeObjectURL(privateUrl);
     if (publicUrl) URL.revokeObjectURL(publicUrl);
-  }
-
-  function newPassphrase() {
-    passphrase = generatePassword();
-    showPassphrase = true;
   }
 
   async function create() {
@@ -117,14 +111,7 @@
         keyserver, if you choose to publish it.
       </Info>
     </p>
-    <label class="field">
-      <span>Passphrase for the private key</span>
-      <span class="row">
-        <input type={showPassphrase ? 'text' : 'password'} bind:value={passphrase} autocomplete="new-password" />
-        <button type="button" onclick={() => (showPassphrase = !showPassphrase)}>{showPassphrase ? 'Hide' : 'Show'}</button>
-        <button type="button" onclick={newPassphrase}>Generate</button>
-      </span>
-    </label>
+    <SecretField label="Passphrase for the private key" bind:value={passphrase} />
     <p class="notice">There is no way to recover a lost passphrase or private key. Write the passphrase down.</p>
     <ErrorMessage {error} />
     <button type="button" class="primary" onclick={create} disabled={busy}>{busy ? 'Creating…' : 'Create key pair'}</button>
