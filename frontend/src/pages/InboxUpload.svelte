@@ -103,8 +103,8 @@
   <p class="warning" role="alert">{keyProblem}</p>
 {:else if done}
   <p class="ok" role="status">
-    {done.what} was encrypted and uploaded ({formatBytes(done.size)}). Only the holder of the private key of
-    {key?.userIDs[0] ?? 'this upload link'} can open it.
+    {done.what} was encrypted and uploaded ({formatBytes(done.size)}). Only the owner of this upload link can open it,
+    with their private key.
   </p>
   <p class="note">FileBunny does not notify the recipient; they see it when they check their upload link.</p>
   <button type="button" onclick={again}>Send something else</button>
