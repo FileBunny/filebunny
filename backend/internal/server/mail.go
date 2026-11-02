@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/FileBunny/filebunny/backend/internal/mail"
+	"github.com/FileBunny/filebunny/backend/internal/ratelimit"
 	"github.com/FileBunny/filebunny/backend/internal/store"
 )
 
@@ -119,6 +120,9 @@ func (s *Server) handleNotify(w http.ResponseWriter, r *http.Request) {
 		return
 	} else if blocked {
 		writeError(w, http.StatusConflict, "this address asked not to get e-mail from FileBunny")
+		return
+	}
+	if !s.proven(w, r, "mail") || !s.allow(w, r, ratelimit.Mail, 1) {
 		return
 	}
 	select {

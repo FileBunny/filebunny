@@ -68,6 +68,16 @@ type Config struct {
 	MailDaily        int
 	MailPerRecipient int
 	MailPerFile      int
+	// ClientIPHeader names the request header the reverse proxy puts the
+	// visitor's address in (Compose: X-FileBunny-Client, set by Caddy).
+	// Empty: use the connection's address. Only set it when the backend
+	// is reachable through that proxy alone, or clients can fake it. The
+	// address is only ever hashed (internal/ratelimit), never stored.
+	ClientIPHeader string
+	// RateLimits switches the per-visitor limits on.
+	RateLimits bool
+	// PowBits is the base proof-of-work difficulty in bits (0: off).
+	PowBits int
 }
 
 // Defaults for the public service at filebunny.eu.
@@ -90,6 +100,8 @@ const (
 	DefaultMailDaily          = 500
 	DefaultMailPerRecipient   = 3
 	DefaultMailPerFile        = 3
+	DefaultPowBits            = 18
+	MaxPowBits                = 24
 )
 
 // MinExpiry is the shortest expiry an upload may ask for.
@@ -118,6 +130,8 @@ func FromEnv(getenv func(string) string) (Config, error) {
 		MailDaily:          DefaultMailDaily,
 		MailPerRecipient:   DefaultMailPerRecipient,
 		MailPerFile:        DefaultMailPerFile,
+		RateLimits:         true,
+		PowBits:            DefaultPowBits,
 	}
 	var errs []error
 
@@ -128,6 +142,21 @@ func FromEnv(getenv func(string) string) (Config, error) {
 		c.DataDir = v
 	}
 	c.SMTPFile = getenv("FILEBUNNY_SMTP_FILE")
+	if v := getenv("FILEBUNNY_CLIENT_IP_HEADER"); v != "" {
+		if strings.ContainsAny(v, " :\r\n") {
+			errs = append(errs, fmt.Errorf("FILEBUNNY_CLIENT_IP_HEADER: not a header name: %q", v))
+		} else {
+			c.ClientIPHeader = v
+		}
+	}
+	if v := getenv("FILEBUNNY_POW_BITS"); v != "" {
+		n, err := strconv.Atoi(v)
+		if err != nil || n < 0 || n > MaxPowBits {
+			errs = append(errs, fmt.Errorf("FILEBUNNY_POW_BITS: want 0 (off) to %d, got %q", MaxPowBits, v))
+		} else {
+			c.PowBits = n
+		}
+	}
 	if v := getenv("FILEBUNNY_PUBLIC_URL"); v != "" {
 		u, err := url.Parse(v)
 		if err != nil || u.Scheme != "https" || u.Host == "" || strings.Trim(u.Path, "/") != "" || u.RawQuery != "" || u.Fragment != "" || u.User != nil {
@@ -211,6 +240,7 @@ func FromEnv(getenv func(string) string) (Config, error) {
 	}{
 		{"FILEBUNNY_WKD_PROXY", &c.WKDProxy},
 		{"FILEBUNNY_FILEBIN", &c.Filebin},
+		{"FILEBUNNY_RATE_LIMITS", &c.RateLimits},
 	}
 	for _, b := range bools {
 		v := getenv(b.name)

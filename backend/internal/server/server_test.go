@@ -25,7 +25,14 @@ type testEnv struct {
 	logs  *bytes.Buffer
 }
 
+// newTestEnv has no proof of work and no per-visitor limits, so tests can
+// upload freely; abuse_test.go switches them on with newTestEnvWith.
 func newTestEnv(t *testing.T) *testEnv {
+	t.Helper()
+	return newTestEnvWith(t, func(c *config.Config) { c.PowBits, c.RateLimits = 0, false })
+}
+
+func newTestEnvWith(t *testing.T, configure func(*config.Config)) *testEnv {
 	t.Helper()
 	dir := t.TempDir()
 	st, err := store.Open(dir)
@@ -36,6 +43,7 @@ func newTestEnv(t *testing.T) *testEnv {
 
 	cfg, _ := config.FromEnv(func(string) string { return "" })
 	cfg.MaxSize = testMaxSize
+	configure(&cfg)
 
 	env := &testEnv{dir: dir, clock: time.Date(2026, 10, 27, 12, 0, 0, 0, time.UTC), logs: &bytes.Buffer{}}
 	env.srv = New(cfg, st, slog.New(slog.NewTextHandler(env.logs, nil)))

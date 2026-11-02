@@ -15,6 +15,8 @@ import (
 	"time"
 
 	"github.com/FileBunny/filebunny/backend/internal/config"
+	"github.com/FileBunny/filebunny/backend/internal/pow"
+	"github.com/FileBunny/filebunny/backend/internal/ratelimit"
 	"github.com/FileBunny/filebunny/backend/internal/storage"
 	"github.com/FileBunny/filebunny/backend/internal/store"
 	"github.com/FileBunny/filebunny/backend/internal/wkd"
@@ -53,6 +55,11 @@ type Server struct {
 
 	// mail is nil when e-mail notifications are off (EnableMail).
 	mail *mailer
+
+	// limiter hashes and counts visitors (always; limits apply only with
+	// cfg.RateLimits). pow is nil when proof of work is off.
+	limiter *ratelimit.Limiter
+	pow     *pow.Issuer
 }
 
 // New returns a Server with all routes registered.
@@ -61,6 +68,14 @@ func New(cfg config.Config, st *store.Store, log *slog.Logger) *Server {
 		uploads: make(map[string]*pendingUpload), wkdSlots: make(chan struct{}, maxWKDLookups)}
 	if cfg.WKDProxy {
 		s.wkd = wkd.NewClient()
+	}
+	limits := visitorLimits
+	if !cfg.RateLimits {
+		limits = nil
+	}
+	s.limiter = ratelimit.New(limits, func() time.Time { return s.now() })
+	if cfg.PowBits > 0 {
+		s.pow = pow.New(func() time.Time { return s.now() })
 	}
 	s.remotes = make(map[string]*remote)
 	if cfg.Filebin {
@@ -79,6 +94,7 @@ func New(cfg config.Config, st *store.Store, log *slog.Logger) *Server {
 	s.mux.HandleFunc("POST /api/v1/uploads/{id}/complete", s.handleCompleteUpload)
 	s.mux.HandleFunc("DELETE /api/v1/uploads/{id}", s.handleAbortUpload)
 	s.mux.HandleFunc("GET /api/v1/features", s.handleFeatures)
+	s.mux.HandleFunc("GET /api/v1/challenge", s.handleChallenge)
 	s.mux.HandleFunc("GET /api/v1/storage", s.handleStorage)
 	s.mux.HandleFunc("POST /api/v1/wkd", s.handleWKD)
 	s.mux.HandleFunc("POST /api/v1/inboxes", s.handleCreateInbox)
@@ -88,7 +104,7 @@ func New(cfg config.Config, st *store.Store, log *slog.Logger) *Server {
 	s.mux.HandleFunc("GET /api/v1/inboxes/{id}/files/{file}", s.handleInboxFile)
 	s.mux.HandleFunc("DELETE /api/v1/inboxes/{id}/files/{file}", s.handleDeleteInboxFile)
 	s.mux.HandleFunc("DELETE /api/v1/inboxes/{id}", s.handleDeleteInbox)
-	s.handler = securityHeaders(nullOriginCORS(s.mux))
+	s.handler = securityHeaders(nullOriginCORS(s.identifyClient(s.mux)))
 	return s
 }
 
@@ -182,6 +198,9 @@ func (s *Server) handleUpload(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusRequestEntityTooLarge, "file exceeds "+strconv.FormatInt(s.cfg.MaxSize, 10)+" bytes")
 		return
 	}
+	if !s.proven(w, r, "upload") || !s.allow(w, r, ratelimit.UploadBytes, 0) || !s.allow(w, r, ratelimit.Upload, 1) {
+		return
+	}
 
 	// Without Content-Length, reserve the maximum the body may grow to.
 	need := s.cfg.MaxSize
@@ -230,6 +249,7 @@ func (s *Server) handleUpload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	s.counted(r, ratelimit.UploadBytes, f.Size)
 	writeJSON(w, http.StatusCreated, newUploadResponse(f, token))
 }
 
@@ -276,6 +296,9 @@ func (s *Server) handleInfo(w http.ResponseWriter, r *http.Request) {
 // For a file at an external service, a transfer is claimed first, so a busy
 // or failing service does not use up a download.
 func (s *Server) handleDownload(w http.ResponseWriter, r *http.Request) {
+	if !s.allow(w, r, ratelimit.Download, 1) {
+		return
+	}
 	id := r.PathValue("id")
 	var rem *remote
 	if f, err := s.store.Stat(r.Context(), id, s.now()); err == nil && f.Storage != "" {

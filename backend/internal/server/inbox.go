@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/FileBunny/filebunny/backend/internal/config"
+	"github.com/FileBunny/filebunny/backend/internal/ratelimit"
 	"github.com/FileBunny/filebunny/backend/internal/store"
 )
 
@@ -107,6 +108,9 @@ func (s *Server) handleCreateInbox(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		maxUploads = n
+	}
+	if !s.proven(w, r, "inbox") || !s.allow(w, r, ratelimit.Inbox, 1) {
+		return
 	}
 	key, err := io.ReadAll(http.MaxBytesReader(w, r.Body, maxPublicKeySize))
 	if err != nil {
@@ -236,6 +240,9 @@ func (s *Server) handleInboxUpload(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	if !s.proven(w, r, "upload") || !s.allow(w, r, ratelimit.UploadBytes, 0) || !s.allow(w, r, ratelimit.Upload, 1) {
+		return
+	}
 	if r.ContentLength > limit {
 		writeError(w, http.StatusRequestEntityTooLarge, "file exceeds "+strconv.FormatInt(limit, 10)+" bytes")
 		return
@@ -283,6 +290,7 @@ func (s *Server) handleInboxUpload(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "upload is empty")
 		return
 	}
+	s.counted(r, ratelimit.UploadBytes, p.Size())
 	s.commitToInbox(w, r, p, in, rem)
 }
 
@@ -363,6 +371,9 @@ func (s *Server) handleInboxFiles(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleInboxFile(w http.ResponseWriter, r *http.Request) {
 	in, ok := s.manageInbox(w, r)
 	if !ok {
+		return
+	}
+	if !s.allow(w, r, ratelimit.Download, 1) {
 		return
 	}
 	f, blob, err := s.store.InboxFile(r.Context(), in.ID, r.PathValue("file"), s.now())

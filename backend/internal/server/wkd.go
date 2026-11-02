@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"strconv"
 
+	"github.com/FileBunny/filebunny/backend/internal/ratelimit"
 	"github.com/FileBunny/filebunny/backend/internal/wkd"
 )
 
@@ -38,6 +39,9 @@ func (s *Server) handleFeatures(w http.ResponseWriter, _ *http.Request) {
 func (s *Server) handleWKD(w http.ResponseWriter, r *http.Request) {
 	if s.wkd == nil {
 		writeError(w, http.StatusNotFound, "not found")
+		return
+	}
+	if !s.allow(w, r, ratelimit.WKD, 1) {
 		return
 	}
 	var req struct {

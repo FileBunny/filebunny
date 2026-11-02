@@ -12,6 +12,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/FileBunny/filebunny/backend/internal/ratelimit"
 	"github.com/FileBunny/filebunny/backend/internal/store"
 )
 
@@ -92,6 +93,10 @@ func (s *Server) handleCreateUpload(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	if !s.proven(w, r, "upload") || !s.allow(w, r, ratelimit.UploadBytes, 0) || !s.allow(w, r, ratelimit.Upload, 1) {
+		return
+	}
+
 	s.upMu.Lock()
 	defer s.upMu.Unlock()
 	if len(s.uploads) >= s.cfg.MaxPendingUploads {
@@ -157,6 +162,9 @@ func (s *Server) handleChunk(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusRequestEntityTooLarge, "file exceeds "+strconv.FormatInt(u.maxSize, 10)+" bytes")
 		return
 	}
+	if !s.allow(w, r, ratelimit.UploadBytes, 0) {
+		return
+	}
 
 	release, err := s.reserve(r.Context(), r.ContentLength)
 	if errors.Is(err, errStorageFull) {
@@ -182,6 +190,7 @@ func (s *Server) handleChunk(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	u.releases = append(u.releases, release)
+	s.counted(r, ratelimit.UploadBytes, r.ContentLength)
 	writeJSON(w, http.StatusOK, chunkResponse{Offset: u.p.Size()})
 }
 
