@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -69,7 +70,9 @@ func run(log *slog.Logger) error {
 			for i, r := range mc.Relays {
 				names[i] = r.Name
 			}
-			log.Info("e-mail on", "relays", names)
+			// Not as a list: "[name]" looks like an IPv6 address to the
+			// log redaction.
+			log.Info("e-mail on", "relays", strings.Join(names, ", "))
 		}
 	}
 	// Stop the background work and wait for it on every return path,
