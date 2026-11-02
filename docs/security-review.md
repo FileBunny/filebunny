@@ -394,6 +394,14 @@ clear. Each delivery is bounded by a 30 s deadline.
   client with many links can use up the daily limit for everyone; each
   address still gets at most 3 mails a day.
 - **A failed delivery still uses up its claim** against the limits.
+- **A relay can replace the unsubscribe header** with its own (Mailjet
+  does). An address that unsubscribes that way lands on the relay's
+  suppression list, not on FileBunny's: the relay then accepts and drops
+  further mail to it, and the sender still sees "Sent". The block link in
+  the mail text keeps working.
+- **New domains land in spam** at first (seen at Outlook with SPF, DKIM
+  and DMARC all passing); the page asks senders to tell recipients to
+  check their spam folder.
 - **Losing `mail-pepper`** resets the counters and the block list.
 
 ## How to re-run the checks

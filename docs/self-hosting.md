@@ -142,6 +142,12 @@ FILEBUNNY_SMTP=/etc/filebunny/smtp.json docker compose up -d
   relays): mail off.
 - Prefer keys with sending rights only, for your sender address only,
   and, where the relay offers it, only from your server's IP address.
+- Switch off open and click tracking at the relay: FileBunny sends plain
+  text, but a relay that rewrites links would see every click.
+- Some relays (Mailjet, for example) replace FileBunny's
+  `List-Unsubscribe` header with their own; addresses that unsubscribe
+  that way end up on the relay's suppression list instead of FileBunny's
+  block list. The block link in the mail text is not affected.
 
 **DNS** for the sender's domain, from each relay's instructions: one SPF
 record that includes every relay (at most 10 DNS lookups in total), a

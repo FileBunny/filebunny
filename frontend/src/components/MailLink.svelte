@@ -56,6 +56,9 @@
     {#each sent as to, i (i)}
       <p class="ok">Sent to {to}</p>
     {/each}
+    {#if sent.length > 0}
+      <p class="note">Ask the recipient to check their spam folder: mail from FileBunny may land there.</p>
+    {/if}
     <ErrorMessage {error} />
   </form>
 {/if}
