@@ -27,10 +27,8 @@
 
 <h2>Security</h2>
 <p>
-  Found a vulnerability? Please report it privately:
-  {#if contact.security}
-    <a href="mailto:{contact.security}">{contact.security}</a>
-    (see <a href="{siteBase()}/.well-known/security.txt">security.txt</a> for the encryption key), or
-  {/if}
-  through <a href={securityReporting} rel="noopener noreferrer">GitHub's private vulnerability reporting</a>.
+  Found a vulnerability? Please report it privately through
+  <a href={securityReporting} rel="noopener noreferrer">GitHub's private vulnerability reporting</a>{#if contact.security},
+    or mail <a href="mailto:{contact.security}">{contact.security}</a> (encryption key in
+    <a href="{siteBase()}/.well-known/security.txt">security.txt</a>){/if}.
 </p>
