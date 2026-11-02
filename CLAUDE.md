@@ -131,10 +131,12 @@ Phases 1 (foundation), 2 (browser encryption, share links with download
 limits, chunked upload, single HTML build), 3 (keys: lookup on
 keys.openpgp.org from the browser, optional WKD proxy, local key upload,
 WKD check), 4 (upload links with a management link, key pair
-generation, publishing on keys.openpgp.org) and 5 (external storage:
+generation, publishing on keys.openpgp.org), 5 (external storage:
 Filebin through this server or directly from the browser, also for upload
-links) are this code. Next: phase 6, e-mail notifications. QR codes for
-fingerprints moved to phase 9.
+links) and 6 (mailing a share link through operator SMTP relays, with
+limits and a block list) are this code. Next: phase 7, abuse handling and
+legal (rate limiting with a hashed IP, proof of work, reporting). QR codes
+for fingerprints moved to phase 9.
 
 Frontend rules: everything must keep working from the single HTML file
 (no lazy-loaded chunks, workers or extra assets; routes in the fragment;
