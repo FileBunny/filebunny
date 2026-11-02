@@ -296,7 +296,8 @@ so does the smoke test).
   (phase 7). One client can use up the 1000 open links (others get
   `503` until they expire) or fill one link it knows.
 - **Anyone with the upload link can fill it** up to its limits; the owner
-  can revoke it. Notifications follow in phase 6.
+  can revoke it. There is no notification of new uploads (phase 6 mails
+  share links only).
 - **The private key is in the page's memory** while unlocked on the
   management page, as on the download page; "Forget it" or closing the
   page removes it.
@@ -353,6 +354,55 @@ client goes into a URL. The verification cookie is kept for
 - **No per-client limit on proxied traffic** yet (phase 7); one client
   can use up the daily cap for everyone, after which local storage still
   works.
+
+## Phase 6 (e-mail)
+
+| | |
+|---|---|
+| Date | 2026-10-31 |
+| Scope | Branch `phase-6`: `internal/mail` (SMTP client), `POST /api/v1/files/{id}/notify`, `/api/v1/mail/block/{token}`, mail limits and block list in SQLite, SMTP secret in Compose; frontend "E-mail the link" and `#/block/…` |
+| Reviewer | Claude Code (AI-assisted), during development |
+
+### Outgoing connections
+
+Relay hosts come only from the operator's secret file, never from a
+client, so the SSRF rules for client-chosen targets do not apply. Every
+connection uses TLS with certificate verification (implicit TLS on 465,
+otherwise STARTTLS must be offered); credentials are never sent in the
+clear. Each delivery is bounded by a 30 s deadline.
+
+### New attack surface
+
+| Area | Measure | Test |
+|---|---|---|
+| Header or SMTP command injection through the address | Strict address check: plain ASCII, no spaces, line breaks, quotes, brackets, display names or IP literals, length limits; only used as `RCPT TO`/`To` | `TestValidAddress`, `TestNotifyRefusals` |
+| Spam or phishing through the mail | Fixed text built by the server; the only link is the share link built from the file ID; no sender name, no free text, no password | `TestNotify` |
+| Mailing someone else's link | Needs the delete token, which only the sender has | `TestNotifyRefusals` |
+| Mail bombing an address | 3 addresses per link, 3 mails per address per day, 500 per day, per relay limits, 4 deliveries at a time; claimed in one transaction | `TestClaimMail`, `TestNotifyRefusals`, `TestNotifyRelays` |
+| Addresses in storage or logs | Only an HMAC with a secret key is stored; errors carry the SMTP code only (relays echo addresses); relay accounts are never logged | `TestNoClientAddressInLogs` (with mail), `TestSendErrorsHideReplyText`, smoke test |
+| Leaking relay passwords | Compose secret file outside the repository; not in images, environment or CI; config errors never quote the file | `TestLoadConfig` |
+| Forged block requests | The token is the HMAC; without the key nobody can make one for an address. Blocking happens only on a click or a one-click POST | `TestMailBlock` |
+| Untrusted relay certificate | Refused before any credentials are sent | `TestSendRefusesUntrustedCertificate` |
+
+### Residual risks
+
+- **The relay sees every recipient address and the link** and keeps its
+  own logs. Choose relays whose terms and location you accept.
+- **Mailed links can look like phishing**; recipients have no way to
+  check the sender beyond what the sender tells them.
+- **No per-sender limit** until phase 7 (hashed IP, proof of work): one
+  client with many links can use up the daily limit for everyone; each
+  address still gets at most 3 mails a day.
+- **A failed delivery still uses up its claim** against the limits.
+- **A relay can replace the unsubscribe header** with its own (Mailjet
+  does). An address that unsubscribes that way lands on the relay's
+  suppression list, not on FileBunny's: the relay then accepts and drops
+  further mail to it, and the sender still sees "Sent". The block link in
+  the mail text keeps working.
+- **New domains land in spam** at first (seen at Outlook with SPF, DKIM
+  and DMARC all passing); the page asks senders to tell recipients to
+  check their spam folder.
+- **Losing `mail-pepper`** resets the counters and the block list.
 
 ## How to re-run the checks
 

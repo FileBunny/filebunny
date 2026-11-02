@@ -56,3 +56,11 @@ test('external storage routes', () => {
     assert.deepEqual(parseRoute(bad), { page: 'not-found' }, bad);
   }
 });
+
+test('mail block route', () => {
+  const token = 'A'.repeat(42) + '_';
+  assert.deepEqual(parseRoute(`#/block/${token}`), { page: 'block', token });
+  for (const bad of ['#/block/short', `#/block/${token}x`, `#/block/${'!'.repeat(43)}`]) {
+    assert.deepEqual(parseRoute(bad), { page: 'not-found' }, bad);
+  }
+});

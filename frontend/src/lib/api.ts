@@ -272,6 +272,32 @@ export async function deleteFile(id: string, deleteToken: string): Promise<void>
   await request('DELETE', filePath(id), { headers: { Authorization: `Bearer ${deleteToken}` } });
 }
 
+/** Whether this server can mail share links. False when unreachable. */
+export async function mailAvailable(): Promise<boolean> {
+  try {
+    const r = (await (await request('GET', '/api/v1/features')).json()) as { mail?: unknown };
+    return r.mail === true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Has the server mail the share link to an address, in a fixed text. Only
+ * the sender can: it needs the delete token.
+ */
+export async function mailLink(id: string, deleteToken: string, email: string): Promise<void> {
+  await request('POST', `${filePath(id)}/notify`, {
+    headers: { Authorization: `Bearer ${deleteToken}`, 'Content-Type': 'application/json' },
+    body: new Blob([JSON.stringify({ email })]),
+  });
+}
+
+/** Stops (or with block false, allows again) mail to the address behind a block token. */
+export async function setMailBlock(token: string, block: boolean): Promise<void> {
+  await request(block ? 'POST' : 'DELETE', `/api/v1/mail/block/${encodeURIComponent(token)}`);
+}
+
 /** The external services this server offers (the status page). */
 export async function storageStatus(): Promise<StorageStatus[]> {
   const r = (await (await request('GET', '/api/v1/storage')).json()) as {

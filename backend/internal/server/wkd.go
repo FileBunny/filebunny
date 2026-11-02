@@ -22,11 +22,13 @@ type keyLookup interface {
 
 type featuresResponse struct {
 	WKD bool `json:"wkd"`
+	// Mail: share links can be mailed (POST /api/v1/files/{id}/notify).
+	Mail bool `json:"mail"`
 }
 
 // handleFeatures tells the frontend which optional endpoints are on.
 func (s *Server) handleFeatures(w http.ResponseWriter, _ *http.Request) {
-	writeJSON(w, http.StatusOK, featuresResponse{WKD: s.wkd != nil})
+	writeJSON(w, http.StatusOK, featuresResponse{WKD: s.wkd != nil, Mail: s.mail != nil})
 }
 
 // handleWKD fetches the key for {"email": "..."} from the recipient's

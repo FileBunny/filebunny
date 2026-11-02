@@ -50,6 +50,9 @@ type Server struct {
 
 	// remotes are the external storage services offered, by name.
 	remotes map[string]*remote
+
+	// mail is nil when e-mail notifications are off (EnableMail).
+	mail *mailer
 }
 
 // New returns a Server with all routes registered.
@@ -68,6 +71,9 @@ func New(cfg config.Config, st *store.Store, log *slog.Logger) *Server {
 	s.mux.HandleFunc("GET /api/v1/files/{id}", s.handleDownload)
 	s.mux.HandleFunc("HEAD /api/v1/files/{id}", s.handleInfo)
 	s.mux.HandleFunc("DELETE /api/v1/files/{id}", s.handleDelete)
+	s.mux.HandleFunc("POST /api/v1/files/{id}/notify", s.handleNotify)
+	s.mux.HandleFunc("POST /api/v1/mail/block/{token}", s.handleBlockMail)
+	s.mux.HandleFunc("DELETE /api/v1/mail/block/{token}", s.handleUnblockMail)
 	s.mux.HandleFunc("POST /api/v1/uploads", s.handleCreateUpload)
 	s.mux.HandleFunc("PUT /api/v1/uploads/{id}", s.handleChunk)
 	s.mux.HandleFunc("POST /api/v1/uploads/{id}/complete", s.handleCompleteUpload)

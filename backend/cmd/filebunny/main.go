@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -15,6 +16,7 @@ import (
 	"github.com/FileBunny/filebunny/backend/internal/cleanup"
 	"github.com/FileBunny/filebunny/backend/internal/config"
 	"github.com/FileBunny/filebunny/backend/internal/logging"
+	"github.com/FileBunny/filebunny/backend/internal/mail"
 	"github.com/FileBunny/filebunny/backend/internal/server"
 	"github.com/FileBunny/filebunny/backend/internal/store"
 )
@@ -49,9 +51,32 @@ func run(log *slog.Logger) error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
+	api := server.New(cfg, st, log)
+	if cfg.SMTPFile != "" {
+		mc, err := mail.LoadConfig(cfg.SMTPFile)
+		if err != nil {
+			return err
+		}
+		if len(mc.Relays) > 0 {
+			pepper, err := st.MailPepper()
+			if err != nil {
+				return err
+			}
+			if err := api.EnableMail(mc, pepper); err != nil {
+				return err
+			}
+			// Relay names only; the file holds passwords.
+			names := make([]string, len(mc.Relays))
+			for i, r := range mc.Relays {
+				names[i] = r.Name
+			}
+			// Not as a list: "[name]" looks like an IPv6 address to the
+			// log redaction.
+			log.Info("e-mail on", "relays", strings.Join(names, ", "))
+		}
+	}
 	// Stop the background work and wait for it on every return path,
 	// before st.Close.
-	api := server.New(cfg, st, log)
 	var wg sync.WaitGroup
 	defer func() { stop(); wg.Wait() }()
 	wg.Go(func() { cleanup.Run(ctx, st, cfg.CleanupInterval, log) })

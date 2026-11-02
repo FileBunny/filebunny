@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/FileBunny/filebunny/backend/internal/mail/mailtest"
 	"github.com/FileBunny/filebunny/backend/internal/wkd"
 )
 
@@ -107,9 +108,34 @@ func TestNoClientAddressInLogs(t *testing.T) {
 		t.Fatal("remote upload failed")
 	}
 
+	// Mail: no recipient address, block token or relay account either,
+	// also when the relay refuses and echoes the address.
+	const mailTo = "mail.recipient@private-mail.example"
+	relay := mailtest.Start(t, "one", false)
+	withMail(t, e, relay)
+	rec = send("POST", "/api/v1/files", strings.NewReader("x"))
+	var mailed uploadResponse
+	json.Unmarshal(rec.Body.Bytes(), &mailed)
+	notify := func() {
+		send("POST", "/api/v1/files/"+mailed.ID+"/notify", strings.NewReader(`{"email":"`+mailTo+`"}`), "Authorization", "Bearer "+mailed.DeleteToken)
+	}
+	notify()
+	relay.FailRcpt = 550
+	notify()
+	relay.FailRcpt, relay.FailAuth = 0, true
+	notify()
+	if len(relay.Messages()) != 1 {
+		t.Fatalf("mail not sent: %d", len(relay.Messages()))
+	}
+	_, rest, _ := strings.Cut(relay.Messages()[0].Data, "/api/v1/mail/block/")
+	blockTok := rest[:43]
+	send("POST", "/api/v1/mail/block/"+blockTok, nil)
+	send("DELETE", "/api/v1/mail/block/"+blockTok, nil)
+
 	looked, _ := wkd.ParseAddress(email)
 	for _, secret := range []string{addr, "looked.up", "private-domain", looked.Hash(), in.ID, in.ManageToken, inboxFile,
-		remoteUp.ID, remoteUp.DeleteToken, ref} {
+		remoteUp.ID, remoteUp.DeleteToken, ref, "mail.recipient", "private-mail", mailed.ID, mailed.DeleteToken, blockTok,
+		relay.Relay.Username, relay.Relay.Password} {
 		if strings.Contains(e.logs.String(), secret) {
 			t.Errorf("%q in logs:\n%s", secret, e.logs)
 		}
