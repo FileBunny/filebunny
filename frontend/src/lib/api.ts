@@ -1,6 +1,8 @@
 // Client for the FileBunny API (docs/api.md). It only ever sends
 // ciphertext.
 
+import { solve, type Challenge, type PowAction } from './pow.ts';
+
 /**
  * Where the API lives. Empty means the same origin as the page; the
  * downloadable single-file build sets VITE_FILEBUNNY_API to the public site,
@@ -101,6 +103,22 @@ export async function uploadToInbox(
   return (done as { size: number }).size;
 }
 
+/**
+ * The proof-of-work header for action (see pow.ts), or none when the
+ * server has proof of work off or predates it.
+ */
+async function proofHeader(action: PowAction, signal?: AbortSignal): Promise<Record<string, string>> {
+  let c: Challenge;
+  try {
+    c = await (await request('GET', `/api/v1/challenge?action=${action}`, { signal })).json();
+  } catch (err) {
+    if (err instanceof ApiError && err.status === 404) return {};
+    throw err;
+  }
+  if (!c.challenge) return {};
+  return { 'FileBunny-PoW': await solve(c, signal) };
+}
+
 /** One request if the ciphertext fits in a chunk, a chunked upload otherwise. */
 async function send(
   ciphertext: ReadableStream<Uint8Array>,
@@ -113,12 +131,15 @@ async function send(
   const chunks = new Chunker(reader);
   try {
     const first = await chunks.next();
+    // After the first chunk: encrypting it gives a running start, and a
+    // challenge expires in ten minutes.
+    const proof = await proofHeader('upload', signal);
     if (first.done) {
-      const res = await request('POST', singlePath, { body: first.chunk, signal });
+      const res = await request('POST', singlePath, { body: first.chunk, signal, headers: proof });
       onProgress(first.chunk.size);
       return await res.json();
     }
-    return await uploadChunked(chunks, first.chunk, chunkedPath, onProgress, signal);
+    return await uploadChunked(chunks, first.chunk, chunkedPath, proof, onProgress, signal);
   } finally {
     reader.releaseLock();
   }
@@ -128,10 +149,11 @@ async function uploadChunked(
   chunks: Chunker,
   first: Blob,
   createPath: string,
+  proof: Record<string, string>,
   onProgress: Progress,
   signal?: AbortSignal,
 ): Promise<unknown> {
-  const res = await request('POST', createPath, { signal });
+  const res = await request('POST', createPath, { signal, headers: proof });
   const session: { id: string; upload_token: string; max_size: number } = await res.json();
   const path = `/api/v1/uploads/${encodeURIComponent(session.id)}`;
   const auth = { Authorization: `Bearer ${session.upload_token}` };
@@ -287,8 +309,9 @@ export async function mailAvailable(): Promise<boolean> {
  * the sender can: it needs the delete token.
  */
 export async function mailLink(id: string, deleteToken: string, email: string): Promise<void> {
+  const proof = await proofHeader('mail');
   await request('POST', `${filePath(id)}/notify`, {
-    headers: { Authorization: `Bearer ${deleteToken}`, 'Content-Type': 'application/json' },
+    headers: { Authorization: `Bearer ${deleteToken}`, 'Content-Type': 'application/json', ...proof },
     body: new Blob([JSON.stringify({ email })]),
   });
 }
@@ -358,7 +381,8 @@ export async function createInbox(
 ): Promise<InboxCreated> {
   const q = new URLSearchParams({ expires: opts.expires, max_uploads: String(opts.maxUploads) });
   if (opts.storage) q.set('storage', opts.storage);
-  const res = await request('POST', `/api/v1/inboxes?${q}`, { body: new Blob([publicKey]) });
+  const proof = await proofHeader('inbox');
+  const res = await request('POST', `/api/v1/inboxes?${q}`, { body: new Blob([publicKey]), headers: proof });
   const r = (await res.json()) as {
     id: string;
     manage_token: string;
