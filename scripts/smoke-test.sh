@@ -1,15 +1,17 @@
 #!/usr/bin/env bash
 # End-to-end check of the Docker Compose stack: headers, upload, download,
 # download limits, chunked upload, CORS, delete, the WKD proxy, upload
-# links, and that no client address, token or looked-up e-mail address
+# links, proof of work, and that no client address, token or looked-up e-mail address
 # reaches any container log.
 # Usage: docker compose up -d --build && scripts/smoke-test.sh
 set -euo pipefail
 
 base=${BASE_URL:-https://localhost}
 fake_ip=203.0.113.7
-curl=(curl -sk --max-time 10 -H "X-Forwarded-For: $fake_ip" -H "X-Real-IP: $fake_ip")
+curl=(curl -sk --max-time 10 -H "X-Forwarded-For: $fake_ip" -H "X-Real-IP: $fake_ip" -H "X-FileBunny-Client: $fake_ip")
 fail() { echo "FAIL: $*"; exit 1; }
+# pow <action>: a solved proof-of-work challenge, as a curl header option.
+pow() { echo "FileBunny-PoW: $("${curl[@]}" "$base/api/v1/challenge?action=$1" | python3 "$(dirname "$0")/pow.py")"; }
 
 echo "waiting for $base"
 reachable=
@@ -29,8 +31,12 @@ grep -qi "^content-security-policy: .*connect-src 'self' https://keys.openpgp.or
 grep -qi '^strict-transport-security:' <<<"$headers" || fail "HSTS missing"
 grep -qi '^server:' <<<"$headers" && fail "Server header present"
 
+echo "proof of work"
+code=$("${curl[@]}" -o /dev/null -w '%{http_code}' --data-binary 'x' "$base/api/v1/files")
+[[ $code == 403 ]] || fail "upload without proof of work: $code"
+
 echo "upload"
-resp=$("${curl[@]}" --data-binary 'smoke-test-ciphertext' "$base/api/v1/files?expires=1h")
+resp=$("${curl[@]}" -H "$(pow upload)" --data-binary 'smoke-test-ciphertext' "$base/api/v1/files?expires=1h")
 id=$(sed -n 's/.*"id":"\([^"]*\)".*/\1/p' <<<"$resp")
 token=$(sed -n 's/.*"delete_token":"\([^"]*\)".*/\1/p' <<<"$resp")
 [[ -n $id && -n $token ]] || fail "upload: $resp"
@@ -48,7 +54,7 @@ code=$("${curl[@]}" -o /dev/null -w '%{http_code}' "$base/api/v1/files/$id")
 [[ $code == 404 ]] || fail "after delete: $code"
 
 echo "one-time download"
-resp=$("${curl[@]}" --data-binary 'once' "$base/api/v1/files?max_downloads=1")
+resp=$("${curl[@]}" -H "$(pow upload)" --data-binary 'once' "$base/api/v1/files?max_downloads=1")
 once=$(sed -n 's/.*"id":"\([^"]*\)".*/\1/p' <<<"$resp")
 [[ -n $once ]] || fail "upload with max_downloads: $resp"
 "${curl[@]}" -I "$base/api/v1/files/$once" | grep -qi '^downloads-remaining: 1' || fail "HEAD downloads-remaining"
@@ -57,7 +63,7 @@ code=$("${curl[@]}" -o /dev/null -w '%{http_code}' "$base/api/v1/files/$once")
 [[ $code == 404 ]] || fail "second download of one-time file: $code"
 
 echo "chunked upload"
-resp=$("${curl[@]}" -X POST "$base/api/v1/uploads")
+resp=$("${curl[@]}" -H "$(pow upload)" -X POST "$base/api/v1/uploads")
 up=$(sed -n 's/.*"id":"\([^"]*\)".*/\1/p' <<<"$resp")
 up_token=$(sed -n 's/.*"upload_token":"\([^"]*\)".*/\1/p' <<<"$resp")
 [[ -n $up && -n $up_token ]] || fail "create upload: $resp"
@@ -90,12 +96,12 @@ code=$("${curl[@]}" -o /dev/null -w '%{http_code}' "$base/api/v1/wkd?email=$wkd_
 
 echo "upload link"
 key=$'-----BEGIN PGP PUBLIC KEY BLOCK-----\n\nmDMEsmoketest\n=AAAA\n-----END PGP PUBLIC KEY BLOCK-----\n'
-resp=$("${curl[@]}" --data-binary "$key" "$base/api/v1/inboxes?max_uploads=1")
+resp=$("${curl[@]}" -H "$(pow inbox)" --data-binary "$key" "$base/api/v1/inboxes?max_uploads=1")
 inbox=$(sed -n 's/.*"id":"\([^"]*\)".*/\1/p' <<<"$resp")
 manage=$(sed -n 's/.*"manage_token":"\([^"]*\)".*/\1/p' <<<"$resp")
 [[ -n $inbox && -n $manage ]] || fail "create upload link: $resp"
 "${curl[@]}" "$base/api/v1/inboxes/$inbox" | grep -q '"uploads_left":1' || fail "upload link info"
-"${curl[@]}" --data-binary 'inbox-ciphertext' "$base/api/v1/inboxes/$inbox/files" | grep -q '"size":16' || fail "upload to link"
+"${curl[@]}" -H "$(pow upload)" --data-binary 'inbox-ciphertext' "$base/api/v1/inboxes/$inbox/files" | grep -q '"size":16' || fail "upload to link"
 code=$("${curl[@]}" -o /dev/null -w '%{http_code}' --data-binary 'more' "$base/api/v1/inboxes/$inbox/files")
 [[ $code == 409 ]] || fail "upload to a full link: $code"
 mauth=(-H "Authorization: Bearer $manage")
@@ -121,7 +127,7 @@ code=$("${curl[@]}" -o /dev/null -w '%{http_code}' --data-binary "$key" "$base/a
 
 echo "e-mail (off by default; CI never sends mail)"
 "${curl[@]}" "$base/api/v1/features" | grep -q '"mail":false' || fail "features: mail not off"
-resp=$("${curl[@]}" --data-binary 'mail' "$base/api/v1/files")
+resp=$("${curl[@]}" -H "$(pow upload)" --data-binary 'mail' "$base/api/v1/files")
 mail_id=$(sed -n 's/.*"id":"\([^"]*\)".*/\1/p' <<<"$resp")
 mail_token=$(sed -n 's/.*"delete_token":"\([^"]*\)".*/\1/p' <<<"$resp")
 mail_to=smoke-mail-recipient@smoke-mail.invalid
