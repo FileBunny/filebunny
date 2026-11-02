@@ -49,6 +49,14 @@
 		}
 	}
 
+	# security.txt and its key (deploy/well-known): plain text, and a
+	# missing file is a 404, not the app.
+	handle /.well-known/* {
+		header Content-Type "text/plain; charset=utf-8"
+		root * /srv
+		file_server
+	}
+
 	handle {
 		header {
 			Content-Security-Policy "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self' https://keys.openpgp.org https://filebin.net https://storage.filebin.net; font-src 'self'; manifest-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'"

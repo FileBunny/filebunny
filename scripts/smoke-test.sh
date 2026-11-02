@@ -31,6 +31,11 @@ grep -qi "^content-security-policy: .*connect-src 'self' https://keys.openpgp.or
 grep -qi '^strict-transport-security:' <<<"$headers" || fail "HSTS missing"
 grep -qi '^server:' <<<"$headers" && fail "Server header present"
 
+echo "security.txt"
+"${curl[@]}" "$base/.well-known/security.txt" | grep -q '^Contact: ' || fail "security.txt"
+code=$("${curl[@]}" -o /dev/null -w '%{http_code}' "$base/.well-known/missing")
+[[ $code == 404 ]] || fail "missing .well-known file: $code"
+
 echo "proof of work"
 code=$("${curl[@]}" -o /dev/null -w '%{http_code}' --data-binary 'x' "$base/api/v1/files")
 [[ $code == 403 ]] || fail "upload without proof of work: $code"

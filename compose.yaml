@@ -38,6 +38,11 @@ services:
     build:
       context: .
       target: web
+      args:
+        # Shown on the contact page; empty: not published.
+        VITE_FILEBUNNY_CONTACT: ${FILEBUNNY_CONTACT:-}
+        VITE_FILEBUNNY_ABUSE: ${FILEBUNNY_ABUSE:-}
+        VITE_FILEBUNNY_SECURITY: ${FILEBUNNY_SECURITY:-}
     restart: unless-stopped
     environment:
       FILEBUNNY_DOMAIN: ${FILEBUNNY_DOMAIN:-localhost}
