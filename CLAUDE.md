@@ -14,10 +14,12 @@ ciphertext.
   or tokens. Always log through `internal/logging` (redacts addresses as a
   safety net, not as permission). Caddy strips
   `X-Forwarded-For`/`X-Real-IP`/`Forwarded`, has no access log (don't add
-  one) and filters request details from its error log.
+  one) and filters request details from its error log. The only address
+  the backend gets is Caddy's `X-FileBunny-Client`, which
+  `server.identifyClient` removes and hashes (`internal/ratelimit`) before
+  anything else sees it.
   `TestNoClientAddressInLogs` and `scripts/smoke-test.sh` must keep passing;
-  extend them for new endpoints. Rate limiting (phase 7) will use a hashed IP with a salt
-  that rotates daily, never the raw address.
+  extend them for new endpoints.
 - **Nothing from the client becomes a path.** Blobs are named by a
   server-generated random ID (128 bits, base64url). Validate IDs with
   `idPattern` before any lookup.
@@ -60,13 +62,17 @@ backend/internal/cleanup  periodic removal of expired files
 backend/internal/wkd      WKD client with SSRF protection (key lookup proxy)
 backend/internal/storage  external storage adapters (Filebin), SSRF-safe client
 backend/internal/mail     SMTP delivery through operator relays (TLS only); mailtest fake relay
+backend/internal/ratelimit per-visitor limits on a daily-salted hash of the address, memory only
+backend/internal/pow      stateless single-use proof-of-work challenges
 frontend/src/lib          crypto (OpenPGP.js), API client, key lookup, hash routes
 frontend/src/pages        send, download, delete, receive (upload links), key pair pages
 frontend/tests            node --test, incl. gpg interoperability
 testdata/keys             public test keypairs, never for real data
 deploy/Caddyfile          TLS, CSP, /api proxy, log filter
+deploy/well-known         security.txt of filebunny.eu (self-hosters replace it)
 scripts/repro-check.sh    builds twice, compares hashes
 scripts/smoke-test.sh     end-to-end test of the Compose stack, incl. log privacy
+scripts/pow.py            solves a proof-of-work challenge (curl users, smoke test)
 docs/                     architecture, API, self-hosting, security review
 docs/storage/             one page per storage adapter
 ```

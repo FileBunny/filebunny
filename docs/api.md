@@ -11,9 +11,58 @@ same-origin` and `Vary: Origin`.
 **CORS** is only answered for `Origin: null`, which is what the
 downloadable single HTML file sends when opened from disk:
 `Access-Control-Allow-Origin: null`, methods `GET, HEAD, POST, PUT,
-DELETE`, headers `Authorization, Content-Type`, exposed headers
+DELETE`, headers `Authorization, Content-Type, FileBunny-PoW`, exposed headers
 `Downloads-Remaining, Expires-At`. Credentials are never allowed (the API
 has no cookies). Requests from any other origin get no CORS headers.
+
+## Proof of work and limits
+
+Uploads (single, chunked start, to an upload link), creating an upload
+link and mailing a link need a **proof of work**:
+
+```
+GET /api/v1/challenge?action=upload|inbox|mail
+```
+
+**200 OK**: `{"challenge": "…", "bits": 18, "expires_at": "…"}`. Find a
+counter `n` (decimal) so that SHA-256 of the ASCII string
+`<challenge>.<n>` starts with `bits` zero bits, and send that string in
+the request header:
+
+```
+FileBunny-PoW: <challenge>.<n>
+```
+
+A challenge is bound to the action and to the visitor, expires after 10
+minutes and works once. `bits` is `FILEBUNNY_POW_BITS` (18) plus one per
+doubling of what the visitor did this hour, from 4 on. With proof of
+work off, the answer is `{"challenge": "", "bits": 0}` and no header is
+needed. [`scripts/pow.py`](../scripts/pow.py) solves one for curl:
+
+```sh
+proof=$(curl -s https://filebunny.eu/api/v1/challenge?action=upload | python3 scripts/pow.py)
+curl -H "FileBunny-PoW: $proof" --data-binary @message.gpg https://filebunny.eu/api/v1/files
+```
+
+Without a valid proof these requests get **403**. Checked after the
+parameters, before the body is read.
+
+**Per-visitor limits** (a visitor is a daily-salted hash of the address,
+IPv6 per /64; see [architecture.md](architecture.md#abuse-limits)):
+
+| Action | Per hour | Per day |
+|---|---|---|
+| Uploads (single or chunked start, also to upload links) | 60 | 300 |
+| Bytes uploaded | 1 GiB | 4 GiB |
+| Upload links created | 10 | 30 |
+| Links mailed | 10 | 30 |
+| WKD lookups | 60 | 300 |
+| Downloads (also of upload link files) | 600 | 3000 |
+
+Over a limit: **429** with `Retry-After` (seconds until the hour ends).
+**503** with `Retry-After: 60` when the server tracks too many visitors
+or remembers too many used proofs. Bytes are checked before and counted
+after an upload or chunk, so the last upload of an hour may go over.
 
 ## Upload
 
