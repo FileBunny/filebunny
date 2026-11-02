@@ -10,6 +10,10 @@
   import External from './pages/External.svelte';
   import Block from './pages/Block.svelte';
   import Status from './pages/Status.svelte';
+  import About from './pages/About.svelte';
+  import Terms from './pages/Terms.svelte';
+  import Privacy from './pages/Privacy.svelte';
+  import Contact from './pages/Contact.svelte';
 
   let route = $state(parseRoute(location.hash));
   const tab = $derived(route.page === 'inbox-manage' ? 'receive' : route.page);
@@ -64,6 +68,14 @@
     {/key}
   {:else if route.page === 'status'}
     <Status />
+  {:else if route.page === 'about'}
+    <About />
+  {:else if route.page === 'terms'}
+    <Terms />
+  {:else if route.page === 'privacy'}
+    <Privacy />
+  {:else if route.page === 'contact'}
+    <Contact />
   {:else if route.page === 'block'}
     {#key route.token}
       <Block token={route.token} />
@@ -75,5 +87,12 @@
 </main>
 
 <footer>
-  Everything is encrypted in this browser before it is uploaded. The server only stores ciphertext and no IP addresses.
+  <p>Everything is encrypted in this browser before it is uploaded. The server only stores ciphertext and no IP addresses.</p>
+  <nav aria-label="About this service" class="footer-links">
+    <a href="#/about">How it works</a>
+    <a href="#/terms">Terms</a>
+    <a href="#/privacy">Privacy</a>
+    <a href="#/contact">Contact</a>
+    <a href="#/status">Status</a>
+  </nav>
 </footer>

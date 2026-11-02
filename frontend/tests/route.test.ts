@@ -64,3 +64,10 @@ test('mail block route', () => {
     assert.deepEqual(parseRoute(bad), { page: 'not-found' }, bad);
   }
 });
+
+test('information pages', () => {
+  for (const page of ['about', 'terms', 'privacy', 'contact'] as const) {
+    assert.deepEqual(parseRoute(`#/${page}`), { page });
+  }
+  assert.deepEqual(parseRoute('#/terms/x'), { page: 'not-found' });
+});
