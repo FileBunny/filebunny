@@ -1,0 +1,38 @@
+# Weekly update PRs for every pinned dependency: Go modules, npm packages,
+# GitHub Actions (pinned by commit SHA) and the Docker base images (pinned
+# by digest). Each goes through CI like any other change.
+version: 2
+updates:
+  - package-ecosystem: gomod
+    directory: /backend
+    schedule:
+      interval: weekly
+    groups:
+      go:
+        patterns: ["*"]
+
+  - package-ecosystem: npm
+    directory: /frontend
+    schedule:
+      interval: weekly
+    groups:
+      npm:
+        patterns: ["*"]
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      actions:
+        patterns: ["*"]
+
+  - package-ecosystem: docker
+    directory: /
+    schedule:
+      interval: weekly
+    ignore:
+      # The Go version moves together with backend/go.mod (CLAUDE.md), by
+      # hand; only new digests of the same tag come from here.
+      - dependency-name: golang
+        update-types: ["version-update:semver-major", "version-update:semver-minor", "version-update:semver-patch"]
