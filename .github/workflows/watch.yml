@@ -1,0 +1,46 @@
+name: Watch
+
+# The external watcher: every hour, checks that the live site serves
+# exactly a published release (scripts/verify-site.sh). On a mismatch the
+# run fails and an issue labeled "watcher" is opened, once. Off until the
+# repository variable WATCH_URL is set (e.g. https://filebunny.eu).
+on:
+  schedule:
+    - cron: '17 * * * *'
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  watch:
+    if: vars.WATCH_URL != ''
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Verify
+        id: verify
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SITE: ${{ vars.WATCH_URL }}
+        run: |
+          set -o pipefail
+          scripts/verify-site.sh "$SITE" | tee result.txt
+      - name: Report
+        if: failure() && steps.verify.outcome == 'failure'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SITE: ${{ vars.WATCH_URL }}
+          RUN: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          gh label create watcher --color B60205 --description "External watcher found a mismatch" --force
+          if [ -n "$(gh issue list --label watcher --state open --json number --jq '.[0].number')" ]; then
+            echo "An open watcher issue exists; not opening another."
+            exit 0
+          fi
+          { echo "The watcher found that $SITE does not match a published release."; echo; echo "Run: $RUN"; echo; echo '```'; cat result.txt; echo '```'; } >body.md
+          gh issue create --title "Watcher: $SITE does not match the release" --label watcher --body-file body.md

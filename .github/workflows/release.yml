@@ -1,0 +1,114 @@
+name: Release
+
+# A tag vX.Y.Z on main builds, signs and publishes a release: multi-arch
+# images on GHCR and the files from scripts/release-files.sh. Each gets a
+# signed build provenance attestation (Sigstore, keyless; the signatures
+# are in the public Rekor transparency log). See docs/verify.md and
+# docs/release.md.
+on:
+  push:
+    tags: ['v[0-9]+.[0-9]+.[0-9]+']
+
+permissions: {}
+
+env:
+  VERSION: ${{ github.ref_name }}
+  # filebunny.eu's contact address, built into its contact page.
+  FILEBUNNY_CONTACT: filebunny@tutamail.com
+
+jobs:
+  release:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write     # create the release
+      packages: write     # push the images
+      id-token: write     # sign (Sigstore)
+      attestations: write # store the attestations
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Tag must be on main
+        run: git merge-base --is-ancestor "$GITHUB_SHA" origin/main
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: backend/go.mod
+          cache: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6 # v4.7.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Backend image
+        id: backend
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          target: backend
+          platforms: linux/amd64,linux/arm64
+          build-args: VERSION=${{ env.VERSION }}
+          tags: ghcr.io/filebunny/filebunny-backend:${{ env.VERSION }}
+          push: true
+          provenance: false
+          sbom: false
+      - name: Web image
+        id: web
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          target: web
+          platforms: linux/amd64,linux/arm64
+          build-args: |
+            VERSION=${{ env.VERSION }}
+            VITE_FILEBUNNY_CONTACT=${{ env.FILEBUNNY_CONTACT }}
+          tags: ghcr.io/filebunny/filebunny-web:${{ env.VERSION }}
+          push: true
+          provenance: false
+          sbom: false
+      - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-name: ghcr.io/filebunny/filebunny-backend
+          subject-digest: ${{ steps.backend.outputs.digest }}
+          push-to-registry: true
+      - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-name: ghcr.io/filebunny/filebunny-web
+          subject-digest: ${{ steps.web.outputs.digest }}
+          push-to-registry: true
+
+      - name: Release files
+        run: scripts/release-files.sh "$VERSION" out
+      - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: out/*
+
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BACKEND_DIGEST: ${{ steps.backend.outputs.digest }}
+          WEB_DIGEST: ${{ steps.web.outputs.digest }}
+        run: |
+          {
+            echo "Images:"
+            echo
+            echo '```'
+            echo "ghcr.io/filebunny/filebunny-backend:$VERSION@$BACKEND_DIGEST"
+            echo "ghcr.io/filebunny/filebunny-web:$VERSION@$WEB_DIGEST"
+            echo '```'
+            echo
+            echo "Every file and image is signed by this repository's release workflow. Check with:"
+            echo
+            echo '```sh'
+            echo "gh attestation verify filebunny-$VERSION.html --repo FileBunny/filebunny"
+            echo "gh attestation verify oci://ghcr.io/filebunny/filebunny-web:$VERSION --repo FileBunny/filebunny"
+            echo '```'
+            echo
+            echo 'Or rebuild it yourself and compare with `SHA256SUMS`: see [docs/verify.md](https://github.com/FileBunny/filebunny/blob/main/docs/verify.md).'
+          } >notes.md
+          gh release create "$VERSION" out/* --verify-tag --title "FileBunny $VERSION" --notes-file notes.md
