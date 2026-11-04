@@ -1,4 +1,10 @@
 /* Minimal styling until the design in phase 9. */
+
+/* Room for the scrollbar on every page, so short pages do not shift the
+   layout sideways. */
+html {
+  scrollbar-gutter: stable;
+}
 :root {
   --fg: #1d1d1f;
   --muted: #5f6368;
