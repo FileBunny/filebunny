@@ -6,6 +6,9 @@ services:
     build:
       context: .
       target: backend
+      args:
+        # The release tag (vX.Y.Z); "dev" for local builds.
+        VERSION: ${FILEBUNNY_VERSION:-dev}
     restart: unless-stopped
     environment:
       FILEBUNNY_MAX_SIZE: ${FILEBUNNY_MAX_SIZE:-104857600}
@@ -39,6 +42,7 @@ services:
       context: .
       target: web
       args:
+        VERSION: ${FILEBUNNY_VERSION:-dev}
         # Shown on the contact page; empty: not published.
         VITE_FILEBUNNY_CONTACT: ${FILEBUNNY_CONTACT:-}
         VITE_FILEBUNNY_ABUSE: ${FILEBUNNY_ABUSE:-}
