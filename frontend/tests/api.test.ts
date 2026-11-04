@@ -1,9 +1,11 @@
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import { afterEach, test } from 'node:test';
 import { ApiError, chunkSize, inboxInfo, inboxStatus, upload, uploadToInbox } from '../src/lib/api.ts';
+import { leadingZeroBits } from '../src/lib/sha256.ts';
 import { randomBytes, streamOf } from './helpers.ts';
 
-type Call = { method: string; url: string; size: number };
+type Call = { method: string; url: string; size: number; proof?: string };
 
 /**
  * A fake API in memory, enough for upload(): single uploads, chunked
@@ -21,8 +23,11 @@ function fakeServer() {
   globalThis.fetch = async (input: string | URL | Request, init?: RequestInit) => {
     const url = String(input);
     const method = init?.method ?? 'GET';
+    // Proof of work: a cheap challenge, not recorded as a call.
+    if (url.startsWith('/api/v1/challenge?')) return ok({ challenge: 'test-challenge', bits: 4 });
     const body = init?.body instanceof Blob ? new Uint8Array(await init.body.arrayBuffer()) : new Uint8Array();
-    calls.push({ method, url, size: body.length });
+    const proof = (init?.headers as Record<string, string> | undefined)?.['FileBunny-PoW'];
+    calls.push({ method, url, size: body.length, ...(proof ? { proof } : {}) });
 
     if (method === 'POST' && url.startsWith('/api/v1/files?')) {
       stored = body;
@@ -74,6 +79,10 @@ test('small message: one request with the limits', async () => {
     srv.calls.map((c) => `${c.method} ${c.url}`),
     ['POST /api/v1/files?expires=1h&max_downloads=1'],
   );
+  // With a solved proof of work.
+  const proof = srv.calls[0]!.proof!;
+  assert.match(proof, /^test-challenge\.\d+$/);
+  assert.ok(leadingZeroBits(new Uint8Array(createHash('sha256').update(proof).digest())) >= 4);
 });
 
 test('large file: exact chunks, then complete', async () => {
@@ -133,6 +142,8 @@ test('a failing upload is aborted on the server', async () => {
   const srv = fakeServer();
   globalThis.fetch = (async (input: string, init?: RequestInit) => {
     srv.calls.push({ method: init?.method ?? 'GET', url: String(input), size: 0 });
+    // A server without proof of work.
+    if (String(input).startsWith('/api/v1/challenge?')) return new Response('{"error":"not found"}', { status: 404 });
     if (init?.method === 'POST') {
       return new Response(JSON.stringify({ id: 'u', upload_token: 's', max_chunk_size: 1, max_size: 1 }), { status: 201 });
     }

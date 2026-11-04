@@ -10,6 +10,11 @@ Use GitHub's private vulnerability reporting:
 **Security → Report a vulnerability** on
 <https://github.com/FileBunny/filebunny>.
 
+Or mail <filebunny@tutamail.com>, encrypted to
+[this key](deploy/well-known/security-key.asc) (also at
+<https://filebunny.eu/.well-known/security-key.asc>), fingerprint
+`AA0F 4E5F BF79 01E4 5C58  8A64 8BE9 9A5B F9F9 5B2B`.
+
 Please include what you found, how to reproduce it and what an attacker
 could gain. Do not test against other people's files, and do not run
 denial-of-service tests against filebunny.eu.

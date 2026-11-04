@@ -21,6 +21,12 @@ services:
       FILEBUNNY_SMTP_FILE: /run/secrets/smtp
       FILEBUNNY_PUBLIC_URL: https://${FILEBUNNY_DOMAIN:-localhost}
       FILEBUNNY_MAIL_DAILY: ${FILEBUNNY_MAIL_DAILY:-500}
+      # Rate limiting and proof of work. Caddy passes the visitor's address
+      # in this header; the backend only hashes it. The backend is reachable
+      # through Caddy only, so clients cannot set the header themselves.
+      FILEBUNNY_CLIENT_IP_HEADER: X-FileBunny-Client
+      FILEBUNNY_RATE_LIMITS: ${FILEBUNNY_RATE_LIMITS:-true}
+      FILEBUNNY_POW_BITS: ${FILEBUNNY_POW_BITS:-18}
     secrets: [smtp]
     volumes:
       - data:/data
@@ -32,6 +38,11 @@ services:
     build:
       context: .
       target: web
+      args:
+        # Shown on the contact page; empty: not published.
+        VITE_FILEBUNNY_CONTACT: ${FILEBUNNY_CONTACT:-}
+        VITE_FILEBUNNY_ABUSE: ${FILEBUNNY_ABUSE:-}
+        VITE_FILEBUNNY_SECURITY: ${FILEBUNNY_SECURITY:-}
     restart: unless-stopped
     environment:
       FILEBUNNY_DOMAIN: ${FILEBUNNY_DOMAIN:-localhost}

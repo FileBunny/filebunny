@@ -94,6 +94,8 @@ client becomes a file path: blob names are server-generated IDs.
   cookies, so cross-site request forgery has nothing to abuse.
 - **Open:** no rate limiting yet. One client can still use the whole
   quota. Planned for phase 7 (hashed IP with a daily salt, proof of work).
+  *Addressed in phase 7:* per-visitor limits and proof of work; one
+  visitor gets at most 4 GiB a day.
 
 ### Misconfigurations — fixed (#1, #8, #9)
 - Caddy: no access log, error log filtered, HSTS, CSP, `-Server`,
@@ -108,7 +110,7 @@ client becomes a file path: blob names are server-generated IDs.
 Expired files are unreachable even before cleanup (`GET`, `DELETE`).
 Orphans are only removed at startup, before uploads are accepted, so
 cleanup never races an upload in progress. Downloads that are running when
-a file is deleted or expires finish; this is accepted behaviour.
+a file is deleted or expires finish; this is accepted behavior.
 
 ### Multi-tenant leakage — no findings
 There are no tenants or accounts; every upload is isolated by its random
@@ -168,7 +170,9 @@ IDs, tokens or addresses.
   visitors' browsers. The API has no cookies or ambient authority, so this
   gives nothing a server-side script could not do. Once rate limiting per
   (hashed) IP exists (phase 7), such a site could use up its visitors'
-  limits; revisit then.
+  limits; revisit then. *Phase 7:* such a site would also have to solve
+  the proof of work in its visitors' browsers; it could use up their
+  limits, as any script they run could.
 - **Aborted downloads count.** A one-time download that breaks off is
   gone. Counting at the end would let parallel downloads all succeed,
   which is worse. The download page warns before the last download.
@@ -242,6 +246,7 @@ failure, and proxying it would show the server every looked-up address.
   the 8 slots busy, so other users' WKD lookups get `503`; it cannot make
   the server open more than 8 connections at once or reach internal
   addresses. The server's own IP address is what the queried domains see.
+  *Phase 7:* 60 lookups per visitor per hour.
 - **The server sees looked-up addresses** when the user turns WKD on or
   runs a WKD check. They are not logged or stored, but a compromised
   server could record them. The UI says so; the option is off by default.
@@ -294,7 +299,9 @@ so does the smoke test).
   owner remains the real check.
 - **No per-client rate limit** on creating links or uploading to them
   (phase 7). One client can use up the 1000 open links (others get
-  `503` until they expire) or fill one link it knows.
+  `503` until they expire) or fill one link it knows. *Phase 7:* 30 links
+  per visitor per day, with proof of work; filling 1000 takes many
+  addresses.
 - **Anyone with the upload link can fill it** up to its limits; the owner
   can revoke it. There is no notification of new uploads (phase 6 mails
   share links only).
@@ -348,12 +355,12 @@ client goes into a URL. The verification cookie is kept for
   visitors' addresses. Anyone who knows a bin name can delete it.
 - **The direct route has no download limit, expiry or delete link**; the
   page says so before upload.
-- **Dependence on the service's behaviour:** if Filebin changes its API or
+- **Dependence on the service's behavior:** if Filebin changes its API or
   verification, the health check takes it out of use; the direct route
   falls back to opening the file in a tab.
 - **No per-client limit on proxied traffic** yet (phase 7); one client
   can use up the daily cap for everyone, after which local storage still
-  works.
+  works. *Phase 7:* uploads count against the visitor's 4 GiB a day.
 
 ## Phase 6 (e-mail)
 
@@ -392,7 +399,8 @@ clear. Each delivery is bounded by a 30 s deadline.
   check the sender beyond what the sender tells them.
 - **No per-sender limit** until phase 7 (hashed IP, proof of work): one
   client with many links can use up the daily limit for everyone; each
-  address still gets at most 3 mails a day.
+  address still gets at most 3 mails a day. *Phase 7:* 30 mails per
+  visitor per day, each with proof of work.
 - **A failed delivery still uses up its claim** against the limits.
 - **A relay can replace the unsubscribe header** with its own (Mailjet
   does). An address that unsubscribes that way lands on the relay's
@@ -403,6 +411,51 @@ clear. Each delivery is bounded by a 30 s deadline.
   and DMARC all passing); the page asks senders to tell recipients to
   check their spam folder.
 - **Losing `mail-pepper`** resets the counters and the block list.
+
+## Phase 7 (abuse limits, pages)
+
+| | |
+|---|---|
+| Date | 2026-11-02 |
+| Scope | Branch `phase-7`: `internal/ratelimit`, `internal/pow`, `GET /api/v1/challenge`, proof of work and limits on uploads, upload links, mail, WKD and downloads; Caddy's `X-FileBunny-Client`; frontend SHA-256 and solver; about, terms, privacy and contact pages; `security.txt` |
+| Reviewer | Claude Code (AI-assisted), during development |
+
+### The address now reaches the backend
+
+Until now the backend never saw a client address. To count per visitor,
+Caddy passes it in one header, replacing any value the client sends. The
+backend deletes the header before routing and keeps only an HMAC with a
+random key that lives in memory and changes every UTC day; counters are
+in memory only. Nothing about addresses is written to disk or logs.
+
+### New attack surface
+
+| Area | Measure | Test |
+|---|---|---|
+| Faking another visitor's address | Caddy replaces the header; the backend trusts it only when configured, and is reachable through Caddy only | `TestClientHeaderOnlyWhenConfigured`, smoke test (fake header sent) |
+| Addresses in logs | The header is removed before handlers run; only hashes are kept | `TestNoClientAddressInLogs`, `TestRateLimits`, smoke test |
+| Linking visitors over time | Hash key random per day and never stored; IPv6 by /64 | `TestClientHashing` |
+| Memory exhaustion through the counters or used proofs | At most 200,000 visitors and 200,000 used proofs; idle visitors and expired proofs are dropped first, then `503` | `TestMaxClients`, `TestUsedIsCapped` |
+| Replaying or forging proofs | HMAC over nonce, expiry, difficulty, action and visitor; single use; 10 minutes | `TestSolveAndVerify`, `TestVerifyRefuses`, `TestProofOfWork` |
+| Lowering the difficulty | The difficulty is inside the signed token | `TestVerifyRefuses` |
+| Rendering the contact addresses | Build-time values, checked as plain addresses, rendered as text | `npm run check` |
+
+### Residual risks
+
+- **Proof of work does not stop an attacker with many machines**; it
+  makes cheap mass use expensive. The per-visitor limits stop one
+  address; many addresses can still fill the server-wide limits.
+- **Shared addresses** (companies, mobile carriers, Tor) share one
+  visitor's limits.
+- **A restart resets all counters** and invalidates open challenges.
+- **No report button or takedown.** The operator cannot judge encrypted
+  content, and a report that removes a file would let anyone break a
+  one-time link. Reports reach the abuse address on the contact page;
+  files expire within 7 days. Whether this meets the DSA's
+  notice-and-action duty for hosting services, and what the hosting
+  provider expects, is for the operator to check.
+- **The pages are not reviewed by a lawyer**, and the operator is not
+  named.
 
 ## How to re-run the checks
 

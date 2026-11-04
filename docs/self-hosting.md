@@ -79,6 +79,9 @@ backend with defaults.
 | `FILEBUNNY_MAIL_DAILY` | `500` | Mails per UTC day, server-wide |
 | `FILEBUNNY_MAIL_PER_RECIPIENT` | `3` | Mails per address per UTC day |
 | `FILEBUNNY_MAIL_PER_FILE` | `3` | Addresses one share link may be mailed to |
+| `FILEBUNNY_CLIENT_IP_HEADER` | `X-FileBunny-Client` in Compose, empty otherwise | Header the reverse proxy puts the visitor's address in, for rate limiting; the backend only hashes it. Empty: the connection's address. Only set it if the backend is reachable through that proxy alone |
+| `FILEBUNNY_RATE_LIMITS` | `true` | Per-visitor limits (see [api.md](api.md#proof-of-work-and-limits)) |
+| `FILEBUNNY_POW_BITS` | `18` | Base proof-of-work difficulty in bits, `0` (off) to `24`; each bit doubles the work |
 | `FILEBUNNY_CLEANUP_INTERVAL` | `1m` | How often expired files are removed |
 | `FILEBUNNY_LISTEN` | `:8080` | Backend listen address (inside the container) |
 | `FILEBUNNY_DATA_DIR` | `/data` in the container | Database and blobs |
@@ -160,6 +163,25 @@ hashes behind the limits and the block list. Losing it resets both.
 
 The backend needs outgoing access to the relays' SMTP ports.
 
+## Contact page and security.txt
+
+The contact, terms and privacy pages show addresses you set at build
+time; empty ones are left out:
+
+```sh
+FILEBUNNY_CONTACT=contact@files.example.org FILEBUNNY_ABUSE=abuse@files.example.org \
+FILEBUNNY_SECURITY=security@files.example.org docker compose up -d --build
+```
+
+(Without Docker: `VITE_FILEBUNNY_CONTACT`, `VITE_FILEBUNNY_ABUSE`,
+`VITE_FILEBUNNY_SECURITY` for `npm run build`.)
+
+`deploy/well-known/security.txt` is filebunny.eu's security contact.
+Replace it with your own (RFC 9116, with an `Expires` within a year) or
+delete it; put a public key for it next to it if you mention one. The
+terms page says Dutch law applies; change `Terms.svelte` if that is not
+true for you.
+
 ## Downloadable single HTML file
 
 `make single` builds `frontend/dist-single/filebunny.html`: the whole app
@@ -192,6 +214,11 @@ FileBunny stores no IP addresses. Keep it that way on your server:
   looked up (not by whom). It never logs them; keep it that way, and
   switch it off (`FILEBUNNY_WKD_PROXY=false`) if you prefer not to see
   them at all.
+- Caddy passes each visitor's address to the backend in
+  `X-FileBunny-Client` for rate limiting. The backend hashes it at once
+  with a key that changes daily and exists only in memory, and never
+  stores or logs it. Keep the backend unreachable except through Caddy,
+  or anyone could fake the header.
 - With e-mail on, your server and the relay see the recipient's address
   for each mail. FileBunny keeps only a keyed hash of it (for the limits
   and the block list) and never logs it; the relay keeps its own logs
@@ -229,6 +256,8 @@ docker compose down -v   # removes containers and all volumes, including uploads
 
 Build the binary with `make backend` (reproducible, statically linked)
 and run it with the variables above behind your own reverse proxy. The
-proxy must strip `X-Forwarded-For`, `X-Real-IP` and `Forwarded`, must not
-log client addresses, and must serve `frontend/dist` with the headers from
-`deploy/Caddyfile`. Do not expose the backend's port directly.
+proxy must strip `X-Forwarded-For`, `X-Real-IP` and `Forwarded`, set the
+visitor's address in the header named by `FILEBUNNY_CLIENT_IP_HEADER`
+(replacing anything the client sent), must not log client addresses, and
+must serve `frontend/dist` with the headers from `deploy/Caddyfile`. Do
+not expose the backend's port directly.

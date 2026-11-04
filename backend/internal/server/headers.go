@@ -35,7 +35,7 @@ func nullOriginCORS(next http.Handler) http.Handler {
 		h.Set("Access-Control-Expose-Headers", "Downloads-Remaining, Expires-At")
 		if r.Method == http.MethodOptions && r.Header.Get("Access-Control-Request-Method") != "" {
 			h.Set("Access-Control-Allow-Methods", "GET, HEAD, POST, PUT, DELETE")
-			h.Set("Access-Control-Allow-Headers", "Authorization, Content-Type")
+			h.Set("Access-Control-Allow-Headers", "Authorization, Content-Type, FileBunny-PoW")
 			h.Set("Access-Control-Max-Age", "600")
 			w.WriteHeader(http.StatusNoContent)
 			return

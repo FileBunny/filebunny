@@ -86,7 +86,7 @@
       const stored = await uploadToInbox(id, ciphertext, (n) => (sent = n), controller.signal);
       done = { what: what === 'file' ? file!.name : 'Your message', size: stored };
     } catch (err) {
-      if (controller.signal.aborted) error = 'Upload cancelled.';
+      if (controller.signal.aborted) error = 'Upload canceled.';
       else if (err instanceof ApiError && err.status === 409) error = 'This upload link is full.';
       else if (err instanceof ApiError && err.status === 404) error = 'This upload link has expired or was revoked.';
       else if (err instanceof ApiError && err.status === 503) error = 'The storage behind this upload link is not available right now. Try again later.';

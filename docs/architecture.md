@@ -17,7 +17,7 @@ flowchart LR
 | Component | Role |
 |---|---|
 | Browser | Encrypts and decrypts with OpenPGP.js (phase 2). Passwords and private keys never leave it |
-| Caddy | TLS, security headers, serves the frontend, proxies `/api/*`. No access log; forwarding headers stripped |
+| Caddy | TLS, security headers, serves the frontend and `/.well-known/security.txt`, proxies `/api/*`. No access log; forwarding headers stripped; the visitor's address goes to the backend only in `X-FileBunny-Client`, to be hashed |
 | Go backend | Stores and serves ciphertext by random ID, enforces limits, removes expired files; optional WKD proxy (phase 3) |
 | SQLite | One row per file: ID, hash of the delete token, size, created, expires, download limit and count |
 | Disk | One file per upload in `data/blobs/<id>`, written via `data/tmp/` and an atomic rename |
@@ -234,6 +234,33 @@ strictly (plain ASCII, no line breaks) and only used as the recipient.
 - **Limits:** per link, per address per day, server-wide per day, per
   relay per day, and 4 deliveries at a time.
 
+## Abuse limits
+
+`internal/ratelimit` and `internal/pow`, wired in `server/abuse.go`.
+
+- **Who is a visitor:** Caddy puts the connection's address in
+  `X-FileBunny-Client` (a value sent by the client is replaced). The
+  backend removes the header and keeps an HMAC of the address (IPv6 by
+  /64) with a random key that changes every UTC day and exists only in
+  memory. The hashes cannot be turned back into addresses or linked
+  across days.
+- **Limits:** per visitor per hour and per day, in memory only, for at
+  most 200,000 visitors (beyond that `503`). See
+  [api.md](api.md#proof-of-work-and-limits).
+- **Proof of work:** stateless challenges signed with an in-memory key,
+  bound to the action and the visitor, valid 10 minutes, usable once
+  (used ones remembered until they expire, at most 200,000). Difficulty
+  18 bits (about 0.2 s in a laptop browser, up to a few seconds on old
+  phones), one bit more per doubling of the visitor's activity this hour.
+  The browser solves it with its own SHA-256 (`lib/sha256.ts`), in slices
+  on the page.
+- Visitors behind one address (a company, mobile carrier, Tor exit)
+  share limits; the limits are set for that.
+- There is no report button or takedown function: the operator cannot
+  judge encrypted content, and a report that removes a file would let
+  anyone break a one-time link. Reports go to the abuse address on the
+  contact page; files expire within 7 days.
+
 ## Request flow
 
 **Upload** — `POST /api/v1/files`
@@ -287,7 +314,7 @@ after a crash).
 | Storage name and reference at the external service | SQLite (`files`; `remote_trash` until it is deleted there) | Same as the file, plus until the service confirms the deletion |
 | ID, size, created, expires, download limit and count | SQLite | Same, or until the last allowed download |
 | SHA-256 of the delete token | SQLite | Same |
-| Client IP address | Nowhere | — |
+| Client IP address | Nowhere. In memory only as a keyed hash (daily random key, never stored) with hourly and daily counters | Until the hour or day ends, or a restart |
 | Looked-up e-mail addresses (WKD) | Nowhere; in memory during the request only | — |
 | Upload links: the owner's public key (incl. its user IDs), SHA-256 of the management token, expiry, limits and counters | SQLite | Until the link is revoked, or expired and empty |
 | Files received by an upload link | `data/blobs/<id>`, row with `inbox_id`; or at the link's external storage, as above | 7 days after arrival (6 at Filebin), or until deleted or the link is revoked |
@@ -372,7 +399,8 @@ after a crash).
 | External storage | 8 transfers per service, 15 min each; 50 GiB of traffic per UTC day | fixed; `FILEBUNNY_PROXY_DAILY_BYTES`; off unless `FILEBUNNY_FILEBIN` |
 | E-mail | 3 addresses per link, 3 mails per address per day, 500 per day, each relay's own daily limit, 4 at a time, 30 s each | `FILEBUNNY_MAIL_*`, `daily_limit` per relay; off without relays |
 
-Rate limiting, proof of work and abuse reporting follow in phase 7.
+| Per visitor | 60 uploads, 1 GiB, 10 upload links, 10 mails, 60 WKD lookups, 600 downloads per hour; more per day (see api.md) | fixed; `FILEBUNNY_RATE_LIMITS` |
+| Proof of work | 18 bits, +1 per doubling of activity, max 28 | `FILEBUNNY_POW_BITS` |
 
 ## Code layout
 

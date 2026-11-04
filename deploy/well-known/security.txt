@@ -1,0 +1,9 @@
+# Security contact for filebunny.eu (RFC 9116). Self-hosters: replace
+# this file with your own contact, or delete it (see docs/self-hosting.md).
+Contact: mailto:filebunny@tutamail.com
+Contact: https://github.com/FileBunny/filebunny/security/advisories/new
+Encryption: https://filebunny.eu/.well-known/security-key.asc
+Expires: 2027-05-01T00:00:00Z
+Preferred-Languages: en, nl
+Canonical: https://filebunny.eu/.well-known/security.txt
+Policy: https://github.com/FileBunny/filebunny/blob/main/SECURITY.md

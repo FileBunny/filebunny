@@ -1,4 +1,10 @@
 /* Minimal styling until the design in phase 9. */
+
+/* Room for the scrollbar on every page, so short pages do not shift the
+   layout sideways. */
+html {
+  scrollbar-gutter: stable;
+}
 :root {
   --fg: #1d1d1f;
   --muted: #5f6368;
@@ -68,6 +74,12 @@ footer {
 
 footer {
   margin-top: 3rem;
+}
+
+footer .footer-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem 1rem;
 }
 
 h1 {
@@ -430,26 +442,31 @@ header nav {
   border-bottom: 1px solid var(--border);
 }
 
+/* Every tab always looks like a tab, also on pages that belong to none
+   (the footer pages); the current one stands out with an accent bar and
+   joins the page below it. */
 header nav a {
   padding: 0.45rem 1rem;
-  border: 1px solid transparent;
+  border: 1px solid var(--border);
   border-bottom: none;
   border-radius: 6px 6px 0 0;
   margin-bottom: -1px;
+  background: color-mix(in srgb, var(--border) 30%, var(--bg));
   color: var(--muted);
   text-decoration: none;
 }
 
 header nav a:hover {
   color: var(--fg);
+  background: color-mix(in srgb, var(--border) 15%, var(--bg));
 }
 
 header nav a[aria-current='page'] {
   background: var(--surface);
   color: var(--fg);
   font-weight: 600;
-  border-color: var(--border);
   border-bottom: 1px solid var(--surface);
+  box-shadow: inset 0 3px 0 var(--accent);
 }
 
 .keygen h3 {

@@ -37,11 +37,24 @@
 		}
 		# The backend sets its own CSP and framing headers.
 		reverse_proxy backend:8080 {
-			# The backend must never see client addresses.
+			# No forwarding headers: the backend gets the visitor's
+			# address only in X-FileBunny-Client, set here from the
+			# connection (a value the client sends is replaced). The
+			# backend only hashes it for rate limiting and never stores
+			# or logs it (internal/ratelimit).
 			header_up -X-Forwarded-For
 			header_up -X-Real-IP
 			header_up -Forwarded
+			header_up X-FileBunny-Client {remote_host}
 		}
+	}
+
+	# security.txt and its key (deploy/well-known): plain text, and a
+	# missing file is a 404, not the app.
+	handle /.well-known/* {
+		header Content-Type "text/plain; charset=utf-8"
+		root * /srv
+		file_server
 	}
 
 	handle {

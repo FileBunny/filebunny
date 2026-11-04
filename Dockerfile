@@ -31,8 +31,13 @@ WORKDIR /src
 COPY frontend/package.json frontend/package-lock.json frontend/.npmrc ./
 RUN npm ci --ignore-scripts
 COPY frontend/ ./
+# Contact addresses shown on the contact page (src/lib/contact.ts).
+ARG VITE_FILEBUNNY_CONTACT=""
+ARG VITE_FILEBUNNY_ABUSE=""
+ARG VITE_FILEBUNNY_SECURITY=""
 RUN npm run build
 
 FROM caddy:2.11.7-alpine@sha256:eb4d35b7452d1ab6171fbdbe8d9275b2301dad6dad92115d91e19fb9b24d510f AS web
 COPY deploy/Caddyfile /etc/caddy/Caddyfile
 COPY --from=frontend-build /src/dist /srv
+COPY deploy/well-known /srv/.well-known
