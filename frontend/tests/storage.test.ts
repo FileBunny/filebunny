@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { storageByName, storageLabel, storages } from '../src/lib/storage.ts';
 
-test('storage catalogue', () => {
+test('storage catalog', () => {
   assert.equal(storages[0].name, 'local');
   assert.equal(storageByName(undefined)?.name, 'local');
   assert.equal(storageByName('filebin')?.direct, true);

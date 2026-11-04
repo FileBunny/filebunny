@@ -126,7 +126,7 @@
         result = await upload(ciphertext, { expires, maxDownloads, storage }, (n) => (sent = n), controller.signal);
       }
     } catch (err) {
-      if (controller.signal.aborted) error = 'Upload cancelled.';
+      if (controller.signal.aborted) error = 'Upload canceled.';
       else if (err instanceof TooLarge) error = 'The encrypted file is larger than 100 MB.';
       else if (err instanceof ApiError) error = `Upload failed: ${err.message}`;
       else if (direct) error = `The upload to ${chosen.short} failed. Try again later, or upload through FileBunny.`;

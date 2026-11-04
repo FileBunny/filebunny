@@ -28,7 +28,7 @@ test('solve finds a proof the server accepts', async () => {
   assert.ok(leadingZeroBits(new Uint8Array(digest)) >= 12);
 });
 
-test('solve can be cancelled', async () => {
+test('solve can be canceled', async () => {
   const c = new AbortController();
   c.abort();
   await assert.rejects(solve({ challenge: 'x', bits: 40 }, c.signal));

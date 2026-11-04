@@ -137,7 +137,7 @@ func (r *remote) check(ctx context.Context, now time.Time) error {
 }
 
 // RunBackground checks the services and deletes remote blobs that are due,
-// until ctx is cancelled. It returns at once if no service is configured.
+// until ctx is canceled. It returns at once if no service is configured.
 func (s *Server) RunBackground(ctx context.Context) {
 	if len(s.remotes) == 0 {
 		return

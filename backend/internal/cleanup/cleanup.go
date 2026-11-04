@@ -13,7 +13,7 @@ type Store interface {
 }
 
 // Run removes expired files once immediately and then every interval, until
-// ctx is cancelled.
+// ctx is canceled.
 func Run(ctx context.Context, st Store, interval time.Duration, log *slog.Logger) {
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()

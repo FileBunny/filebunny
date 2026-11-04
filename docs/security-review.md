@@ -110,7 +110,7 @@ client becomes a file path: blob names are server-generated IDs.
 Expired files are unreachable even before cleanup (`GET`, `DELETE`).
 Orphans are only removed at startup, before uploads are accepted, so
 cleanup never races an upload in progress. Downloads that are running when
-a file is deleted or expires finish; this is accepted behaviour.
+a file is deleted or expires finish; this is accepted behavior.
 
 ### Multi-tenant leakage — no findings
 There are no tenants or accounts; every upload is isolated by its random
@@ -355,7 +355,7 @@ client goes into a URL. The verification cookie is kept for
   visitors' addresses. Anyone who knows a bin name can delete it.
 - **The direct route has no download limit, expiry or delete link**; the
   page says so before upload.
-- **Dependence on the service's behaviour:** if Filebin changes its API or
+- **Dependence on the service's behavior:** if Filebin changes its API or
   verification, the health check takes it out of use; the direct route
   falls back to opening the file in a tab.
 - **No per-client limit on proxied traffic** yet (phase 7); one client
