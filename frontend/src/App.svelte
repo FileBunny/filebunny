@@ -1,5 +1,6 @@
 <script lang="ts">
   import { parseRoute } from './lib/route.ts';
+  import { releasesUrl, verifyUrl, version } from './lib/release.ts';
   import Send from './pages/Send.svelte';
   import Download from './pages/Download.svelte';
   import Delete from './pages/Delete.svelte';
@@ -95,4 +96,9 @@
     <a href="#/contact">Contact</a>
     <a href="#/status">Status</a>
   </nav>
+  <p class="note">
+    FileBunny {version === 'dev' ? '(development build)' : version} ·
+    <a href={verifyUrl} rel="noopener noreferrer">Verify this site</a> ·
+    <a href={releasesUrl} rel="noopener noreferrer">Download as a single file</a>
+  </p>
 </footer>

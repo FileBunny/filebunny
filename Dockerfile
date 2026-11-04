@@ -14,7 +14,8 @@ COPY backend/go.mod backend/go.sum ./
 RUN go mod download
 COPY backend/ ./
 # Same flags as `make backend`, so the binary is bit-for-bit identical.
-RUN go build -trimpath -buildvcs=false -ldflags="-s -w -buildid=" -o /out/filebunny ./cmd/filebunny \
+ARG VERSION=dev
+RUN go build -trimpath -buildvcs=false -ldflags="-s -w -buildid= -X github.com/FileBunny/filebunny/backend/internal/server.Version=${VERSION}" -o /out/filebunny ./cmd/filebunny \
  && mkdir /out/data
 
 FROM gcr.io/distroless/static-debian13:nonroot@sha256:18f4cc26c9ffa7f20a359298be7deadac5c607c8e03a02b8119f1a5fc2f82c99 AS backend
@@ -35,6 +36,8 @@ COPY frontend/ ./
 ARG VITE_FILEBUNNY_CONTACT=""
 ARG VITE_FILEBUNNY_ABUSE=""
 ARG VITE_FILEBUNNY_SECURITY=""
+ARG VERSION=dev
+ENV VITE_FILEBUNNY_VERSION=${VERSION}
 RUN npm run build
 
 FROM caddy:2.11.7-alpine@sha256:eb4d35b7452d1ab6171fbdbe8d9275b2301dad6dad92115d91e19fb9b24d510f AS web

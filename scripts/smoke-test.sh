@@ -31,6 +31,9 @@ grep -qi "^content-security-policy: .*connect-src 'self' https://keys.openpgp.or
 grep -qi '^strict-transport-security:' <<<"$headers" || fail "HSTS missing"
 grep -qi '^server:' <<<"$headers" && fail "Server header present"
 
+echo "version"
+"${curl[@]}" "$base/api/v1/version" | grep -q '"version":"' || fail "version"
+
 echo "security.txt"
 "${curl[@]}" "$base/.well-known/security.txt" | grep -q '^Contact: ' || fail "security.txt"
 code=$("${curl[@]}" -o /dev/null -w '%{http_code}' "$base/.well-known/missing")

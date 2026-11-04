@@ -15,7 +15,7 @@ for n in 1 2; do
 	mkdir -p "$dir"
 	git -C "$root" ls-files -z backend frontend | (cd "$root" && xargs -0 cp --parents -t "$dir")
 
-	(cd "$dir/backend" && go build -trimpath -buildvcs=false -ldflags="-s -w -buildid=" \
+	(cd "$dir/backend" && go build -trimpath -buildvcs=false -ldflags="-s -w -buildid= -X github.com/FileBunny/filebunny/backend/internal/server.Version=dev" \
 		-o "$work/filebunny-$n" ./cmd/filebunny)
 
 	(cd "$dir/frontend" && npm ci --ignore-scripts --silent && npm run build --silent >/dev/null &&

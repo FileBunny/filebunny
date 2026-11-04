@@ -237,3 +237,10 @@ func TestDelete(t *testing.T) {
 		t.Errorf("after delete: status %d", rec.Code)
 	}
 }
+
+func TestVersion(t *testing.T) {
+	e := newTestEnv(t)
+	if body := strings.TrimSpace(e.do("GET", "/api/v1/version", nil).Body.String()); body != `{"version":"dev"}` {
+		t.Errorf("version %s", body)
+	}
+}

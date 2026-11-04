@@ -1,5 +1,9 @@
 # Build flags for a reproducible backend binary. Keep in sync with Dockerfile.
-GOFLAGS_BUILD := -trimpath -buildvcs=false -ldflags="-s -w -buildid="
+# VERSION is the release tag (vX.Y.Z), set by the release workflow; it is
+# part of the build input, like the source, so builds stay reproducible.
+VERSION ?= dev
+GOFLAGS_BUILD := -trimpath -buildvcs=false -ldflags="-s -w -buildid= -X github.com/FileBunny/filebunny/backend/internal/server.Version=$(VERSION)"
+export VITE_FILEBUNNY_VERSION := $(VERSION)
 export CGO_ENABLED := 0
 
 .PHONY: all build backend frontend single test test-backend test-frontend vuln repro run dev clean
