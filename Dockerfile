@@ -7,15 +7,18 @@
 # Base images are pinned by digest. The Go version must match backend/go.mod;
 # GOTOOLCHAIN=local makes the build fail instead of downloading another one.
 
-FROM golang:1.27.3-trixie@sha256:c124b9ad3452f46061b5054607d26ea51730dae5372c5e469920063ba2bc6dcc AS backend-build
+# Built on the build machine's platform and cross-compiled for the target
+# (the same binary as a native build), so multi-arch images need no emulation.
+FROM --platform=$BUILDPLATFORM golang:1.27.3-trixie@sha256:c124b9ad3452f46061b5054607d26ea51730dae5372c5e469920063ba2bc6dcc AS backend-build
 ENV CGO_ENABLED=0 GOTOOLCHAIN=local GOFLAGS=-mod=readonly
+ARG TARGETOS TARGETARCH
 WORKDIR /src
 COPY backend/go.mod backend/go.sum ./
 RUN go mod download
 COPY backend/ ./
 # Same flags as `make backend`, so the binary is bit-for-bit identical.
 ARG VERSION=dev
-RUN go build -trimpath -buildvcs=false -ldflags="-s -w -buildid= -X github.com/FileBunny/filebunny/backend/internal/server.Version=${VERSION}" -o /out/filebunny ./cmd/filebunny \
+RUN GOOS=$TARGETOS GOARCH=$TARGETARCH go build -trimpath -buildvcs=false -ldflags="-s -w -buildid= -X github.com/FileBunny/filebunny/backend/internal/server.Version=${VERSION}" -o /out/filebunny ./cmd/filebunny \
  && mkdir /out/data
 
 FROM gcr.io/distroless/static-debian13:nonroot@sha256:18f4cc26c9ffa7f20a359298be7deadac5c607c8e03a02b8119f1a5fc2f82c99 AS backend
@@ -27,7 +30,7 @@ EXPOSE 8080
 VOLUME /data
 ENTRYPOINT ["/filebunny"]
 
-FROM node:24-trixie-slim@sha256:43b9ba1142b8dcf33fa8f922ca1be85714adc444e0586c7cf7726daaeabc1bea AS frontend-build
+FROM --platform=$BUILDPLATFORM node:24-trixie-slim@sha256:43b9ba1142b8dcf33fa8f922ca1be85714adc444e0586c7cf7726daaeabc1bea AS frontend-build
 WORKDIR /src
 COPY frontend/package.json frontend/package-lock.json frontend/.npmrc ./
 RUN npm ci --ignore-scripts
