@@ -40,23 +40,30 @@
   <li>Passwords, private keys and passphrases: they never leave your browser.</li>
 </ul>
 
-<h2>Other parties, only when you use them</h2>
+<h2>Other services, only when you use them</h2>
+<p>
+  Some optional features work with services outside FileBunny, such as keyservers, external storage and mail relays.
+  Which services this server works with can change over time. Before anything is sent, the page tells you where it goes
+  and who can see what.
+</p>
 <ul>
   <li>
-    <strong>keys.openpgp.org:</strong> looking up someone's key by e-mail, or publishing your own, goes from your browser
-    to keys.openpgp.org, which sees your IP address and the address looked up or published.
+    <strong>From your browser:</strong> when your browser talks to such a service itself, for example to look up or
+    publish a public key, or to store a file there directly, that service sees your IP address and what you send it: the
+    e-mail address you look up or publish, or the encrypted file.
   </li>
   <li>
-    <strong>Web Key Directory:</strong> if you switch this on, this server fetches the key from the recipient's domain. It
-    sees the address looked up but does not store or log it; the domain sees only this server.
-  </li>
-  <li>
-    <strong>Filebin (filebin.net):</strong> stored "through FileBunny", Filebin only sees this server. Stored "directly",
-    your browser talks to Filebin, which sees your IP address.
+    <strong>Through this server:</strong> when this server talks to a service for you, for example to fetch a key from
+    the recipient's domain or to store a file elsewhere "through FileBunny", the service sees only this server. This
+    server does not store or log what it passes on.
   </li>
   <li>
     <strong>E-mail:</strong> a mailed link goes through a mail relay, which sees the recipient's address and the mail, and
     keeps its own logs. The recipient's mail provider sees it too, as with any mail.
+  </li>
+  <li>
+    These services keep their own logs under their own terms. They never get your password, your private key or the
+    content of a file.
   </li>
   <li>The hosting provider of this server can see that connections are made, as with any website.</li>
 </ul>

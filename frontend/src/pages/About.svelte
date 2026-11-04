@@ -11,7 +11,7 @@
   with <code>gpg</code>.
 </p>
 <ul>
-  <li><strong>With a password:</strong> anyone who has the link and the password can open it. Send the password another way than the link.</li>
+  <li><strong>With a password:</strong> anyone who has the link and the password can open it. Send the password separately from the link, for example by phone.</li>
   <li><strong>With public keys:</strong> only the holders of the matching private keys can open it.</li>
   <li>
     <strong>Upload links:</strong> you create a link with your public key; whatever people send through it is encrypted
@@ -49,8 +49,8 @@
     fingerprint with them through another channel.
   </li>
   <li>
-    <strong>External storage you choose:</strong> stored directly at Filebin, the file is outside FileBunny's control and
-    Filebin sees your address.
+    <strong>External storage you choose:</strong> a file stored directly at an external service is outside FileBunny's
+    control, and that service sees your address.
   </li>
   <li><strong>Infected devices</strong> of sender or recipient, and recipients who pass the link and password on.</li>
 </ul>

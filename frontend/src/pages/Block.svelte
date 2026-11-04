@@ -40,4 +40,4 @@
   <button type="button" class="primary" disabled={busy} onclick={() => set(true)}>Stop e-mail to my address</button>
 {/if}
 <ErrorMessage {error} />
-<p class="note">FileBunny keeps no list of addresses: only a code derived from your address, to recognise it.</p>
+<p class="note">FileBunny keeps no list of addresses: only a code derived from your address, to recognize it.</p>
