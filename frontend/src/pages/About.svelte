@@ -49,7 +49,7 @@
     fingerprint with them through another channel.
   </li>
   <li>
-    <strong>External storage you choose:</strong> a file stored directly at an external service is outside FileBunny's
+    <strong>External storage you choose:</strong> a file stored directly at an external service of your choice is outside FileBunny's
     control, and that service sees your address.
   </li>
   <li><strong>Infected devices</strong> of sender or recipient, and recipients who pass the link and password on.</li>
