@@ -184,7 +184,8 @@ IDs, tokens or addresses.
   The page never stores or uploads them.
 - **The JavaScript is trusted on every visit.** The single HTML file
   reduces this for people who save it; signing and a transparency log
-  follow in phase 8.
+  follow in phase 8. *Phase 8:* signed releases in a public log and an
+  external watcher; see docs/verify.md.
 
 ## Phase 3 (keys)
 
@@ -456,6 +457,54 @@ in memory only. Nothing about addresses is written to disk or logs.
   provider expects, is for the operator to check.
 - **The pages are not reviewed by a lawyer**, and the operator is not
   named.
+
+## Phase 8 (integrity)
+
+| | |
+|---|---|
+| Date | 2026-11-04 |
+| Scope | Branch `phase-8`: release workflow (images on GHCR, release files, build provenance attestations), `scripts/release-files.sh`, `scripts/verify-site.sh`, the hourly watcher, `GET /api/v1/version`, version in the page; docs/verify.md, docs/release.md |
+| Reviewer | Claude Code (AI-assisted), during development |
+
+### What a user can now check
+
+- **Which code a site serves:** `verify-site.sh` compares every served
+  frontend file with the release's `frontend-SHA256SUMS`, and checks that
+  the page loads nothing else. The watcher does this every hour from
+  GitHub and opens an issue on a mismatch.
+- **Who built a release:** every file and image has a build provenance
+  attestation, signed keyless through Sigstore by the release workflow
+  (OIDC identity of this repository and workflow) and recorded in the
+  public Rekor log. Forging one needs control of the repository's
+  workflow, and leaves a public trace.
+- **That the build is honest:** anyone can rebuild a release from its tag
+  and get the same `SHA256SUMS` (`release-files.sh` builds from the same
+  Dockerfile stages as the images; tested twice in a row, and the Docker
+  binary equals `make backend`).
+
+### New attack surface
+
+| Area | Measure | Check |
+|---|---|---|
+| Release workflow credentials | Only this workflow gets `contents`, `packages`, `id-token` and `attestations` write; no stored secrets; actions pinned by SHA and limited to GitHub's and `docker/*` | Workflow file, repository Actions policy |
+| A tag not reviewed through `main` | The workflow refuses tags whose commit is not on `main` | `Tag must be on main` step |
+| A watcher that cries wolf or stays quiet | One open issue at a time; the run itself fails, so the Actions page shows every hour's result | `watch.yml` |
+| Version string in the build | Taken from the tag, a build input; no time or host | `make repro`, `release-files.sh` run twice |
+
+### Residual risks
+
+- **The backend cannot be checked from outside.** Only what the server
+  sends to browsers can be compared; the backend never sees plaintext or
+  keys, so the browser code matters most.
+- **Targeted attacks:** a server can serve the published files to the
+  watcher and altered ones to one visitor. Saving the single HTML file
+  avoids depending on the server's code.
+- **Trust in GitHub** for the attestations and the watcher; rebuilding
+  from source does not need it.
+- **The release workflow is untested until the first tag**; the files
+  script was run locally.
+- **Scheduled workflows pause** after 60 days without repository
+  activity.
 
 ## How to re-run the checks
 
