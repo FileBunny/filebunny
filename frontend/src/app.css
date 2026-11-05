@@ -526,8 +526,44 @@ fieldset.step:not(.open) {
   flex-shrink: 0;
 }
 
-.step-next {
-  margin-top: 0.75rem;
+/* Back on the left, Next (or submit) on the right. */
+.step-nav {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-top: 1rem;
+}
+
+.step-nav .primary:only-child {
+  margin-left: auto;
+}
+
+/* "Step 2 of 3" with a bar: done and current parts in the accent color. */
+.step-progress {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin-bottom: 0.75rem;
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+.step-bar {
+  display: flex;
+  flex: 1;
+  gap: 0.25rem;
+  max-width: 12rem;
+}
+
+.step-bar span {
+  flex: 1;
+  height: 0.4rem;
+  border-radius: 0.2rem;
+  background: var(--border);
+}
+
+.step-bar span.done {
+  background: var(--accent);
 }
 
 /* QR code of a fingerprint: black on white also in dark mode, no wider

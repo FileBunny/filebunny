@@ -98,8 +98,10 @@
   let tried = $state(false);
   const gap = $derived(tried ? missing() : null);
 
-  // One step open at a time (0: none). Steps 1 and 2 need input; step 3
-  // starts closed with sensible defaults.
+  // Step by step: one step open, earlier ones as a summary, later ones not
+  // shown. Step 3 has defaults and the submit button, so everyone sees how
+  // long the file stays and how often it can be downloaded.
+  const steps = 3;
   let openStep = $state(1);
 
   const contentSummary = $derived(
@@ -139,7 +141,7 @@
     document.querySelector<HTMLElement>(target)?.focus();
   }
 
-  /** Continue: check this step, then open the next one (or none). */
+  /** Next: check this step, then open the next one. */
   async function goOn(step: number) {
     const todo = missing();
     if (todo && todo.step === step) {
@@ -148,17 +150,22 @@
       return;
     }
     tried = false;
-    if (step === 1) await show(2);
-    else {
-      openStep = 0;
-      await tick();
-      document.querySelector<HTMLElement>('#send-submit')?.focus();
-    }
+    await show(step + 1);
+  }
+
+  async function back(step: number) {
+    tried = false;
+    await show(step - 1);
   }
 
   async function submit(e: SubmitEvent) {
     e.preventDefault();
     if (busy) return;
+    // Enter in a field of an earlier step means Next, not upload.
+    if (openStep < steps) {
+      await goOn(openStep);
+      return;
+    }
     const todo = missing();
     if (todo) {
       tried = true;
@@ -256,8 +263,8 @@
 {:else}
   <h1 class="visually-hidden">Share a file or message</h1>
   <form onsubmit={submit}>
-    <Step n={1} title="What do you want to share?" open={openStep === 1} summary={contentSummary} disabled={busy}
-      onopen={() => show(1)} onnext={() => goOn(1)}>
+    <Step n={1} total={steps} current={openStep} title="What do you want to share?" summary={contentSummary}
+      disabled={busy} onchange={() => show(1)} onback={() => back(1)} onnext={() => goOn(1)}>
       <div class="choice">
         <label><input type="radio" bind:group={what} value="text" /> Text</label>
         <label><input type="radio" bind:group={what} value="file" /> File</label>
@@ -276,8 +283,8 @@
       {/if}
     </Step>
 
-    <Step n={2} title="Who may read it?" open={openStep === 2} summary={recipientsSummary} disabled={busy}
-      onopen={() => show(2)} onnext={() => goOn(2)}>
+    <Step n={2} total={steps} current={openStep} title="Who may read it?" summary={recipientsSummary}
+      disabled={busy} onchange={() => show(2)} onback={() => back(2)} onnext={() => goOn(2)}>
       <div class="choice">
         <label><input type="radio" bind:group={mode} value="password" /> Anyone with a password</label>
         <label><input type="radio" bind:group={mode} value="key" /> Holders of a public key</label>
@@ -294,8 +301,8 @@
       {/if}
     </Step>
 
-    <Step n={3} title="Where, how long and how often?" open={openStep === 3} summary={storageSummary} disabled={busy}
-      next="Done" onopen={() => show(3)} onnext={() => goOn(3)}>
+    <Step n={3} total={steps} current={openStep} title="Where, how long and how often?" summary={storageSummary}
+      disabled={busy} submitLabel="Encrypt and upload" onchange={() => show(3)} onback={() => back(3)} onnext={() => goOn(3)}>
       <label class="field">
         <span>Stored at</span>
         <select bind:value={storageName}>
@@ -352,9 +359,6 @@
       {#if sent === 0}<p class="note" role="status">Encrypting and preparing the upload…</p>{/if}
       <progress max={total} value={Math.min(sent, total)}></progress>
       <button type="button" onclick={() => controller?.abort()}>Cancel</button>
-    {:else}
-      {#if openStep === 0}<p class="note">Check the steps above, then:</p>{/if}
-      <button id="send-submit" type="submit" class="primary">Encrypt and upload</button>
     {/if}
   </form>
 {/if}
