@@ -12,6 +12,8 @@
 # Usage: scripts/release-files.sh v0.8.0 out
 # FILEBUNNY_CONTACT (and _ABUSE, _SECURITY) as for `docker compose build`.
 set -euo pipefail
+# The same order for sort, whatever the machine's language.
+export LC_ALL=C
 
 version=${1:?usage: release-files.sh <vX.Y.Z> <outdir>}
 out=${2:?usage: release-files.sh <vX.Y.Z> <outdir>}
@@ -38,7 +40,7 @@ done
 build web linux/amd64 "$work/web"
 (cd "$work/web/srv" && find . -type f -print0 | sort -z | xargs -0 sha256sum | sed 's|  \./|  |') >"$out/frontend-SHA256SUMS"
 # A tarball that is the same for the same files: fixed order, times and owners.
-tar --sort=name --mtime=@0 --owner=0 --group=0 --numeric-owner \
+tar --sort=name --mtime=@0 --owner=0 --group=0 --numeric-owner --mode=u+rw,go+r,go-w \
 	--pax-option=exthdr.name=%d/PaxHeaders/%f,delete=atime,delete=ctime \
 	-C "$work/web" -cf - srv | gzip -n -9 >"$out/filebunny-web-$version.tar.gz"
 
