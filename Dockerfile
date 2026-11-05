@@ -44,6 +44,8 @@ ENV VITE_FILEBUNNY_VERSION=${VERSION}
 RUN npm run build
 
 FROM caddy:2.11.7-alpine@sha256:eb4d35b7452d1ab6171fbdbe8d9275b2301dad6dad92115d91e19fb9b24d510f AS web
-COPY deploy/Caddyfile /etc/caddy/Caddyfile
+# Fixed modes: COPY keeps the checkout's, which depend on the umask of
+# whoever cloned the repository.
+COPY --chmod=0644 deploy/Caddyfile /etc/caddy/Caddyfile
 COPY --from=frontend-build /src/dist /srv
-COPY deploy/well-known /srv/.well-known
+COPY --chmod=u=rwX,go=rX deploy/well-known/ /srv/.well-known/
