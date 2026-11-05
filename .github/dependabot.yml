@@ -41,3 +41,7 @@ updates:
       # hand; only new digests of the same tag come from here.
       - dependency-name: golang
         update-types: ["version-update:semver-major", "version-update:semver-minor", "version-update:semver-patch"]
+      # Node majors by hand, to an even (LTS) version, together with
+      # node-version in the workflows; only new digests come from here.
+      - dependency-name: node
+        update-types: ["version-update:semver-major"]

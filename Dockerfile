@@ -30,7 +30,7 @@ EXPOSE 8080
 VOLUME /data
 ENTRYPOINT ["/filebunny"]
 
-FROM --platform=$BUILDPLATFORM node:25-trixie-slim@sha256:aabbe39553d15ede8a97cc60c9e1a97034ff772afcf696ea42b94e7f5f2ec71b AS frontend-build
+FROM --platform=$BUILDPLATFORM node:26-trixie-slim@sha256:5adad64f9a1fca2d51972caa65983634c8a774eb300d72b20f7f2a0f60368072 AS frontend-build
 WORKDIR /src
 COPY frontend/package.json frontend/package-lock.json frontend/.npmrc ./
 RUN npm ci --ignore-scripts
