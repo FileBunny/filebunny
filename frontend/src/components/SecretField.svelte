@@ -1,10 +1,17 @@
 <script lang="ts">
   // A password or passphrase field with Show/Hide, Generate and Copy.
   // Generate never reveals the value: Copy puts it in a password manager
-  // without showing it on screen.
-  import { copyText, generatePassword } from '../lib/format.ts';
+  // without showing it on screen. With shortWarning, a value under
+  // minPasswordLength shows that warning (it does not block).
+  import { copyText, generatePassword, minPasswordLength } from '../lib/format.ts';
 
-  let { label, value = $bindable(''), id }: { label: string; value?: string; id?: string } = $props();
+  let {
+    label,
+    value = $bindable(''),
+    id,
+    shortWarning = '',
+  }: { label: string; value?: string; id?: string; shortWarning?: string } = $props();
+  const short = $derived(shortWarning !== '' && value.length > 0 && value.length < minPasswordLength);
   let show = $state(false);
   let copied = $state(false);
 
@@ -23,3 +30,6 @@
     <button type="button" onclick={copy} disabled={!value}>{copied ? 'Copied' : 'Copy'}</button>
   </span>
 </label>
+{#if short}
+  <p class="notice">{shortWarning}</p>
+{/if}

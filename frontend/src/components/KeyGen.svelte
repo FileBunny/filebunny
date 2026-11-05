@@ -134,7 +134,11 @@
         you choose to publish it.
       </Info>
     </p>
-    <SecretField label="Passphrase for the private key" bind:value={passphrase} />
+    <SecretField
+      label="Passphrase for the private key"
+      bind:value={passphrase}
+      shortWarning="Short passphrases can be guessed by anyone who gets hold of the private key file. Use Generate, or a long passphrase."
+    />
     <p class="notice">There is no way to recover a lost passphrase or private key. Write the passphrase down.</p>
     <ErrorMessage {error} />
     <button type="button" class="primary" onclick={create} disabled={busy}>{busy ? 'Creating…' : 'Create key pair'}</button>

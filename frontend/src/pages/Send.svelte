@@ -221,7 +221,12 @@
         <label><input type="radio" bind:group={mode} value="key" /> Holders of a public key</label>
       </div>
       {#if mode === 'password'}
-        <SecretField id="send-password" label="Password" bind:value={password} />
+        <SecretField
+          id="send-password"
+          label="Password"
+          bind:value={password}
+          shortWarning="Short passwords can be guessed: anyone with the link can try as many as they like, offline. Use Generate, or a long passphrase."
+        />
       {:else}
         <KeyPicker bind:recipients />
       {/if}

@@ -15,6 +15,9 @@ export function formatDate(d: Date): string {
 }
 
 /** A random password of about 100 bits, without look-alike characters. */
+/** Below this, a typed password gets a warning; generated ones are 23. */
+export const minPasswordLength = 12;
+
 export function generatePassword(): string {
   const alphabet = 'abcdefghijkmnpqrstuvwxyz23456789'; // 32 characters, 5 bits each
   const bytes = crypto.getRandomValues(new Uint8Array(20));
