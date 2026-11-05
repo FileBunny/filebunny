@@ -501,8 +501,11 @@ in memory only. Nothing about addresses is written to disk or logs.
   avoids depending on the server's code.
 - **Trust in GitHub** for the attestations and the watcher; rebuilding
   from source does not need it.
-- **The release workflow is untested until the first tag**; the files
-  script was run locally.
+- **Release files are only rebuilt and compared at release time**, not
+  in every CI run. Rebuilding `v0.8.0-rc.1` locally found that the
+  checkout's file modes (umask) leaked into the web image and tarball;
+  fixed with fixed modes, and checked by building from checkouts made
+  with umask 002 and 022. Rebuild each release once to keep this honest.
 - **Scheduled workflows pause** after 60 days without repository
   activity.
 
