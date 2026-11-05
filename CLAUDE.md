@@ -147,9 +147,10 @@ Filebin through this server or directly from the browser, also for upload
 links), 6 (mailing a share link through operator SMTP relays, with limits
 and a block list) and 7 (per-visitor limits on a hashed address, proof of
 work, terms/privacy/contact pages, security.txt; no report button by
-design) are this code. Next: phase 8, integrity (signed releases, an
-external watcher, a signed single HTML file). QR codes for fingerprints
-moved to phase 9.
+design) and 8 (reproducible, signed releases with Sigstore attestations,
+first release v0.8.0; verify-site.sh and an hourly watcher, off until the
+site is live) are this code. Next: phase 9, website and UX. QR codes for
+fingerprints moved to phase 9.
 
 Frontend rules: everything must keep working from the single HTML file
 (no lazy-loaded chunks, workers or extra assets; routes in the fragment;
