@@ -82,6 +82,14 @@ script and one stylesheet, without lazy-loaded chunks or workers, so
   downloaded once and kept in the page, so a wrong password can be retried.
   Text is shown as text, files are offered with `<a download>` from a
   `blob:` URL of type `application/octet-stream`.
+- **Send in steps:** one step open at a time (`Step.svelte`); closed
+  steps keep their fields and show a summary.
+- **Fingerprints as QR codes** (`OPENPGP4FPR:<fingerprint>`, readable by
+  OpenPGP apps such as OpenKeychain), drawn as one SVG path from
+  `qrcode-generator` (MIT, no dependencies, pinned): no HTML strings,
+  nothing loaded.
+
+Runtime dependencies: `openpgp` and `qrcode-generator`, both pinned.
 
 ## Public keys
 

@@ -22,6 +22,7 @@
   import { copyText } from '../lib/format.ts';
   import ErrorMessage from './ErrorMessage.svelte';
   import Info from './Info.svelte';
+  import FingerprintQR from './FingerprintQR.svelte';
 
   // single: exactly one key (your own, for an upload link), no "add another".
   let {
@@ -297,6 +298,7 @@
     <div class="key chosen">
       {#each r.info.userIDs as uid (uid)}<div class="uid">{uid}</div>{/each}
       <code class="fingerprint">{r.info.fingerprint}</code>
+      <FingerprintQR fingerprint={r.info.fingerprint} />
       <div class="row actions">
         <span class="note">from {r.source}</span>
         <button type="button" class="small" onclick={() => copy(r.info.fingerprint)}>

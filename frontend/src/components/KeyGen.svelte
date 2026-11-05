@@ -9,6 +9,7 @@
   import ErrorMessage from './ErrorMessage.svelte';
   import Info from './Info.svelte';
   import SecretField from './SecretField.svelte';
+  import FingerprintQR from './FingerprintQR.svelte';
 
   let { onCreated, continueLabel = 'Continue' }: { onCreated?: (pair: NewKeyPair) => void; continueLabel?: string } =
     $props();
@@ -148,6 +149,7 @@
     <div class="key chosen">
       {#each pair.info.userIDs as uid (uid)}<div class="uid">{uid}</div>{/each}
       <code class="fingerprint">{pair.info.fingerprint}</code>
+      <FingerprintQR fingerprint={pair.info.fingerprint} />
     </div>
 
     <h3>Save your private key</h3>

@@ -10,6 +10,7 @@
   import { storageLabel } from '../lib/storage.ts';
   import ErrorMessage from '../components/ErrorMessage.svelte';
   import Info from '../components/Info.svelte';
+  import FingerprintQR from '../components/FingerprintQR.svelte';
 
   let { id, fingerprint }: { id: string; fingerprint: string } = $props();
 
@@ -128,6 +129,7 @@
     <div class="key chosen">
       {#each key.userIDs as uid (uid)}<div class="uid">{uid}</div>{/each}
       <code class="fingerprint">{key.fingerprint}</code>
+      <FingerprintQR fingerprint={key.fingerprint} />
     </div>
     <p class="note">
       The key matches the fingerprint in this link.

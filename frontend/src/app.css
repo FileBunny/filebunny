@@ -513,3 +513,13 @@ fieldset.step:not(.open) {
 .step-next {
   margin-top: 0.75rem;
 }
+
+/* QR code of a fingerprint: black on white also in dark mode, no wider
+   than a phone screen needs. */
+details.qr svg {
+  display: block;
+  width: 12rem;
+  max-width: 100%;
+  height: auto;
+  margin: 0.5rem 0;
+}
