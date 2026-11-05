@@ -36,7 +36,7 @@ ok() { echo "ok:   $*"; }
 fetch() { curl -fsS --max-time 30 "${insecure[@]}" "$@"; }
 
 version=$(fetch "$site/api/v1/version" | sed -n 's/.*"version":"\([^"]*\)".*/\1/p')
-if [[ ! $version =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+if [[ ! $version =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-rc\.[0-9]+)?$ ]]; then
 	echo "FAIL: the site does not report a release version (got '${version:-nothing}')"
 	exit 1
 fi

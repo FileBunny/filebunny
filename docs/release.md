@@ -12,6 +12,11 @@
    git push origin v0.8.0
    ```
 
+   To try the whole chain first, tag a release candidate such as
+   `v0.8.0-rc.1`: it goes through the same workflow and is published as a
+   pre-release. If something fails, delete that release and tag
+   (`gh release delete v0.8.0-rc.1 --cleanup-tag`), fix, and tag `rc.2`.
+
 4. The release workflow (`.github/workflows/release.yml`) then:
    - refuses tags that are not on `main`;
    - builds and pushes `ghcr.io/filebunny/filebunny-backend` and

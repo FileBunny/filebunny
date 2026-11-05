@@ -15,7 +15,7 @@ set -euo pipefail
 
 version=${1:?usage: release-files.sh <vX.Y.Z> <outdir>}
 out=${2:?usage: release-files.sh <vX.Y.Z> <outdir>}
-[[ $version =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "not a release version: $version" >&2; exit 1; }
+[[ $version =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-rc\.[0-9]+)?$ ]] || { echo "not a release version: $version" >&2; exit 1; }
 root=$(cd "$(dirname "$0")/.." && pwd)
 work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT

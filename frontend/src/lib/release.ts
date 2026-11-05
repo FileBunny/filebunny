@@ -4,8 +4,8 @@
 
 const v = (import.meta.env?.VITE_FILEBUNNY_VERSION ?? '').trim();
 
-/** vX.Y.Z for a release build, "dev" otherwise. */
-export const version = /^v\d+\.\d+\.\d+$/.test(v) ? v : 'dev';
+/** vX.Y.Z (or vX.Y.Z-rc.N) for a release build, "dev" otherwise. */
+export const version = /^v\d+\.\d+\.\d+(-rc\.\d+)?$/.test(v) ? v : 'dev';
 
 const repo = 'https://github.com/FileBunny/filebunny';
 
