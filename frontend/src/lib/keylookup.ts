@@ -13,7 +13,7 @@
 // automatically.
 import type { PublicKey } from 'openpgp';
 import { apiBase } from './api.ts';
-import { readPublicKeys, type KeyInfo } from './crypto.ts';
+import { readPublicKeys, unusableText, type KeyInfo } from './crypto.ts';
 
 export type Source = 'keys.openpgp.org' | 'wkd';
 
@@ -69,6 +69,22 @@ export type LookupResult = {
   conflict: boolean;
 };
 
+/**
+ * The address with its domain in ASCII (punycode), as DNS and the WKD
+ * proxy need it: "jan@müller.de" becomes "jan@xn--mller-kva.de". The
+ * browser's own URL parser does the IDNA conversion. Returns the address
+ * unchanged if the domain is not valid.
+ */
+export function asciiEmail(email: string): string {
+  const at = email.lastIndexOf('@');
+  if (at < 0) return email;
+  try {
+    return email.slice(0, at + 1) + new URL(`http://${email.slice(at + 1)}`).hostname;
+  } catch {
+    return email;
+  }
+}
+
 /** Loose check before asking anyone; the sources decide the rest. */
 export function looksLikeEmail(s: string): boolean {
   return /^[^\s@<>]+@[^\s@<>]+\.[^\s@<>]+$/.test(s);
@@ -120,13 +136,16 @@ async function lookupSource(source: Source, email: string, d: Resolved): Promise
 /** Keeps keys with a valid user ID for exactly this address that can encrypt. */
 export async function filterKeys(email: string, infos: KeyInfo[]): Promise<{ usable: KeyInfo[]; dropped: Dropped[] }> {
   const want = email.trim().toLowerCase();
+  const wantAscii = asciiEmail(want);
   const usable: KeyInfo[] = [];
   const dropped: Dropped[] = [];
   for (const info of infos) {
-    if (!(await keyEmails(info.key)).includes(want)) {
+    // A user ID may have the domain in Unicode or in punycode.
+    const emails = (await keyEmails(info.key)).map((e) => [e, asciiEmail(e)]).flat();
+    if (!emails.includes(want) && !emails.includes(wantAscii)) {
       dropped.push({ fingerprint: info.fingerprint, reason: 'no valid user ID with this address' });
     } else if (!info.canEncrypt) {
-      dropped.push({ fingerprint: info.fingerprint, reason: 'cannot encrypt (expired, revoked or no encryption subkey)' });
+      dropped.push({ fingerprint: info.fingerprint, reason: `cannot be used: ${unusableText(info.unusable)}` });
     } else {
       usable.push(info);
     }
@@ -250,7 +269,7 @@ async function fetchKeysOpenpgpOrg(email: string, d: Resolved): Promise<Uint8Arr
 async function fetchWkd(email: string, d: Resolved): Promise<Uint8Array | null> {
   const res = await fetchCapped(
     `${d.apiBase}/api/v1/wkd`,
-    { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email }) },
+    { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email: asciiEmail(email) }) },
     d,
   );
   switch (res.status) {

@@ -253,7 +253,8 @@ failure, and proxying it would show the server every looked-up address.
   server could record them. The UI says so; the option is off by default.
 - **keys.openpgp.org sees the visitor's IP and the address** looked up.
   The UI says so before the lookup.
-- **No IDNA:** internationalized domains must be entered in punycode.
+- **No IDNA:** internationalized domains must be entered in punycode. *Phase 9:* the browser converts the domain to
+  punycode for WKD and matches user IDs in either form.
 - **A matching WKD key is not proof** of the recipient's identity, only
   that the domain publishes it. The UI asks users to compare fingerprints
   through another channel.
