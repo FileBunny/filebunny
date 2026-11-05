@@ -501,11 +501,14 @@ in memory only. Nothing about addresses is written to disk or logs.
   avoids depending on the server's code.
 - **Trust in GitHub** for the attestations and the watcher; rebuilding
   from source does not need it.
-- **Release files are only rebuilt and compared at release time**, not
-  in every CI run. Rebuilding `v0.8.0-rc.1` locally found that the
-  checkout's file modes (umask) leaked into the web image and tarball;
-  fixed with fixed modes, and checked by building from checkouts made
-  with umask 002 and 022. Rebuild each release once to keep this honest.
+- **Rebuilding `v0.8.0-rc.1` locally** found that the checkout's file
+  modes (umask) leaked into the web image and tarball. Fixed with fixed
+  modes; `scripts/release-repro.sh` now builds the release files twice
+  from copies with different modes and language, in CI on every change
+  and in the release workflow before publishing. It cannot cover every
+  machine; reports of differing rebuilds are asked for in docs/verify.md.
+- **Image digests are not reproducible** (layer metadata); the promise
+  covers the files in `SHA256SUMS`.
 - **Scheduled workflows pause** after 60 days without repository
   activity.
 

@@ -69,8 +69,22 @@ diff out/SHA256SUMS <(curl -sL https://github.com/FileBunny/filebunny/releases/d
 ```
 
 This needs Docker (with buildx), Go and Node as pinned in the repository.
-The builds do not depend on time, path or machine; CI checks that on every
-change (`make repro`, and on x86 and ARM hosts).
+The builds do not depend on time, path, file modes, language or machine.
+CI checks that on every change (`make repro`, on x86 and ARM hosts, and
+`scripts/release-repro.sh`, which builds the release files twice from
+differently set up copies), and the release workflow publishes nothing
+unless two builds agree.
+
+The promise covers the files in `SHA256SUMS`. A rebuilt Docker image can
+have another digest, because image layers carry metadata such as times;
+what is in the images is the same as in the binaries and
+`filebunny-web-<version>.tar.gz`, which you can compare.
+
+If your rebuild gives a different hash, please
+[open an issue](https://github.com/FileBunny/filebunny/issues/new) with
+the output of `scripts/release-files.sh` and your system (OS, Docker,
+Go and Node versions): it means something about the build depends on the
+machine, and that is a bug.
 
 ## What this does not prove
 

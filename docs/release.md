@@ -21,9 +21,10 @@
    - refuses tags that are not on `main`;
    - builds and pushes `ghcr.io/filebunny/filebunny-backend` and
      `ghcr.io/filebunny/filebunny-web` (amd64 and arm64) and signs them;
-   - builds the release files with `scripts/release-files.sh` (binaries,
-     the served frontend, `frontend-SHA256SUMS`, the single HTML file,
-     `SHA256SUMS`) and signs them;
+   - builds the release files twice with `scripts/release-repro.sh`
+     (binaries, the served frontend, `frontend-SHA256SUMS`, the single
+     HTML file, `SHA256SUMS`), stops if the two builds differ, and signs
+     them;
    - publishes the GitHub release with the image digests and how to verify.
 
    No secrets are involved: signing is keyless (Sigstore, through the

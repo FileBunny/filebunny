@@ -142,6 +142,28 @@ jobs:
           target: web
           push: false
 
+  # The release files (scripts/release-files.sh) built twice from copies
+  # that differ in file modes and language: what we promise anyone can
+  # rebuild must not depend on their machine.
+  release-reproducible:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: backend/go.mod
+          cache-dependency-path: backend/go.sum
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - name: Build twice and compare
+        env:
+          FILEBUNNY_CONTACT: filebunny@tutamail.com
+        run: scripts/release-repro.sh v0.0.0 "$RUNNER_TEMP/release"
+
   # Full stack through Caddy: headers, API round trip, no IPs in logs.
   smoke:
     runs-on: ubuntu-24.04
