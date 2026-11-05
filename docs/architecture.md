@@ -48,6 +48,24 @@ decrypted file names are stripped of directories and control characters.
 `frontend/tests/gpg.test.ts` checks both directions against `gpg` with
 the test keys in `testdata/keys` (CI requires gpg).
 
+### Algorithms
+
+OpenPGP.js 6 with its defaults, except the encryption settings above.
+
+| | Behavior | Risk and choice |
+|---|---|---|
+| Our messages | AES-256, SEIPDv1 + MDC, no AEAD | MDC (SHA-1 based) is still sound for integrity; AEAD needs RFC 9580, which gpg 2.4 cannot read. Decryption is all or nothing (`allowUnauthenticatedStream: false`), so no partial plaintext is shown |
+| Passwords | Iterated, salted S2K (about 65 MB of hashing per guess) | Anyone with the link can guess offline; Argon2 needs v6 messages. The page warns about passwords under 12 characters; Generate gives 100 bits |
+| Recipients' cipher preferences | Fall back to AES-128, never to an old cipher | — |
+| Keys we encrypt to | RSA under 2048 bits, DSA, ElGamal and secp256k1 are refused; the page says why and suggests a newer key | — |
+| Generated keys | Curve25519 (v4), passphrase required | gpg compatible |
+| Messages without integrity protection (SED) | Refused (`allowUnauthenticatedMessages: false`) | Prevents downgrade and EFAIL-style attacks |
+| Old ciphers when decrypting (CAST5, 3DES, Blowfish, Twofish) | Accepted, for messages made elsewhere | FileBunny never makes them; their weakness matters only at very large volumes |
+| Quantum computers | Public-key encryption (RSA, Curve25519) could be broken by a large quantum computer; AES-256 holds | No post-quantum OpenPGP that gpg reads yet (OpenPGP.js 6.3.2 has no ML-KEM). TLS to the server already uses X25519MLKEM768 |
+
+A future option, not built: an RFC 9580 mode (AEAD, Argon2) for
+recipients who use OpenPGP.js or Sequoia instead of gpg 2.4.
+
 ## Frontend
 
 Svelte without a router library. Routes live in the URL fragment

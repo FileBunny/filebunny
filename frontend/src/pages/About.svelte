@@ -39,7 +39,15 @@
     compromised server could send code that reads what you type. The downloadable single HTML file and reproducible
     builds make that harder to hide, not impossible.
   </li>
-  <li><strong>Weak passwords:</strong> anyone with the link can try to guess the password offline.</li>
+  <li>
+    <strong>Guessing passwords:</strong> anyone with the link to a password-protected file can try passwords offline, as
+    often as they like. Short or common passwords will be found. Use Generate, or a long passphrase.
+  </li>
+  <li>
+    <strong>Future quantum computers:</strong> the public-key encryption in OpenPGP today could be broken by a large
+    quantum computer. Someone who keeps a copy of a file encrypted to a public key might then open it years from now.
+    Password-protected files do not rely on public-key encryption, but they are only as strong as their password.
+  </li>
   <li>
     <strong>Metadata:</strong> the server sees the size of the encrypted data and when it is uploaded and downloaded.
     Your network and the hosting provider can see that you connect.

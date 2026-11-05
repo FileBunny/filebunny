@@ -512,6 +512,25 @@ in memory only. Nothing about addresses is written to disk or logs.
 - **Scheduled workflows pause** after 60 days without repository
   activity.
 
+## Phase 9 (website and UX)
+
+| | |
+|---|---|
+| Date | 2026-11-05 (in progress) |
+| Scope | Branch `phase-9`: stepwise send page, short-password warnings, reasons for unusable keys, algorithm overview |
+| Reviewer | Claude Code (AI-assisted), during development |
+
+### Residual risks
+
+- **Password-protected files can be guessed offline** by anyone with the
+  link; the iterated S2K slows guessing but does not stop it. Short
+  passwords get a warning, not a block.
+- **No AEAD, no Argon2:** kept for gpg 2.4 compatibility (see
+  architecture.md, Algorithms).
+- **Not quantum-resistant** in public-key mode: a large quantum computer
+  could decrypt stored copies ("harvest now, decrypt later"). Password
+  mode relies on AES-256 and the password. The About page says so.
+
 ## How to re-run the checks
 
 ```sh
