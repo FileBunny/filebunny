@@ -171,6 +171,7 @@
       </fieldset>
       <ErrorMessage error={missing || error} />
       {#if busy}
+        {#if sent === 0}<p class="note" role="status">Encrypting and preparing the upload…</p>{/if}
         <progress max={size} value={Math.min(sent, size)}></progress>
         <button type="button" onclick={() => controller?.abort()}>Cancel</button>
       {:else}

@@ -178,7 +178,9 @@ IDs, tokens or addresses.
   which is worse. The download page warns before the last download.
 - **Ciphertext size reveals the approximate plaintext size.** No padding.
 - **The delete link is in the browser history** of whoever opens it (in
-  the fragment, so never in server or proxy logs).
+  the fragment, so never in server or proxy logs). *Phase 9:* the delete page takes the token
+  out of the address bar at once; the browser's history list may still
+  have the visit.
 - **Private keys pasted into the download page** live in the page's memory
   until it is closed; browser extensions with page access can read them.
   The page never stores or uploads them.

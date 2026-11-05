@@ -346,6 +346,9 @@
       <progress></progress>
       <button type="button" onclick={() => controller?.abort()}>Cancel</button>
     {:else if busy}
+      <!-- Until the first bytes go out: encrypting and the proof of work,
+           which takes a few seconds on older phones. -->
+      {#if sent === 0}<p class="note" role="status">Encrypting and preparing the upload…</p>{/if}
       <progress max={total} value={Math.min(sent, total)}></progress>
       <button type="button" onclick={() => controller?.abort()}>Cancel</button>
     {:else}
