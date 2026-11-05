@@ -22,6 +22,11 @@ import (
 	"github.com/FileBunny/filebunny/backend/internal/wkd"
 )
 
+// Version is the release this binary was built from (vX.Y.Z), set with
+// -ldflags "-X …/internal/server.Version=…"; "dev" for other builds. The
+// external watcher uses it to find the release to compare the site with.
+var Version = "dev"
+
 // stallTimeout ends an upload or download that makes no progress for this
 // long, so slow clients cannot hold connections open forever.
 const stallTimeout = time.Minute
@@ -94,6 +99,7 @@ func New(cfg config.Config, st *store.Store, log *slog.Logger) *Server {
 	s.mux.HandleFunc("POST /api/v1/uploads/{id}/complete", s.handleCompleteUpload)
 	s.mux.HandleFunc("DELETE /api/v1/uploads/{id}", s.handleAbortUpload)
 	s.mux.HandleFunc("GET /api/v1/features", s.handleFeatures)
+	s.mux.HandleFunc("GET /api/v1/version", s.handleVersion)
 	s.mux.HandleFunc("GET /api/v1/challenge", s.handleChallenge)
 	s.mux.HandleFunc("GET /api/v1/storage", s.handleStorage)
 	s.mux.HandleFunc("POST /api/v1/wkd", s.handleWKD)
@@ -110,6 +116,12 @@ func New(cfg config.Config, st *store.Store, log *slog.Logger) *Server {
 
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	s.handler.ServeHTTP(w, r)
+}
+
+// handleVersion tells which release runs here, so anyone can compare the
+// site with that release (docs/verify.md).
+func (s *Server) handleVersion(w http.ResponseWriter, _ *http.Request) {
+	writeJSON(w, http.StatusOK, map[string]string{"version": Version})
 }
 
 func (s *Server) handleHealth(w http.ResponseWriter, _ *http.Request) {

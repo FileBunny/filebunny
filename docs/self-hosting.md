@@ -163,6 +163,15 @@ hashes behind the limits and the block list. Losing it resets both.
 
 The backend needs outgoing access to the relays' SMTP ports.
 
+## Releases
+
+Instead of building, you can run the signed release images
+(`ghcr.io/filebunny/filebunny-backend` and `-web`); check them first as
+described in [verify.md](verify.md). They contain filebunny.eu's contact
+address and `security.txt`, so build your own web image for your own
+contact details. `FILEBUNNY_VERSION=vX.Y.Z docker compose build` labels a
+local build with a version.
+
 ## Contact page and security.txt
 
 The contact, terms and privacy pages show addresses you set at build

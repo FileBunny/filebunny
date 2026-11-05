@@ -261,6 +261,18 @@ strictly (plain ASCII, no line breaks) and only used as the recipient.
   anyone break a one-time link. Reports go to the abuse address on the
   contact page; files expire within 7 days.
 
+## Releases and verification
+
+A tag `vX.Y.Z` on `main` runs `.github/workflows/release.yml`: it pushes
+multi-arch images to GHCR and publishes the files from
+`scripts/release-files.sh` (binaries, the served frontend and a hash per
+served file, the single HTML file, `SHA256SUMS`), all with build
+provenance attestations signed through Sigstore. The version is a build
+input, so builds stay reproducible; `GET /api/v1/version` and the footer
+show it. `scripts/verify-site.sh` checks a live site against its release;
+`.github/workflows/watch.yml` runs it every hour. See
+[verify.md](verify.md) and [release.md](release.md).
+
 ## Request flow
 
 **Upload** — `POST /api/v1/files`
@@ -351,8 +363,9 @@ after a crash).
 
 - **Malicious JavaScript served by the server.** If filebunny.eu were
   compromised and served altered code, that code could read what you type.
-  Mitigations: reproducible builds, signed releases, an external watcher
-  and a downloadable single HTML file (phases 8 and 9).
+  Mitigations: reproducible builds, signed releases, an hourly external
+  watcher and a downloadable single HTML file; see
+  [verify.md](verify.md).
 - **Weak passwords.** In password mode, anyone with the link can try to
   guess the password offline.
 - **Metadata visible to the server:** ciphertext size, upload and download

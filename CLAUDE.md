@@ -73,7 +73,9 @@ deploy/well-known         security.txt of filebunny.eu (self-hosters replace it)
 scripts/repro-check.sh    builds twice, compares hashes
 scripts/smoke-test.sh     end-to-end test of the Compose stack, incl. log privacy
 scripts/pow.py            solves a proof-of-work challenge (curl users, smoke test)
-docs/                     architecture, API, self-hosting, security review
+scripts/release-files.sh  release files from the image build stages (reproducible)
+scripts/verify-site.sh    does a site serve exactly its release? (also the hourly watcher)
+docs/                     architecture, API, self-hosting, security review, verify, release
 docs/storage/             one page per storage adapter
 ```
 
@@ -98,7 +100,9 @@ digest) in `Dockerfile` together.
 
 Backend build flags (keep `Makefile`, `Dockerfile` and
 `scripts/repro-check.sh` in sync):
-`CGO_ENABLED=0 go build -trimpath -buildvcs=false -ldflags="-s -w -buildid="`
+`CGO_ENABLED=0 go build -trimpath -buildvcs=false -ldflags="-s -w -buildid= -X github.com/FileBunny/filebunny/backend/internal/server.Version=<tag or dev>"`
+
+Releases: `docs/release.md` (tag on `main`; CI builds, signs, publishes).
 
 ## Documentation
 

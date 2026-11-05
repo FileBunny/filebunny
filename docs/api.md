@@ -484,6 +484,16 @@ labels (at most 253 characters) with a non-numeric top-level label. No IP
 literals, ports or trailing dot. Internationalized domains must be given
 in punycode (`xn--…`); the server does not convert them.
 
+## Version
+
+```
+GET /api/v1/version
+```
+
+**200 OK**, `{"version": "v0.8.0"}`: the release this server was built from
+(`dev` for other builds). Compare the site with that release as described
+in [verify.md](verify.md).
+
 ## Health
 
 `GET /healthz` returns `200 ok`. Only reachable inside the Compose network;
