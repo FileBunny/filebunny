@@ -13,6 +13,8 @@
   import Info from '../components/Info.svelte';
   import SecretField from '../components/SecretField.svelte';
   import StorageStatus from '../components/StorageStatus.svelte';
+  import Step from '../components/Step.svelte';
+  import { tick } from 'svelte';
 
   // The server limit is 100 MiB of ciphertext; OpenPGP adds a little.
   const maxFileSize = 100_000_000;
@@ -78,17 +80,17 @@
 
   // The button stays enabled and says what is missing, with the focus on
   // the field to fix.
-  function missing(): { message: string; focus: string } | null {
+  function missing(): { step: number; message: string; focus: string } | null {
     if (!contentReady) {
-      if (what === 'text') return { message: 'Type a message first.', focus: '#send-content' };
-      if (!file) return { message: 'Choose a file first.', focus: '#send-content' };
-      return { message: `This file is ${formatBytes(file.size)}; the limit is 100 MB.`, focus: '#send-content' };
+      if (what === 'text') return { step: 1, message: 'Type a message first.', focus: '#send-content' };
+      if (!file) return { step: 1, message: 'Choose a file first.', focus: '#send-content' };
+      return { step: 1, message: `This file is ${formatBytes(file.size)}; the limit is 100 MB.`, focus: '#send-content' };
     }
     if (!recipientsReady) {
-      if (mode === 'password') return { message: 'Choose a password first, or generate one.', focus: '#send-password' };
-      if (recipients.length === 0) return { message: "Add the recipient's public key first.", focus: '[role="tab"][aria-selected="true"]' };
+      if (mode === 'password') return { step: 2, message: 'Choose a password first, or generate one.', focus: '#send-password' };
+      if (recipients.length === 0) return { step: 2, message: "Add the recipient's public key first.", focus: '[role="tab"][aria-selected="true"]' };
       const bad = recipients.find((r) => !r.info.canEncrypt);
-      return { message: `Remove the key that cannot be used: ${unusableText(bad?.info.unusable)}.`, focus: '.recipients button' };
+      return { step: 2, message: `Remove the key that cannot be used: ${unusableText(bad?.info.unusable)}.`, focus: '.recipients button' };
     }
     return null;
   }
@@ -96,13 +98,71 @@
   let tried = $state(false);
   const gap = $derived(tried ? missing() : null);
 
+  // One step open at a time (0: none). Steps 1 and 2 need input; step 3
+  // starts closed with sensible defaults.
+  let openStep = $state(1);
+
+  const contentSummary = $derived(
+    what === 'text'
+      ? text
+        ? `Text, ${text.length} ${text.length === 1 ? 'character' : 'characters'}`
+        : 'No message yet'
+      : file
+        ? `${file.name}, ${formatBytes(file.size)}`
+        : 'No file yet',
+  );
+  const recipientsSummary = $derived(
+    mode === 'password'
+      ? password
+        ? 'Anyone with the password'
+        : 'No password yet'
+      : recipients.length
+        ? `Holders of the key of ${recipients.map((r) => r.info.userIDs[0] ?? r.info.fingerprint).join(', ')}`
+        : 'No key yet',
+  );
+  const storageSummary = $derived(
+    direct
+      ? `${chosen.short}, directly from your browser; kept about ${chosen.keepsDays} days, no download limit`
+      : `${chosen.name === 'local' ? 'FileBunny' : `${chosen.short}, through FileBunny`}; expires after ${
+          expiries.find((o) => o.value === expires)?.label ?? expires
+        }, ${maxDownloads === 0 ? 'unlimited downloads' : maxDownloads === 1 ? 'one download' : `${maxDownloads} downloads`}`,
+  );
+
+  /** Opens a step and moves the focus into it. */
+  async function show(step: number, focus?: string) {
+    openStep = step;
+    await tick();
+    // The first field to type in or choose from; not the choice buttons
+    // above it, which already have a sensible value.
+    const field = 'input:not([type=radio]):not([type=checkbox]), textarea, select';
+    const target = focus ?? field.split(', ').map((f) => `#step-${step} ${f}`).join(', ');
+    document.querySelector<HTMLElement>(target)?.focus();
+  }
+
+  /** Continue: check this step, then open the next one (or none). */
+  async function goOn(step: number) {
+    const todo = missing();
+    if (todo && todo.step === step) {
+      tried = true;
+      document.querySelector<HTMLElement>(todo.focus)?.focus();
+      return;
+    }
+    tried = false;
+    if (step === 1) await show(2);
+    else {
+      openStep = 0;
+      await tick();
+      document.querySelector<HTMLElement>('#send-submit')?.focus();
+    }
+  }
+
   async function submit(e: SubmitEvent) {
     e.preventDefault();
     if (busy) return;
     const todo = missing();
     if (todo) {
       tried = true;
-      document.querySelector<HTMLElement>(todo.focus)?.focus();
+      await show(todo.step, todo.focus);
       return;
     }
     busy = true;
@@ -148,6 +208,7 @@
     file = null;
     password = '';
     sent = 0;
+    openStep = 1;
   }
 </script>
 
@@ -194,8 +255,8 @@
   </section>
 {:else}
   <form onsubmit={submit}>
-    <fieldset disabled={busy}>
-      <legend>1. What do you want to share?</legend>
+    <Step n={1} title="What do you want to share?" open={openStep === 1} summary={contentSummary} disabled={busy}
+      onopen={() => show(1)} onnext={() => goOn(1)}>
       <div class="choice">
         <label><input type="radio" bind:group={what} value="text" /> Text</label>
         <label><input type="radio" bind:group={what} value="file" /> File</label>
@@ -212,10 +273,10 @@
         </label>
         {#if file}<p class="note">{file.name}, {formatBytes(file.size)}</p>{/if}
       {/if}
-    </fieldset>
+    </Step>
 
-    <fieldset disabled={busy}>
-      <legend>2. Who may read it?</legend>
+    <Step n={2} title="Who may read it?" open={openStep === 2} summary={recipientsSummary} disabled={busy}
+      onopen={() => show(2)} onnext={() => goOn(2)}>
       <div class="choice">
         <label><input type="radio" bind:group={mode} value="password" /> Anyone with a password</label>
         <label><input type="radio" bind:group={mode} value="key" /> Holders of a public key</label>
@@ -230,10 +291,10 @@
       {:else}
         <KeyPicker bind:recipients />
       {/if}
-    </fieldset>
+    </Step>
 
-    <fieldset disabled={busy}>
-      <legend>3. Where, how long and how often?</legend>
+    <Step n={3} title="Where, how long and how often?" open={openStep === 3} summary={storageSummary} disabled={busy}
+      next="Done" onopen={() => show(3)} onnext={() => goOn(3)}>
       <label class="field">
         <span>Stored at</span>
         <select bind:value={storageName}>
@@ -278,7 +339,7 @@
           </label>
         </div>
       {/if}
-    </fieldset>
+    </Step>
 
     <ErrorMessage error={gap?.message ?? error} />
     {#if busy && direct}
@@ -288,7 +349,8 @@
       <progress max={total} value={Math.min(sent, total)}></progress>
       <button type="button" onclick={() => controller?.abort()}>Cancel</button>
     {:else}
-      <button type="submit" class="primary">Encrypt and upload</button>
+      {#if openStep === 0}<p class="note">Check the steps above, then:</p>{/if}
+      <button id="send-submit" type="submit" class="primary">Encrypt and upload</button>
     {/if}
   </form>
 {/if}

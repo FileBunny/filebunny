@@ -488,3 +488,28 @@ ul.status .mark {
   width: 1.25em;
   font-weight: bold;
 }
+
+/* Steps of a form (Step.svelte): a closed step is one line with Change. */
+fieldset.step:not(.open) {
+  padding-bottom: 0.5rem;
+}
+
+.step-summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  color: var(--muted);
+}
+
+.step-summary span {
+  overflow-wrap: anywhere;
+}
+
+.step-summary button {
+  flex-shrink: 0;
+}
+
+.step-next {
+  margin-top: 0.75rem;
+}
