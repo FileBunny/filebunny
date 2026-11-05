@@ -13,6 +13,9 @@ set -euo pipefail
 version=${1:?usage: release-repro.sh <version> <outdir>}
 out=${2:?usage: release-repro.sh <version> <outdir>}
 root=$(cd "$(dirname "$0")/.." && pwd)
+# The builds run in copies of the source; keep <outdir> where the caller meant.
+mkdir -p "$out"
+out=$(cd "$out" && pwd)
 work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT
 
