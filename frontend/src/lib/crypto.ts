@@ -95,7 +95,43 @@ export type KeyInfo = {
   fingerprint: string;
   userIDs: string[];
   canEncrypt: boolean;
+  /** Why a key cannot encrypt, so the page can say what to do. */
+  unusable?: Unusable;
 };
+
+/**
+ * Why a key cannot be used: expired or revoked; an old algorithm
+ * OpenPGP.js refuses (DSA, ElGamal, RSA under 2048 bits, secp256k1); or
+ * no key for encryption at all (sign-only).
+ */
+export type Unusable = 'expired' | 'revoked' | 'old-algorithm' | 'sign-only';
+
+/** What to tell the user about a key that cannot encrypt. */
+export function unusableText(reason: Unusable | undefined): string {
+  switch (reason) {
+    case 'expired':
+      return 'it has expired';
+    case 'revoked':
+      return 'it was revoked';
+    case 'old-algorithm':
+      return 'it uses an old algorithm (DSA, ElGamal or RSA under 2048 bits) that FileBunny does not encrypt to; ask for a newer key';
+    default:
+      return 'it can only sign, not encrypt';
+  }
+}
+
+async function unusableReason(key: openpgp.PublicKey): Promise<Unusable> {
+  if (await key.isRevoked()) return 'revoked';
+  const expires = await key.getExpirationTime();
+  if (expires instanceof Date && expires.getTime() <= Date.now()) return 'expired';
+  const old = (info: { algorithm: string; bits?: number; curve?: string }) =>
+    info.algorithm === 'dsa' ||
+    info.algorithm === 'elgamal' ||
+    (info.algorithm.startsWith('rsa') && (info.bits ?? 0) < 2047) ||
+    info.curve === 'secp256k1';
+  const all = [key.getAlgorithmInfo(), ...key.getSubkeys().map((s) => s.getAlgorithmInfo())];
+  return all.some(old) ? 'old-algorithm' : 'sign-only';
+}
 
 /**
  * Key files (.asc, .gpg) come in as bytes, but are often ASCII-armored.
@@ -124,14 +160,16 @@ export async function readPublicKeys(file: string | Uint8Array): Promise<KeyInfo
       if (key.isPrivate()) {
         throw new Error('This is a private key. Use the public key of the recipient.');
       }
+      const canEncrypt = await key.getEncryptionKey().then(
+        () => true,
+        () => false,
+      );
       return {
         key,
         fingerprint: formatFingerprint(key.getFingerprint()),
         userIDs: key.getUserIDs(),
-        canEncrypt: await key.getEncryptionKey().then(
-          () => true,
-          () => false,
-        ),
+        canEncrypt,
+        ...(canEncrypt ? {} : { unusable: await unusableReason(key) }),
       };
     }),
   );

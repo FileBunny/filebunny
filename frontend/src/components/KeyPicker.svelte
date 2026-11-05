@@ -6,7 +6,7 @@
   // recipient the tabs fold away. User IDs come from keys and are
   // untrusted: they are only ever rendered as text.
   import { onMount, tick } from 'svelte';
-  import { readPublicKeys, type KeyInfo } from '../lib/crypto.ts';
+  import { readPublicKeys, unusableText, type KeyInfo } from '../lib/crypto.ts';
   import {
     checkKeyWithWkd,
     looksLikeEmail,
@@ -115,8 +115,9 @@
       return [];
     }
     const usable = infos.filter((k) => k.canEncrypt);
-    if (usable.length < infos.length) {
-      localError = `${usable.length === 0 ? 'This key' : 'One of these keys'} cannot be used for encryption (expired, revoked or sign-only).`;
+    const bad = infos.find((k) => !k.canEncrypt);
+    if (bad) {
+      localError = `${usable.length === 0 ? 'This key' : 'One of these keys'} cannot be used: ${unusableText(bad.unusable)}.`;
     }
     return usable;
   }

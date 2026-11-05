@@ -4,7 +4,7 @@
   // so a server (or database) that swapped the key is caught.
   import { onMount } from 'svelte';
   import { ApiError, inboxInfo, uploadToInbox, type InboxInfo } from '../lib/api.ts';
-  import { encrypt, readPublicKeys, type KeyInfo } from '../lib/crypto.ts';
+  import { encrypt, readPublicKeys, unusableText, type KeyInfo } from '../lib/crypto.ts';
   import { linkFingerprint } from '../lib/route.ts';
   import { formatBytes, formatDate } from '../lib/format.ts';
   import { storageLabel } from '../lib/storage.ts';
@@ -43,7 +43,7 @@
         keyProblem =
           'The key the server sent does not match this link. Do not send anything, and tell the person who gave you the link.';
       } else if (!match.canEncrypt) {
-        keyProblem = 'The key of this upload link can no longer be used (expired or revoked).';
+        keyProblem = `The key of this upload link cannot be used: ${unusableText(match.unusable)}.`;
       } else {
         key = match;
       }

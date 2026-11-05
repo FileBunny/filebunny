@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { encrypt } from '../lib/crypto.ts';
+  import { encrypt, unusableText } from '../lib/crypto.ts';
   import type { Recipient } from '../lib/keylookup.ts';
   import { ApiError, maxCiphertext, siteBase, upload, type Uploaded } from '../lib/api.ts';
   import { filebinUpload, newBin } from '../lib/filebin.ts';
@@ -87,7 +87,8 @@
     if (!recipientsReady) {
       if (mode === 'password') return { message: 'Choose a password first, or generate one.', focus: '#send-password' };
       if (recipients.length === 0) return { message: "Add the recipient's public key first.", focus: '[role="tab"][aria-selected="true"]' };
-      return { message: 'Remove the keys that can no longer be used (expired or revoked).', focus: '.recipients button' };
+      const bad = recipients.find((r) => !r.info.canEncrypt);
+      return { message: `Remove the key that cannot be used: ${unusableText(bad?.info.unusable)}.`, focus: '.recipients button' };
     }
     return null;
   }
