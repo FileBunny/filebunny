@@ -254,6 +254,7 @@
     <button type="button" onclick={startOver}>Share something else</button>
   </section>
 {:else}
+  <h1 class="visually-hidden">Share a file or message</h1>
   <form onsubmit={submit}>
     <Step n={1} title="What do you want to share?" open={openStep === 1} summary={contentSummary} disabled={busy}
       onopen={() => show(1)} onnext={() => goOn(1)}>
