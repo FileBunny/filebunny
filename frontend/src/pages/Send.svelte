@@ -220,7 +220,7 @@
 </script>
 
 {#if directBin}
-  <section>
+  <section class="card done">
     <h1>Encrypted and uploaded to {chosen.short}</h1>
     <CopyField label="Share link" value={filebinLink(siteBase(), directBin)} />
     {#if mode === 'password'}
@@ -238,7 +238,7 @@
     <button type="button" onclick={startOver}>Share something else</button>
   </section>
 {:else if result}
-  <section>
+  <section class="card done">
     <h1>Encrypted and uploaded</h1>
     <CopyField label="Share link" value={shareLink(siteBase(), result.id)} />
     {#if mode === 'password'}
@@ -285,9 +285,11 @@
 
     <Step n={2} total={steps} current={openStep} title="Who may read it?" summary={recipientsSummary}
       disabled={busy} onchange={() => show(2)} onback={() => back(2)} onnext={() => goOn(2)}>
-      <div class="choice">
-        <label><input type="radio" bind:group={mode} value="password" /> Anyone with a password</label>
-        <label><input type="radio" bind:group={mode} value="key" /> Holders of a public key</label>
+      <div class="choice tiles">
+        <label><input type="radio" bind:group={mode} value="password" />
+          <span><b><span aria-hidden="true">🔑</span> Password</b><small>Anyone with the password</small></span></label>
+        <label><input type="radio" bind:group={mode} value="key" />
+          <span><b><span aria-hidden="true">👤</span> Public key</b><small>Only the holders of the key</small></span></label>
       </div>
       {#if mode === 'password'}
         <SecretField
