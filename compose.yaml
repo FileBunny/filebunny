@@ -59,6 +59,8 @@ services:
     restart: unless-stopped
     environment:
       FILEBUNNY_DOMAIN: ${FILEBUNNY_DOMAIN:-localhost}
+      FILEBUNNY_TLS: ${FILEBUNNY_TLS:-auto}
+      FILEBUNNY_WWW_REDIRECT: ${FILEBUNNY_WWW_REDIRECT:-false}
     ports:
       - "80:80"
       - "443:443"

@@ -55,11 +55,13 @@ It stops and starts the backend once to check the error log.
 ## Configuration
 
 All settings are environment variables; `compose.yaml` passes them to the
-backend with defaults.
+backend (and the two marked "Caddy only" to Caddy) with defaults.
 
 | Variable | Default | Meaning |
 |---|---|---|
 | `FILEBUNNY_DOMAIN` | `localhost` | Domain Caddy serves and gets a certificate for |
+| `FILEBUNNY_TLS` | `auto` | Caddy only. `auto`: certificate from Let's Encrypt (ports 80 and 443 reachable from the internet). `internal`: Caddy's own CA, for a test server on an internal name; trust the root certificate (`docker compose cp web:/data/caddy/pki/authorities/local/root.crt .`) in your browser. `localhost` always uses the local CA |
+| `FILEBUNNY_WWW_REDIRECT` | `false` | Caddy only. `true` also serves `www.$FILEBUNNY_DOMAIN` and redirects it to the domain; needs a DNS record for `www` |
 | `FILEBUNNY_MAX_SIZE` | `104857600` (100 MiB) | Max upload in bytes (ciphertext) |
 | `FILEBUNNY_MAX_TOTAL_SIZE` | `21474836480` (20 GiB) | Max combined size of all files; uploads beyond it get `507` |
 | `FILEBUNNY_DEFAULT_EXPIRY` | `24h` | Expiry when the client does not ask for one (min `1m`) |
