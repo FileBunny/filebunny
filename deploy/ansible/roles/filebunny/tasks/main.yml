@@ -17,6 +17,18 @@
   ansible.builtin.copy: {dest: /etc/cloud/cloud-init.disabled, content: "Switched off by deploy/ansible (FileBunny).\n", mode: "0644"}
   when: filebunny_disable_cloud_init and cloud.stat.isdir | default(false)
 
+# resolvconf/openresolv (some images) rewrite resolv.conf at every boot
+# from the network config's dns-nameservers; remove them first.
+- name: No other resolv.conf managers
+  ansible.builtin.apt: {name: [openresolv, resolvconf], state: absent, purge: true}
+- name: Network config files (ifupdown)
+  ansible.builtin.find: {paths: [/etc/network, /etc/network/interfaces.d], patterns: ["interfaces", "*"], file_type: file, recurse: false}
+  register: ifupdown_files
+- name: No DNS servers in the network config (they would only confuse)
+  ansible.builtin.lineinfile: {path: "{{ item.path }}", regexp: '^\s*dns[- ]', state: absent}
+  loop: "{{ ifupdown_files.files }}"
+  loop_control: {label: "{{ item.path }}"}
+
 - name: Is systemd-resolved installed?
   ansible.builtin.stat: {path: /usr/lib/systemd/systemd-resolved}
   register: resolved

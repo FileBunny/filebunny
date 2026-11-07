@@ -79,7 +79,9 @@ What it does:
   `flush ruleset`;
 - one DNS provider in a plain `/etc/resolv.conf` (default Quad9, with
   its IPv4 and IPv6 addresses); systemd-resolved, if the image has it, is
-  switched off (no fallback servers, no LLMNR/mDNS listeners);
+  switched off (no fallback servers, no LLMNR/mDNS listeners), and
+  resolvconf/openresolv are removed with the `dns-*` lines of the ifupdown
+  config, which they would write back into `resolv.conf` at every boot;
 - cloud-init switched off after the setup, so it cannot reapply the
   provider's keys, network or DNS at boot (`filebunny_disable_cloud_init`);
 - Debian sources over HTTPS only, automatic updates for Debian and
