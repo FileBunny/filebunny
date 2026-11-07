@@ -5,11 +5,13 @@
   import { onMount } from 'svelte';
   import { storageStatus, type StorageStatus } from '../lib/api.ts';
   import { formatDate } from '../lib/format.ts';
-  import { storageByName } from '../lib/storage.ts';
+  import { storageByName, storages } from '../lib/storage.ts';
   import ErrorMessage from './ErrorMessage.svelte';
 
   let list = $state<StorageStatus[] | null>(null);
   let error = $state('');
+  // The services a browser can upload to itself, whatever this server offers.
+  const directNames = storages.filter((s) => s.direct).map((s) => s.short).join(', ');
 
   onMount(() => {
     storageStatus().then(
@@ -31,7 +33,10 @@
     {/each}
   </ul>
   {#if list.length === 0}
-    <p class="note">This server does not offer external storage.</p>
+    <p class="note">
+      This server does not offer external storage through FileBunny.{#if directNames}
+        Uploading directly from your browser to {directNames} still works.{/if}
+    </p>
   {/if}
 {/if}
 <ErrorMessage {error} />
