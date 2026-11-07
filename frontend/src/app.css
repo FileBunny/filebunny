@@ -321,7 +321,6 @@ button.small {
 }
 
 .sources li.ok {
-  color: var(--ok);
   font-weight: 600;
 }
 
@@ -553,6 +552,15 @@ ul.status .mark {
   font-weight: bold;
 }
 
+/* Only the mark says ok or not; the text keeps the normal color. */
+ul.status li.ok {
+  color: inherit;
+}
+
+ul.status li.ok .mark {
+  color: var(--ok);
+}
+
 /* Steps of a form (Step.svelte): a closed step is one line with Change. */
 fieldset.step:not(.open) {
   padding-bottom: 0.5rem;
@@ -663,8 +671,8 @@ details.qr svg {
   margin: 0.5rem 0;
 }
 
-/* A card outside a form, e.g. the result after uploading; "done" is the
-   green one. */
+/* A card outside a form, e.g. the result after uploading; "done" gets a
+   bright border and a check in the button gradient. */
 .card {
   border-radius: var(--radius);
   background: var(--surface);
@@ -674,11 +682,34 @@ details.qr svg {
 }
 
 .card.done {
-  background: var(--ok-bg);
+  border: 2px solid var(--bright);
 }
 
 .card.done h1 {
-  color: var(--ok);
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
   font-size: 1.3rem;
   margin-top: 0;
+}
+
+.card.done h1::before {
+  content: '✓';
+  display: inline-grid;
+  place-items: center;
+  flex: none;
+  width: 2rem;
+  height: 2rem;
+  border-radius: 50%;
+  background: linear-gradient(135deg, var(--button-from), var(--button-to));
+  color: var(--button-fg);
+  font-size: 1.1rem;
+}
+
+.card > :first-child {
+  margin-top: 0;
+}
+
+.card > :last-child {
+  margin-bottom: 0;
 }

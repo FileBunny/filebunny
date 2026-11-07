@@ -222,7 +222,7 @@
 {#if directBin}
   <section class="card done">
     <h1>Encrypted and uploaded to {chosen.short}</h1>
-    <CopyField label="Share link" value={filebinLink(siteBase(), directBin)} />
+    <CopyField primary label="Share link" value={filebinLink(siteBase(), directBin)} />
     {#if mode === 'password'}
       <p class="note">
         The link does not contain the password. Send the password through a different channel, for example by phone or
@@ -240,7 +240,7 @@
 {:else if result}
   <section class="card done">
     <h1>Encrypted and uploaded</h1>
-    <CopyField label="Share link" value={shareLink(siteBase(), result.id)} />
+    <CopyField primary label="Share link" value={shareLink(siteBase(), result.id)} />
     {#if mode === 'password'}
       <p class="note">
         The link does not contain the password. Send the password through a different channel, for example by phone or
@@ -263,7 +263,7 @@
 {:else}
   <h1 class="visually-hidden">Share a file or message</h1>
   <form onsubmit={submit}>
-    <Step n={1} total={steps} current={openStep} title="What do you want to share?" summary={contentSummary}
+    <Step n={1} total={steps} error={gap?.step === 1 ? gap.message : ''} current={openStep} title="What do you want to share?" summary={contentSummary}
       disabled={busy} onchange={() => show(1)} onback={() => back(1)} onnext={() => goOn(1)}>
       <div class="choice">
         <label><input type="radio" bind:group={what} value="text" /> Text</label>
@@ -283,7 +283,7 @@
       {/if}
     </Step>
 
-    <Step n={2} total={steps} current={openStep} title="Who may read it?" summary={recipientsSummary}
+    <Step n={2} total={steps} error={gap?.step === 2 ? gap.message : ''} current={openStep} title="How do you want to encrypt it?" summary={recipientsSummary}
       disabled={busy} onchange={() => show(2)} onback={() => back(2)} onnext={() => goOn(2)}>
       <div class="choice tiles">
         <label><input type="radio" bind:group={mode} value="password" />
@@ -303,7 +303,7 @@
       {/if}
     </Step>
 
-    <Step n={3} total={steps} current={openStep} title="Where, how long and how often?" summary={storageSummary}
+    <Step n={3} total={steps} error={gap?.step === 3 ? gap.message : ''} current={openStep} title="Where, how long and how often?" summary={storageSummary}
       disabled={busy} submitLabel="Encrypt and upload" onchange={() => show(3)} onback={() => back(3)} onnext={() => goOn(3)}>
       <label class="field">
         <span>Stored at</span>
@@ -351,7 +351,7 @@
       {/if}
     </Step>
 
-    <ErrorMessage error={gap?.message ?? error} />
+    <ErrorMessage {error} />
     {#if busy && direct}
       <progress></progress>
       <button type="button" onclick={() => controller?.abort()}>Cancel</button>

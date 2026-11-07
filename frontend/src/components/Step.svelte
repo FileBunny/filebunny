@@ -5,6 +5,7 @@
   // step shows one line of summary and Change; a later step is not shown.
   // Fields stay in the page while hidden, so nothing in them is lost.
   import type { Snippet } from 'svelte';
+  import ErrorMessage from './ErrorMessage.svelte';
 
   let {
     n,
@@ -14,6 +15,7 @@
     summary,
     disabled = false,
     submitLabel = 'Submit',
+    error = '',
     onchange,
     onback,
     onnext,
@@ -23,6 +25,8 @@
     total: number;
     /** The open step. */
     current: number;
+    /** What is still missing in this step, shown just above Back and Next. */
+    error?: string;
     title: string;
     summary: string;
     disabled?: boolean;
@@ -56,6 +60,7 @@
   {/if}
   <div {id} hidden={!open}>
     {@render children()}
+    <ErrorMessage {error} />
     <div class="step-nav">
       {#if n > 1}<button type="button" onclick={onback}>Back</button>{/if}
       {#if last}

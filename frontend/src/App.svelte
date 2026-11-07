@@ -25,6 +25,9 @@
     window.addEventListener('hashchange', update);
     return () => window.removeEventListener('hashchange', update);
   });
+  // Pages that are forms in cards (one per step) have their own cards;
+  // every other page is one card as a whole.
+  const ownCards = ['send', 'receive', 'inbox-upload', 'inbox-manage'];
 </script>
 
 <header>
@@ -41,7 +44,7 @@
   {/if}
 </header>
 
-<main>
+<main class:card={!ownCards.includes(route.page)}>
   {#if route.page === 'send'}
     <Send />
   {:else if route.page === 'download'}
