@@ -61,25 +61,42 @@ idempotent: change a variable and run it again.
 
 What it does:
 
-- an admin user with your SSH key(s) and sudo; SSH by key only, no root,
-  `AllowUsers` the admin, `LogLevel VERBOSE` (key fingerprints in the
-  log), fail2ban on SSH;
-- a firewall (nftables, table `inet filebunny`) with **egress filtering**:
-  the server may only open DNS, NTP, HTTPS and ICMP; the containers only
-  HTTPS, DNS and the SMTP ports of your relays (`filebunny_smtp_ports`,
-  default 465 and 587). Everything else is dropped and logged (rate
-  limited). Docker's and fail2ban's tables are left alone: the file has
-  no `flush ruleset`;
+- an admin user with your SSH key(s) and sudo; the provider's initial
+  user can be removed (`filebunny_remove_users`). SSH by key only, no
+  root, `AllowUsers` the admin, only ed25519 (host key, logins, also on a
+  FIDO2 key) with post-quantum hybrid key exchange, `MaxAuthTries 3`,
+  `MaxSessions 2`, `LogLevel VERBOSE` (key fingerprints in the log),
+  fail2ban on SSH. The settings are a drop-in that sshd reads first;
+  check the result with `sudo sshd -T`;
+- a firewall (nftables, table `inet filebunny`) with policy drop on
+  input, forward and output, and **egress filtering**: the server may
+  only open DNS (to `filebunny_dns` only), NTP, HTTPS and ICMP; the
+  containers only HTTPS, DNS to the same provider and the SMTP ports of
+  your relays (`filebunny_smtp_ports`, default 465 and 587). Dropped
+  outgoing connections are logged (rate limited); dropped incoming and
+  forwarded traffic is not, since it carries visitors' addresses.
+  Docker's and fail2ban's tables are left alone: the file has no
+  `flush ruleset`;
+- one DNS provider in a plain `/etc/resolv.conf` (default Quad9, with
+  its IPv4 and IPv6 addresses); systemd-resolved, if the image has it, is
+  switched off (no fallback servers, no LLMNR/mDNS listeners);
+- cloud-init switched off after the setup, so it cannot reapply the
+  provider's keys, network or DNS at boot (`filebunny_disable_cloud_init`);
 - Debian sources over HTTPS only, automatic updates for Debian and
-  Docker with a reboot at `filebunny_reboot_time` when one needs it;
+  Docker with a reboot at `filebunny_reboot_time` (local time, in
+  `filebunny_timezone`) when one needs it; packages a FileBunny server
+  does not need are removed (`filebunny_remove_packages`);
 - Docker from Docker's repository (key checked against its published
   fingerprint), with log caps, `no-new-privileges`, `live-restore` and
   without the userland proxy, so visitors reach Caddy with their own
   address over IPv4 and IPv6;
-- time sync, a swap file, a few kernel settings, a capped persistent
-  journal;
+- time sync, a swap file if the server has no swap, a few kernel
+  settings, a capped persistent journal;
 - `/opt/filebunny/.env` from your variables for `scripts/deploy.sh`, and
   the SMTP file (`filebunny_smtp_file`, kept outside the repository).
+
+DHCP is only allowed through the firewall with `filebunny_dhcp: true`;
+leave it off when the provider configures the network statically.
 
 Copy `deploy/ansible/inventory.example.yml` **outside the repository**,
 fill it in and run:
@@ -88,8 +105,9 @@ fill it in and run:
 ansible-playbook -i ~/filebunny-inventory.yml deploy/ansible/site.yml
 ```
 
-The first run logs in as the provider's initial user (usually `root`).
-After it, only the admin user can log in: set `ansible_user` to it.
+The first run logs in as the provider's initial user (usually `root`) and
+continues as the admin once that exists. After it, only the admin user
+can log in: set `ansible_user` to it.
 Then deploy a release with `scripts/deploy.sh --host admin@server vX.Y.Z`.
 
 A closed test: `filebunny_web_allow` (addresses and networks, IPv4 and

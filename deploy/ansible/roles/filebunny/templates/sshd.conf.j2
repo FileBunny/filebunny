@@ -1,5 +1,7 @@
-# Managed by deploy/ansible. sshd uses the first value it reads, and this
-# file comes before the other drop-ins.
+# Managed by deploy/ansible. sshd uses the FIRST value it reads for each
+# setting, and this file comes before /etc/ssh/sshd_config (left as the
+# package ships it, so upgrades do not ask about it). So "X11Forwarding
+# yes" there has no effect: check with `sudo sshd -T`.
 Port {{ filebunny_ssh_port }}
 PermitRootLogin no
 PasswordAuthentication no
@@ -7,7 +9,19 @@ KbdInteractiveAuthentication no
 PubkeyAuthentication yes
 AuthenticationMethods publickey
 AllowUsers {{ filebunny_admin }}
+
+# Only ed25519 (also on a FIDO2 key: sk-ssh-ed25519), for the host and
+# for logins; key exchange post-quantum hybrid or curve25519.
+HostKey /etc/ssh/ssh_host_ed25519_key
+HostKeyAlgorithms ssh-ed25519
+PubkeyAcceptedAlgorithms ssh-ed25519,sk-ssh-ed25519@openssh.com
+KexAlgorithms mlkem768x25519-sha256,sntrup761x25519-sha512,curve25519-sha256
+Ciphers chacha20-poly1305@openssh.com,aes256-gcm@openssh.com,aes128-gcm@openssh.com
+MACs hmac-sha2-512-etm@openssh.com,hmac-sha2-256-etm@openssh.com
+
+StrictModes yes
 MaxAuthTries 3
+MaxSessions 2
 LoginGraceTime 20
 X11Forwarding no
 AllowAgentForwarding no

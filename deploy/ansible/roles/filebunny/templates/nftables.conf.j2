@@ -1,17 +1,37 @@
 #!/usr/sbin/nft -f
 # Managed by deploy/ansible. FileBunny's host firewall in its own table.
-# No "flush ruleset": that would also remove Docker's and fail2ban's
-# tables. Only this table is replaced on a reload.
+# No "flush ruleset": that would also remove Docker's tables (iptables-nft)
+# and fail2ban's. Only this table is replaced on a reload.
 #
 # nftables runs every base chain on a hook: an accept here does not
-# override a drop elsewhere, and a drop here is final.
+# override a drop in another table, and a drop here is final.
+#
+# Logged: only what the server itself or a container tries to send out
+# (the server's own destinations). Dropped incoming and forwarded traffic
+# is not logged: it carries visitors' addresses.
 {% set allow4 = filebunny_web_allow | reject('search', ':') | list %}
 {% set allow6 = filebunny_web_allow | select('search', ':') | list %}
+{% set dns4 = filebunny_dns | reject('search', ':') | list %}
+{% set dns6 = filebunny_dns | select('search', ':') | list %}
 table inet filebunny
 delete table inet filebunny
 
 table inet filebunny {
+	# The DNS provider (filebunny_dns): DNS goes to these only.
+	set dns4 {
+		type ipv4_addr
+{% if dns4 %}
+		elements = { {{ dns4 | join(', ') }} }
+{% endif %}
+	}
+	set dns6 {
+		type ipv6_addr
+{% if dns6 %}
+		elements = { {{ dns6 | join(', ') }} }
+{% endif %}
+	}
 {% if filebunny_web_allow | length > 0 %}
+
 	# Closed test: only these addresses reach the site.
 	set web_allow4 {
 		type ipv4_addr
@@ -27,36 +47,31 @@ table inet filebunny {
 		elements = { {{ allow6 | join(', ') }} }
 {% endif %}
 	}
-
 {% endif %}
+
 	chain input {
 		type filter hook input priority filter; policy drop;
 		iif lo accept
 		ct state established,related accept
 		ct state invalid drop
+		# ICMP: no "ct state new"; neighbour discovery has no conntrack state.
 		icmp type { echo-request } limit rate 10/second accept
 		icmp type { destination-unreachable, time-exceeded, parameter-problem } accept
 		icmpv6 type { destination-unreachable, packet-too-big, time-exceeded, parameter-problem, nd-router-advert, nd-neighbor-solicit, nd-neighbor-advert, mld-listener-query } accept
 		icmpv6 type { echo-request } limit rate 10/second accept
-		# DHCP answers, if the provider uses DHCP.
+{% if filebunny_dhcp %}
+		# DHCP answers (broadcast, so not "established").
 		udp sport 67 udp dport 68 accept
 		udp sport 547 udp dport 546 accept
-		# SSH: open, key only, fail2ban (its own table) bans repeat offenders.
-		# Not only "new": a session that was open before this firewall was
-		# loaded (the Ansible run that loads it) has no conntrack state.
-		tcp dport {{ filebunny_ssh_port }} accept
-		# The site's ports arrive here only when Docker's userland proxy
-		# handles them; normally they are forwarded (chain forward).
-{% if filebunny_web_allow | length > 0 %}
-		meta l4proto { tcp, udp } th dport { 80, 443 } ip saddr @web_allow4 accept
-		meta l4proto { tcp, udp } th dport { 80, 443 } ip6 saddr @web_allow6 accept
-{% else %}
-		meta l4proto { tcp, udp } th dport { 80, 443 } accept
 {% endif %}
+		# SSH: key only; fail2ban (its own table) bans repeat offenders.
+		tcp dport {{ filebunny_ssh_port }} ct state new accept
+		# The site's ports never arrive here: Docker forwards them to Caddy
+		# (chain forward); the userland proxy is off (daemon.json).
 	}
 
 	chain forward {
-		type filter hook forward priority filter; policy accept;
+		type filter hook forward priority filter; policy drop;
 		ct state established,related accept
 		ct state invalid drop
 		# Visitors to the published ports (Docker's DNAT): only 80 and 443.
@@ -65,43 +80,47 @@ table inet filebunny {
 		ct status dnat meta nfproto ipv4 ip saddr != @web_allow4 drop
 		ct status dnat meta nfproto ipv6 ip6 saddr != @web_allow6 drop
 {% endif %}
+		ct status dnat ct state new accept
 		# Between containers.
 		iifname "br-*" oifname "br-*" accept
+		iifname "docker0" oifname "docker0" accept
 		# Containers to the internet: egress filtering.
 		iifname "br-*" jump container_egress
 		iifname "docker0" jump container_egress
 	}
 
 	# What the containers may open: HTTPS (WKD, Filebin, certificates),
-	# the SMTP relays, DNS. Everything else is logged and dropped.
+	# the SMTP relays, DNS to the provider. The rest is logged and dropped.
 	chain container_egress {
-		tcp dport 443 accept
-		tcp dport { {{ filebunny_smtp_ports | join(', ') }} } accept
-		meta l4proto { tcp, udp } th dport 53 accept
 		meta l4proto { icmp, ipv6-icmp } accept
+		ct state new tcp dport 443 accept
+		ct state new tcp dport { {{ filebunny_smtp_ports | join(', ') }} } accept
+		ct state new meta l4proto { tcp, udp } th dport 53 ip daddr @dns4 accept
+		ct state new meta l4proto { tcp, udp } th dport 53 ip6 daddr @dns6 accept
 		limit rate 6/minute log prefix "filebunny egress drop (container): " level warn
 		drop
 	}
 
-	# What the server itself may open: DNS, NTP, HTTPS (Debian and Docker
-	# updates over HTTPS, image pulls), ICMP. Everything else is logged
-	# and dropped.
+	# What the server itself may open: DNS to the provider, NTP, HTTPS
+	# (Debian and Docker updates, image pulls). The rest is logged and
+	# dropped.
 	chain output {
 		type filter hook output priority filter; policy drop;
 		oif lo accept
 		ct state established,related accept
 		ct state invalid drop
 		meta l4proto { icmp, ipv6-icmp } accept
-		# SSH answers, also for a session older than this firewall.
-		tcp sport {{ filebunny_ssh_port }} accept
-		udp sport 68 udp dport 67 accept
-		udp sport 546 udp dport 547 accept
-		meta l4proto { tcp, udp } th dport 53 accept
-		udp dport 123 accept
-		tcp dport 443 accept
+{% if filebunny_dhcp %}
+		ct state new udp sport 68 udp dport 67 accept
+		ct state new udp sport 546 udp dport 547 accept
+{% endif %}
+		ct state new meta l4proto { tcp, udp } th dport 53 ip daddr @dns4 accept
+		ct state new meta l4proto { tcp, udp } th dport 53 ip6 daddr @dns6 accept
+		ct state new udp dport 123 accept
+		ct state new tcp dport 443 accept
 		# To the containers (the deploy check on this server).
-		oifname "br-*" accept
-		oifname "docker0" accept
+		ct state new oifname "br-*" accept
+		ct state new oifname "docker0" accept
 		# Local name lookups (mDNS, LLMNR) never need to leave: drop quietly.
 		udp dport { 5353, 5355 } drop
 		limit rate 6/minute log prefix "filebunny egress drop (host): " level warn
