@@ -129,7 +129,7 @@
       <input type="email" bind:value={email} autocomplete="off" spellcheck="false" />
     </label>
     <p class="note">
-      Anyone who gets your public key sees the name and address; leave both empty for an anonymous key.
+      Anyone who gets your public key sees the name and e-mail address; leave both empty for an anonymous key.
       <Info label="Name and e-mail in the key">
         Without them the key only says "FileBunny key". An e-mail address lets others find your key on a keyserver, if
         you choose to publish it.
@@ -174,7 +174,7 @@
         So others can find your key by e-mail address.
         <Info label="About publishing">
           Your browser sends the public key directly to keys.openpgp.org, which then mails a verification link to the
-          address. Only after you click it is the address findable. keys.openpgp.org sees your IP address. You can remove
+          e-mail address. Only after you click it can others find your key. keys.openpgp.org sees your IP address. You can remove
           the key there later.
         </Info>
       </p>

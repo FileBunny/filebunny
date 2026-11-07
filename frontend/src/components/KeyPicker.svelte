@@ -337,8 +337,8 @@
       <Info label="Why compare the fingerprint?">
         A keyserver or a domain can hand out a key that is not the recipient's. Only the fingerprint, checked with the
         recipient in person or by phone, proves the key is theirs.
-        {#if wkdOffered}The domain check is optional: it asks the recipient's domain through FileBunny, which then sees
-          the address (not logged or stored).{/if}
+        {#if wkdOffered}The domain check (WKD) is optional: it asks the recipient's domain through FileBunny, which then
+          sees the recipient's e-mail address (not logged or stored).{/if}
       </Info>
     </p>{/if}
   {/if}
@@ -418,7 +418,7 @@
           </span>
         </label>
         <p class="note">
-          keys.openpgp.org sees your IP address and the address you look up.
+          keys.openpgp.org sees your IP address and the e-mail address you look up.
           <Info label="About the keyserver lookup">
             Your browser asks keys.openpgp.org directly, so FileBunny does not see who you look up. keys.openpgp.org only
             publishes addresses it has verified by e-mail; that shows the address is real, not who holds the key.
@@ -427,10 +427,10 @@
         {#if wkdOffered}
           <p class="checkbox">
             <label><input type="checkbox" bind:checked={useWkd} /> Also ask the recipient's domain (WKD)</label>
-            <span class="note">– FileBunny then sees the address.</span>
+            <span class="note">– FileBunny then sees the recipient's e-mail address.</span>
             <Info label="About WKD">
               With WKD the key comes from the recipient's own domain, for example example.org for bob@example.org. Your
-              browser cannot reach every domain, so FileBunny fetches it and sees the address; it does not log or store
+              browser cannot reach every domain, so FileBunny fetches it and sees the e-mail address; it does not log or store
               it. Most domains publish no keys.
             </Info>
           </p>

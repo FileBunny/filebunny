@@ -28,7 +28,7 @@
   <li><strong>Leaked links:</strong> a link never contains the password or a key.</li>
   <li>
     <strong>Tracking:</strong> no cookies, no trackers, no scripts or fonts from elsewhere. IP addresses are not stored or
-    logged; limits against abuse use a hash of your address that changes every day and is only kept in memory.
+    logged; limits against abuse use a hash of your IP address that changes every day and is only kept in memory.
   </li>
 </ul>
 
@@ -58,7 +58,7 @@
   </li>
   <li>
     <strong>External storage you choose:</strong> a file stored directly at an external service of your choice is outside FileBunny's
-    control, and that service sees your address.
+    control, and that service sees your IP address.
   </li>
   <li><strong>Infected devices</strong> of sender or recipient, and recipients who pass the link and password on.</li>
 </ul>

@@ -316,9 +316,9 @@
           <label><input type="radio" bind:group={via} value="server" /> Through FileBunny</label>
           <label><input type="radio" bind:group={via} value="direct" /> Directly from your browser</label>
           <Info label="About the two ways">
-            {chosen.short} only ever gets the encrypted data. Through FileBunny, it sees this server instead of you, and
-            the limits below still apply. Directly, your browser uploads to {chosen.short} itself: it sees your IP address
-            and FileBunny does not know about the file.
+            <strong>Through FileBunny:</strong> this server passes the file on, so {chosen.short} sees this server
+            instead of you, and the limits below apply. <strong>Directly:</strong> your browser uploads to
+            {chosen.short} itself, so {chosen.short} sees your IP address and FileBunny does not know about the file.
           </Info>
         </div>
       {:else if chosen.name !== 'local'}

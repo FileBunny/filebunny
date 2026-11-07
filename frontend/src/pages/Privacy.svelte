@@ -21,10 +21,10 @@
   </li>
   <li>
     <strong>Upload links:</strong> the public key you register, including the names and e-mail addresses in it, until the
-    link is revoked or has expired and is empty. A generated key without name or address avoids this.
+    link is revoked or has expired and is empty. A generated key without name or e-mail address avoids this.
   </li>
   <li>
-    <strong>Mailed links:</strong> the recipient's address is used for that one mail and not stored. To count mails and to
+    <strong>Mailed links:</strong> the recipient's e-mail address is used for that one mail and not stored. To count mails and to
     respect "no more mail" requests, the server keeps a keyed hash of the address (for counting, until the next day).
   </li>
 </ul>
@@ -33,7 +33,7 @@
 <ul>
   <li>
     <strong>IP addresses:</strong> not in logs, not in the database. To limit abuse, the server keeps a hash of your
-    address in memory only; the key of that hash changes every day and is never stored, so the hashes cannot be traced
+    IP address in memory only; the key of that hash changes every day and is never stored, so the hashes cannot be traced
     back or linked across days.
   </li>
   <li>File names, file types and content: these are inside the encryption.</li>
@@ -58,7 +58,7 @@
     server does not store or log what it passes on.
   </li>
   <li>
-    <strong>E-mail:</strong> a mailed link goes through a mail relay, which sees the recipient's address and the mail, and
+    <strong>E-mail:</strong> a mailed link goes through a mail relay, which sees the recipient's e-mail address and the mail, and
     keeps its own logs. The recipient's mail provider sees it too, as with any mail.
   </li>
   <li>
