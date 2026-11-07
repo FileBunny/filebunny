@@ -81,6 +81,7 @@ scripts/release-files.sh  release files from the image build stages (reproducibl
 scripts/release-repro.sh  builds them twice from differently set up copies, compares (CI, release)
 scripts/verify-site.sh    does a site serve exactly its release? (also the hourly watcher)
 scripts/deploy.sh         deploys a release by digest after checking its attestations; --rollback
+scripts/test-vm.sh        local Debian 13 VM (libvirt) sized like the VPS, to test deploy/ansible
 .github/workflows         ci, release (signed images and files), watch (off until WATCH_URL is set)
 docs/                     architecture, API, self-hosting, security review, verify, release
 docs/storage/             one page per storage adapter
