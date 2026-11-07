@@ -56,18 +56,22 @@
 - name: Time sync
   ansible.builtin.systemd_service: {name: systemd-timesyncd, enabled: true, state: started}
 
+# Only when the server has no swap yet (some providers set up a partition).
+- name: Existing swap file
+  ansible.builtin.stat: {path: /swapfile}
+  register: swapfile
 - name: Swap file
   ansible.builtin.command: >-
     sh -c 'fallocate -l {{ filebunny_swap_mb }}M /swapfile && chmod 600 /swapfile && mkswap /swapfile'
   args: {creates: /swapfile}
-  when: filebunny_swap_mb | int > 0
+  when: filebunny_swap_mb | int > 0 and (ansible_facts.swaptotal_mb == 0 or swapfile.stat.exists)
 - name: Swap in fstab
   ansible.builtin.lineinfile: {path: /etc/fstab, line: "/swapfile none swap sw 0 0"}
-  when: filebunny_swap_mb | int > 0
+  when: filebunny_swap_mb | int > 0 and (ansible_facts.swaptotal_mb == 0 or swapfile.stat.exists)
 - name: Swap on
   ansible.builtin.command: swapon --all
   changed_when: false
-  when: filebunny_swap_mb | int > 0
+  when: filebunny_swap_mb | int > 0 and (ansible_facts.swaptotal_mb == 0 or swapfile.stat.exists)
 
 - name: Firewall (nftables, own table; Docker's tables stay)
   ansible.builtin.template: {src: nftables.conf.j2, dest: /etc/nftables.conf, mode: "0755", validate: nft -c -f %s}
