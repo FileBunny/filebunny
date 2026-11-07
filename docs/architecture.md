@@ -91,6 +91,10 @@ script and one stylesheet, without lazy-loaded chunks or workers, so
   OpenPGP apps such as OpenKeychain), drawn as one SVG path from
   `qrcode-generator` (MIT, no dependencies, pinned): no HTML strings,
   nothing loaded.
+- **Look:** one stylesheet with color tokens, a light and a dark version
+  that follow the system setting (`prefers-color-scheme`), system fonts
+  only. The logo is an inline SVG component, so the single HTML file needs
+  no extra asset and the CSP stays `style-src 'self'`, `img-src 'self' data:`.
 
 Runtime dependencies: `openpgp` and `qrcode-generator`, both pinned.
 
@@ -412,10 +416,10 @@ after a crash).
   that the server sends the key the link names. Send upload links
   through a channel you trust.
 - **The server knows whose upload link it is** when the key's user IDs
-  contain a name or address. A generated key without them avoids that.
+  contain a name or e-mail address. A generated key without them avoids that.
 - **Lookups revealing who you write to.** keys.openpgp.org sees your IP
-  address and the address you look up; with WKD on, FileBunny's server
-  sees the address (not stored). Loading the key from your device avoids
+  address and the e-mail address you look up; with WKD on, FileBunny's
+  server sees the e-mail address (not stored). Loading the key from your device avoids
   both.
 - **External storage** you chose: the service can delete the file at any
   time, and with the direct route it sees your IP address and so does

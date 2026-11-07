@@ -519,9 +519,20 @@ in memory only. Nothing about addresses is written to disk or logs.
 
 | | |
 |---|---|
-| Date | 2026-11-05 (in progress) |
-| Scope | Branch `phase-9`: stepwise send page, short-password warnings, reasons for unusable keys, algorithm overview |
+| Date | 2026-11-07 |
+| Scope | Branch `phase-9`: send page in steps, short-password warnings, reasons for unusable keys, algorithm overview, internationalized domains for WKD, the delete token out of the address bar, fingerprints as QR codes, accessibility fixes, the new look (light and dark) and clearer wording |
 | Reviewer | Claude Code (AI-assisted), during development |
+
+Frontend only: no backend, API, CSP or deploy changes.
+
+### New attack surface
+
+| Area | Measure | Check |
+|---|---|---|
+| New dependency `qrcode-generator` 2.0.4 | MIT, no dependencies of its own, pinned with its lockfile hash; it only gets a validated fingerprint (40 or 64 hex) and returns modules, drawn as one SVG path, so no HTML strings | `qr.ts`, `qr.test.ts`, `npm audit` |
+| Internationalized domains (WKD) | The browser's URL parser converts the domain to punycode; the backend still validates the address strictly and keeps its SSRF protection | `keylookup.test.ts`, backend `wkd` tests |
+| Hidden steps keep their fields | Only hidden with `hidden`, never sent elsewhere; nothing leaves the browser before "Encrypt and upload" | `Send.svelte` |
+| New look | CSS and an inline SVG logo only; no fonts, images or other assets, no inline styles, so the strict CSP and `make single` are unchanged | `grep style=`, `make repro` |
 
 ### Residual risks
 
@@ -533,6 +544,13 @@ in memory only. Nothing about addresses is written to disk or logs.
 - **Not quantum-resistant** in public-key mode: a large quantum computer
   could decrypt stored copies ("harvest now, decrypt later"). Password
   mode relies on AES-256 and the password. The About page says so.
+- **The QR code shows the fingerprint, not the key.** A scan proves which
+  fingerprint the page shows; whether it is the recipient's still needs
+  comparing with them.
+- **`npm audit` reports `deepmerge`** (GHSA-gcqx-w48m-w2h4, low, no fix
+  yet) through `@sveltejs/vite-plugin-svelte`. Build time only: it merges
+  this repository's own Vite config, never input from visitors, and is not
+  in the built page (`npm audit --omit=dev`: 0). Update when a fix lands.
 
 ## How to re-run the checks
 
