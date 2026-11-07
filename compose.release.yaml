@@ -1,0 +1,12 @@
+# Runs the signed release images instead of building on the server:
+#   docker compose -f compose.yaml -f compose.release.yaml --env-file .env --env-file release.env up -d
+# scripts/deploy.sh checks the images' signatures and writes release.env
+# with the images by digest (image@sha256:...), so what runs is exactly
+# what was checked. See docs/self-hosting.md (Releases).
+services:
+  backend:
+    build: !reset null
+    image: ${FILEBUNNY_BACKEND_IMAGE:?set by scripts/deploy.sh in release.env}
+  web:
+    build: !reset null
+    image: ${FILEBUNNY_WEB_IMAGE:?set by scripts/deploy.sh in release.env}

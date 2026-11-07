@@ -552,6 +552,30 @@ Frontend only: no backend, API, CSP or deploy changes.
   this repository's own Vite config, never input from visitors, and is not
   in the built page (`npm audit --omit=dev`: 0). Update when a fix lands.
 
+## Phase 10 (test and launch, in progress)
+
+| | |
+|---|---|
+| Date | 2026-11-07 |
+| Scope | Branch `phase-10`: `scripts/deploy.sh`, `compose.release.yaml`, `FILEBUNNY_TLS`, `FILEBUNNY_WWW_REDIRECT`, log caps, refusing a newer database schema |
+| Reviewer | Claude Code (AI-assisted), during development |
+
+### New attack surface
+
+| Area | Measure | Check |
+|---|---|---|
+| Deploying images | By digest only; each digest checked with `gh attestation verify` against `release.yml`, the tag ref, the tag's commit and GitHub-hosted runners, so a moved tag, an older signed image or a CI build is refused | tested against v0.8.0/v0.9.0: wrong workflow and wrong tag fail |
+| Deploy access | The server needs no GitHub token; whoever deploys is in the `docker` group (root in practice) | release.md |
+| Rollback | The backend refuses a database schema newer than it knows, instead of writing rows without the newer columns | `TestNewerSchemaRefused` |
+| Container logs | Capped at 3 × 10 MB per container, so they cannot fill the disk | `compose.yaml` |
+| Certificate source | `FILEBUNNY_TLS` picks a Caddyfile snippet; an unknown value stops Caddy instead of falling back | `caddy validate` |
+
+### Residual risks
+
+- **The compose files come from the operator's checkout** (at the tag's
+  commit, which the attestation binds to); a compromised laptop can
+  deploy anything regardless.
+
 ## How to re-run the checks
 
 ```sh

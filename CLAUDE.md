@@ -80,6 +80,7 @@ scripts/pow.py            solves a proof-of-work challenge (curl users, smoke te
 scripts/release-files.sh  release files from the image build stages (reproducible)
 scripts/release-repro.sh  builds them twice from differently set up copies, compares (CI, release)
 scripts/verify-site.sh    does a site serve exactly its release? (also the hourly watcher)
+scripts/deploy.sh         deploys a release by digest after checking its attestations; --rollback
 .github/workflows         ci, release (signed images and files), watch (off until WATCH_URL is set)
 docs/                     architecture, API, self-hosting, security review, verify, release
 docs/storage/             one page per storage adapter
@@ -93,6 +94,7 @@ make vuln       # govulncheck
 make repro      # reproducibility check (backend + frontend)
 make build      # bin/filebunny + frontend/dist
 make single     # frontend/dist-single/filebunny.html (self-contained)
+scripts/deploy.sh --host user@server vX.Y.Z   # signed release images (compose.release.yaml)
 docker compose up -d --build && scripts/smoke-test.sh   # end to end
 make run        # backend on :8080, data in ./data
 make dev        # Vite dev server, proxies /api to :8080

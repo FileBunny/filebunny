@@ -168,10 +168,12 @@ The backend needs outgoing access to the relays' SMTP ports.
 ## Releases
 
 Instead of building, you can run the signed release images
-(`ghcr.io/filebunny/filebunny-backend` and `-web`); check them first as
-described in [verify.md](verify.md). They contain filebunny.eu's contact
-address and `security.txt`, so build your own web image for your own
-contact details. `FILEBUNNY_VERSION=vX.Y.Z docker compose build` labels a
+(`ghcr.io/filebunny/filebunny-backend` and `-web`) with
+`compose.release.yaml`. `scripts/deploy.sh` checks their signatures, runs
+them by digest and can roll back; see
+[release.md](release.md#deploying-a-release). They contain filebunny.eu's
+contact address and `security.txt`, so build your own web image for your
+own contact details. `FILEBUNNY_VERSION=vX.Y.Z docker compose build` labels a
 local build with a version.
 
 ## Contact page and security.txt
@@ -246,9 +248,13 @@ git pull
 docker compose up -d --build
 ```
 
+With the release images: `scripts/deploy.sh vX.Y.Z` (see
+[release.md](release.md#deploying-a-release)).
+
 Uploaded files and certificates live in Docker volumes (`data`,
 `caddy_data`) and survive updates. Database migrations run automatically
-at startup.
+at startup. The backend refuses to start on a database that a newer
+release has migrated, so going back across a migration is not possible.
 
 ## Backups
 
