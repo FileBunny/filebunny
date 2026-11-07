@@ -552,6 +552,41 @@ Frontend only: no backend, API, CSP or deploy changes.
   this repository's own Vite config, never input from visitors, and is not
   in the built page (`npm audit --omit=dev`: 0). Update when a fix lands.
 
+## Phase 10 (test and launch, in progress)
+
+| | |
+|---|---|
+| Date | 2026-11-07 |
+| Scope | Branch `phase-10`: `scripts/deploy.sh`, `compose.release.yaml`, `FILEBUNNY_TLS`, `FILEBUNNY_WWW_REDIRECT`, log caps, refusing a newer database schema |
+| Reviewer | Claude Code (AI-assisted), during development |
+
+### New attack surface
+
+| Area | Measure | Check |
+|---|---|---|
+| Deploying images | By digest only; each digest checked with `gh attestation verify` against `release.yml`, the tag ref, the tag's commit and GitHub-hosted runners, so a moved tag, an older signed image or a CI build is refused | tested against v0.8.0/v0.9.0: wrong workflow and wrong tag fail |
+| Deploy access | The server needs no GitHub token; whoever deploys is in the `docker` group (root in practice) | release.md |
+| Rollback | The backend refuses a database schema newer than it knows, instead of writing rows without the newer columns | `TestNewerSchemaRefused` |
+| Container logs | Capped at 3 × 10 MB per container, so they cannot fill the disk | `compose.yaml` |
+| Certificate source | `FILEBUNNY_TLS` picks a Caddyfile snippet; an unknown value stops Caddy instead of falling back | `caddy validate` |
+
+| IPv6 visitors | **Finding:** on an IPv4-only Compose network Docker passes IPv6 visitors through its userland proxy, so Caddy saw the proxy's address and all IPv6 visitors shared one rate limit (v0.9.0 and older). The network now has IPv6 and Docker forwards them with their own address; with the proxy off (deploy/ansible) they would otherwise not arrive at all | tested on the test VM: IPv6 to the site 200 |
+| Server setup (`deploy/ansible`) | SSH key only, ed25519 only, no root, `AllowUsers`, fail2ban; firewall with policy drop on input, forward and output and egress filtering (host: DNS to one provider, NTP, HTTPS, ICMP; containers: HTTPS, DNS to that provider, SMTP relay ports), no `flush ruleset`, only outgoing drops logged; one DNS provider, systemd-resolved and cloud-init off; connection tracking starts before the firewall loads, so the first run keeps its SSH session; firewall and SSH settings re-applied on every run; Docker key checked by fingerprint; apt over HTTPS | fresh test VM, one complete first run: root, the initial user, passwords and non-ed25519 host keys refused; outgoing 80, 22 and DNS to another provider dropped, 443 and 587 (containers) open; allow list closes and opens the site; nothing listens but SSH; survives a reboot; a second run changes nothing |
+
+### Residual risks
+
+- **The compose files come from the operator's checkout** (at the tag's
+  commit, which the attestation binds to); a compromised laptop can
+  deploy anything regardless.
+- **Egress filtering does not stop exfiltration over HTTPS**: port 443
+  must stay open to any address (WKD domains, Filebin, certificates,
+  updates). It blocks other ports and makes unexpected connections
+  visible in the log.
+- **The admin user is root in practice** (sudo without a password, and
+  the `docker` group). Protect its SSH key.
+- **Debian's cloud image sums** (used only by `scripts/test-vm.sh`) come
+  over HTTPS without a signature.
+
 ## How to re-run the checks
 
 ```sh

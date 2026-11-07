@@ -1,0 +1,13 @@
+# Managed by deploy/ansible.
+[DEFAULT]
+backend = systemd
+banaction = nftables[type=multiport]
+banaction_allports = nftables[type=allports]
+bantime = 1h
+bantime.increment = true
+findtime = 10m
+maxretry = 5
+
+[sshd]
+enabled = true
+port = {{ filebunny_ssh_port }}

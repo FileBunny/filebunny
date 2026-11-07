@@ -1,0 +1,28 @@
+# Copy this file OUTSIDE the repository (it holds your server's address
+# and keys) and run:
+#   ansible-playbook -i ~/filebunny-inventory.yml deploy/ansible/site.yml
+# The first run logs in as the provider's initial user (root on most VPSs,
+# "debian" on scripts/test-vm.sh) and switches to filebunny_admin halfway;
+# after it, only filebunny_admin can log in, so set ansible_user to that.
+all:
+  hosts:
+    filebunny:
+      ansible_host: 203.0.113.10
+      ansible_user: root
+      # Your own SSH public key(s) for the admin user; never the private key.
+      filebunny_admin: admin
+      filebunny_admin_keys:
+        - ssh-ed25519 AAAA... you@laptop
+      filebunny_domain: files.example.org
+      # filebunny_tls: internal            # test server on an internal name
+      # filebunny_www_redirect: true       # needs a DNS record for www
+      # filebunny_max_total_size: 10737418240   # 10 GiB on a 25 GB disk
+      # During a closed test: only these addresses reach the site (80/443).
+      # Empty (the default): open to everyone.
+      # filebunny_web_allow: [198.51.100.0/24, "2001:db8::/48"]
+      # filebunny_timezone: Europe/Amsterdam   # the reboot time is local time
+      # filebunny_dns: [9.9.9.9, 149.112.112.112, "2620:fe::fe", "2620:fe::9"]   # one provider (default Quad9)
+      # filebunny_dhcp: true                   # only if the provider uses DHCP
+      # filebunny_remove_users: [debian]       # the image's initial user, if not root
+      # SMTP relays (465/587) the backend may connect to; see docs/self-hosting.md.
+      # filebunny_smtp_file: ~/secrets/filebunny-smtp.json   # outside the repo

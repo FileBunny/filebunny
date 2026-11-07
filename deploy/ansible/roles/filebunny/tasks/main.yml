@@ -1,0 +1,243 @@
+- name: Check the variables
+  ansible.builtin.assert:
+    that:
+      - ansible_facts.distribution == "Debian" and ansible_facts.distribution_major_version == "13"
+      - filebunny_admin_keys | length > 0
+      - filebunny_admin is match('^[a-z][a-z0-9-]{0,30}$')
+      - filebunny_tls in ['auto', 'internal']
+      - filebunny_domain is match('^[a-z0-9.-]+$')
+      - filebunny_dns | length > 0
+      - filebunny_admin not in filebunny_remove_users
+    fail_msg: Debian 13 only; set filebunny_admin_keys and filebunny_dns; filebunny_tls is auto or internal.
+
+- name: Is cloud-init installed?
+  ansible.builtin.stat: {path: /etc/cloud}
+  register: cloud
+- name: cloud-init off (it would reapply the provider's network, DNS and keys at boot)
+  ansible.builtin.copy: {dest: /etc/cloud/cloud-init.disabled, content: "Switched off by deploy/ansible (FileBunny).\n", mode: "0644"}
+  when: filebunny_disable_cloud_init and cloud.stat.isdir | default(false)
+
+# resolvconf/openresolv (some images) rewrite resolv.conf at every boot
+# from the network config's dns-nameservers; remove them first.
+- name: No other resolv.conf managers
+  ansible.builtin.apt: {name: [openresolv, resolvconf], state: absent, purge: true}
+- name: Network config files (ifupdown)
+  ansible.builtin.find: {paths: [/etc/network, /etc/network/interfaces.d], patterns: ["interfaces", "*"], file_type: file, recurse: false}
+  register: ifupdown_files
+- name: No DNS servers in the network config (they would only confuse)
+  ansible.builtin.lineinfile: {path: "{{ item.path }}", regexp: '^\s*dns[- ]', state: absent}
+  loop: "{{ ifupdown_files.files }}"
+  loop_control: {label: "{{ item.path }}"}
+
+- name: Is systemd-resolved installed?
+  ansible.builtin.stat: {path: /usr/lib/systemd/systemd-resolved}
+  register: resolved
+# A plain resolv.conf with one provider. systemd-resolved (some images)
+# would add the link's DNS servers, fallback servers and LLMNR/mDNS
+# listeners (port 5355), so it is switched off.
+- name: DNS servers
+  ansible.builtin.copy:
+    dest: /etc/resolv.conf
+    follow: false
+    content: |
+      # Managed by deploy/ansible: one DNS provider (filebunny_dns).
+      {% for server in filebunny_dns %}
+      nameserver {{ server }}
+      {% endfor %}
+      options edns0
+    mode: "0644"
+- name: systemd-resolved off
+  ansible.builtin.systemd_service: {name: systemd-resolved, state: stopped, enabled: false, masked: true}
+  when: resolved.stat.exists
+
+- name: Current time zone
+  ansible.builtin.command: timedatectl show --property=Timezone --value
+  register: tz_current
+  changed_when: false
+- name: Time zone (the automatic reboot time is local time)
+  ansible.builtin.command: timedatectl set-timezone {{ filebunny_timezone }}
+  changed_when: true
+  when: tz_current.stdout != filebunny_timezone
+
+- name: Debian sources over HTTPS only (outgoing port 80 stays closed)
+  ansible.builtin.template: {src: debian.sources.j2, dest: /etc/apt/sources.list.d/debian.sources, mode: "0644"}
+- name: No other Debian sources
+  ansible.builtin.file: {path: "{{ item }}", state: absent}
+  loop: [/etc/apt/sources.list, /etc/apt/mirrors]
+- name: Upgrade the system
+  ansible.builtin.apt: {update_cache: true, upgrade: dist}
+- name: Base packages
+  ansible.builtin.apt:
+    name: [nftables, fail2ban, python3-systemd, unattended-upgrades, systemd-timesyncd, curl, ca-certificates, gpg]
+    state: present
+
+# Connection tracking from now on, so the SSH session of this run is
+# "established" when the real firewall loads later (without it, the
+# session would be cut: it started before anything tracked it). Only
+# when no FileBunny table exists yet; the firewall task replaces it.
+- name: Is the FileBunny firewall loaded?
+  ansible.builtin.command: nft list table inet filebunny
+  register: fw_table
+  changed_when: false
+  failed_when: false
+- name: Track connections before the firewall loads
+  ansible.builtin.command:
+    cmd: nft -f -
+    stdin: |
+      table inet filebunny {
+      	chain input {
+      		type filter hook input priority filter; policy accept;
+      		ct state established,related accept
+      	}
+      }
+  changed_when: true
+  when: fw_table.rc != 0
+
+- name: Admin user
+  ansible.builtin.user: {name: "{{ filebunny_admin }}", shell: /bin/bash, groups: [sudo], append: true}
+- name: Admin's .ssh directory
+  ansible.builtin.file: {path: "/home/{{ filebunny_admin }}/.ssh", state: directory, owner: "{{ filebunny_admin }}", mode: "0700"}
+- name: Admin SSH keys
+  ansible.builtin.copy:
+    dest: "/home/{{ filebunny_admin }}/.ssh/authorized_keys"
+    content: "{{ filebunny_admin_keys | join('\n') }}\n"
+    owner: "{{ filebunny_admin }}"
+    group: "{{ filebunny_admin }}"
+    mode: "0600"
+# The admin is in the docker group, which is root in practice, so a
+# sudo password would add nothing.
+- name: Sudo without password for the admin
+  ansible.builtin.copy:
+    dest: /etc/sudoers.d/filebunny-admin
+    content: "{{ filebunny_admin }} ALL=(ALL) NOPASSWD:ALL\n"
+    mode: "0440"
+    validate: visudo -cf %s
+
+# From here on as the admin: the initial user may be removed, and after
+# this run only the admin can log in anyway.
+- name: Continue as the admin
+  ansible.builtin.set_fact: {ansible_user: "{{ filebunny_admin }}"}
+- name: Reconnect as the admin
+  ansible.builtin.meta: reset_connection
+# sshd refuses root already; without keys, a mistake in its config later
+# still does not let root in.
+- name: No SSH keys for root
+  ansible.builtin.file: {path: /root/.ssh/authorized_keys, state: absent}
+- name: Remove the provider's initial user
+  ansible.builtin.user: {name: "{{ item }}", state: absent, remove: true, force: true}
+  loop: "{{ filebunny_remove_users }}"
+- name: Remove packages a FileBunny server does not need
+  ansible.builtin.apt: {name: "{{ filebunny_remove_packages }}", state: absent, purge: true, autoremove: true}
+- name: Old SSH host keys (only ed25519 is used)
+  ansible.builtin.file: {path: "/etc/ssh/ssh_host_{{ item }}", state: absent}
+  loop: [rsa_key, rsa_key.pub, ecdsa_key, ecdsa_key.pub]
+
+- name: SSH hardening
+  ansible.builtin.template: {src: sshd.conf.j2, dest: /etc/ssh/sshd_config.d/10-filebunny.conf, mode: "0644", validate: sshd -t -f %s}
+
+- name: Kernel settings
+  ansible.builtin.template: {src: sysctl.conf.j2, dest: /etc/sysctl.d/90-filebunny.conf, mode: "0644"}
+  notify: Apply sysctl
+
+- name: Journald drop-in directory
+  ansible.builtin.file: {path: /etc/systemd/journald.conf.d, state: directory, mode: "0755"}
+- name: Journal on disk, capped (SSH and firewall logs for checking the server)
+  ansible.builtin.template: {src: journald.conf.j2, dest: /etc/systemd/journald.conf.d/90-filebunny.conf, mode: "0644"}
+  notify: Restart journald
+
+- name: Time sync
+  ansible.builtin.systemd_service: {name: systemd-timesyncd, enabled: true, state: started}
+
+# Only when the server has no swap yet (some providers set up a partition).
+- name: Existing swap file
+  ansible.builtin.stat: {path: /swapfile}
+  register: swapfile
+- name: Swap file
+  ansible.builtin.command: >-
+    sh -c 'fallocate -l {{ filebunny_swap_mb }}M /swapfile && chmod 600 /swapfile && mkswap /swapfile'
+  args: {creates: /swapfile}
+  when: filebunny_swap_mb | int > 0 and (ansible_facts.swaptotal_mb == 0 or swapfile.stat.exists)
+- name: Swap in fstab
+  ansible.builtin.lineinfile: {path: /etc/fstab, line: "/swapfile none swap sw 0 0"}
+  when: filebunny_swap_mb | int > 0 and (ansible_facts.swaptotal_mb == 0 or swapfile.stat.exists)
+- name: Swap on
+  ansible.builtin.command: swapon --all
+  changed_when: false
+  when: filebunny_swap_mb | int > 0 and (ansible_facts.swaptotal_mb == 0 or swapfile.stat.exists)
+
+- name: Firewall (nftables, own table; Docker's tables stay)
+  ansible.builtin.template: {src: nftables.conf.j2, dest: /etc/nftables.conf, mode: "0755", validate: nft -c -f %s}
+- name: Firewall on at boot
+  ansible.builtin.systemd_service: {name: nftables, enabled: true, state: started}
+
+- name: fail2ban for SSH (nftables, journal)
+  ansible.builtin.template: {src: jail.local.j2, dest: /etc/fail2ban/jail.d/filebunny.local, mode: "0644"}
+  notify: Restart fail2ban
+- name: fail2ban on
+  ansible.builtin.systemd_service: {name: fail2ban, enabled: true, state: started}
+
+- name: Automatic updates (Debian, security, Docker), reboot when needed
+  ansible.builtin.template: {src: 52filebunny-upgrades.j2, dest: /etc/apt/apt.conf.d/52filebunny-upgrades, mode: "0644"}
+- name: Automatic updates on
+  ansible.builtin.copy:
+    dest: /etc/apt/apt.conf.d/20auto-upgrades
+    content: |
+      APT::Periodic::Update-Package-Lists "1";
+      APT::Periodic::Unattended-Upgrade "1";
+    mode: "0644"
+
+- name: Docker's signing key
+  ansible.builtin.get_url: {url: https://download.docker.com/linux/debian/gpg, dest: /etc/apt/keyrings/docker.asc, mode: "0644"}
+# Fingerprint from https://docs.docker.com/engine/install/debian/
+- name: Docker's key has the published fingerprint
+  ansible.builtin.shell: >-
+    set -o pipefail &&
+    gpg --show-keys --with-colons /etc/apt/keyrings/docker.asc | awk -F: '/^fpr/ {print $10; exit}'
+  args: {executable: /bin/bash}
+  register: docker_fpr
+  changed_when: false
+  failed_when: docker_fpr.stdout != "9DC858229FC7DD38854AE2D88D81803C0EBFCD88"
+- name: Docker repository
+  ansible.builtin.copy:
+    dest: /etc/apt/sources.list.d/docker.sources
+    content: |
+      # Managed by deploy/ansible.
+      Types: deb
+      URIs: https://download.docker.com/linux/debian
+      Suites: trixie
+      Components: stable
+      Signed-By: /etc/apt/keyrings/docker.asc
+    mode: "0644"
+- name: Docker directory
+  ansible.builtin.file: {path: /etc/docker, state: directory, mode: "0755"}
+- name: Docker settings
+  ansible.builtin.template: {src: daemon.json.j2, dest: /etc/docker/daemon.json, mode: "0644"}
+  notify: Restart docker
+- name: Docker
+  ansible.builtin.apt:
+    update_cache: true
+    name: [docker-ce, docker-ce-cli, containerd.io, docker-compose-plugin]
+- name: Admin may run Docker (deploy.sh)
+  ansible.builtin.user: {name: "{{ filebunny_admin }}", groups: [docker], append: true}
+
+- name: Deploy directory
+  ansible.builtin.file: {path: "{{ filebunny_dir }}", state: directory, owner: "{{ filebunny_admin }}", group: "{{ filebunny_admin }}", mode: "0750"}
+- name: Operator settings (.env)
+  ansible.builtin.template: {src: env.j2, dest: "{{ filebunny_dir }}/.env", owner: "{{ filebunny_admin }}", group: "{{ filebunny_admin }}", mode: "0600"}
+- name: SMTP directory
+  ansible.builtin.file: {path: /etc/filebunny, state: directory, mode: "0755"}
+  when: filebunny_smtp_file | length > 0
+- name: SMTP relays, readable by the backend's user only (65532)
+  ansible.builtin.copy: {src: "{{ filebunny_smtp_file }}", dest: /etc/filebunny/smtp.json, owner: "65532", group: "65532", mode: "0400"}
+  when: filebunny_smtp_file | length > 0
+  no_log: true
+
+# Always, not as a handler: a run that was interrupted after changing these
+# files would otherwise leave the old rules active, and the next run would
+# see nothing to change. Reloading keeps open sessions.
+- name: Apply the firewall
+  ansible.builtin.systemd_service: {name: nftables, state: reloaded}
+  changed_when: false
+- name: Apply the SSH settings (from now on only the admin user can log in)
+  ansible.builtin.systemd_service: {name: ssh, state: reloaded}
+  changed_when: false

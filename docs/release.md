@@ -48,12 +48,35 @@ or a manual run starts them again.
 
 ## Deploying a release
 
-Pull the signed images instead of building on the server, and check them
-first:
+`scripts/deploy.sh` deploys a release by digest; the server never builds.
+Run it from a checkout with the release tag, with `gh` (>= 2.49, logged
+in) and Docker:
 
 ```sh
-gh attestation verify oci://ghcr.io/filebunny/filebunny-web:v0.8.0 --repo FileBunny/filebunny
-gh attestation verify oci://ghcr.io/filebunny/filebunny-backend:v0.8.0 --repo FileBunny/filebunny
+git fetch --tags
+scripts/deploy.sh --host deploy@filebunny.eu v0.10.0
+scripts/verify-site.sh https://filebunny.eu
 ```
 
-(Setting up the server itself follows later.)
+It looks up both images' digests and checks each with
+`gh attestation verify`: signed by `release.yml` on GitHub's runners, from
+`refs/tags/<tag>` and from the commit the tag points to in your checkout,
+so a moved tag or an older signed image is refused. It then copies the
+compose files of that commit and a `release.env` with the images by
+digest to `/opt/filebunny/releases/<tag>/` (`--dir` for another place),
+points `current` at it, starts it and waits until the site reports the
+version. The server needs Docker and curl, and `/opt/filebunny/.env` with
+the operator's settings; it holds no GitHub token.
+
+To go back to the release before:
+
+```sh
+scripts/deploy.sh --host deploy@filebunny.eu --rollback
+```
+
+This swaps `current` and `previous`. The backend refuses to start on a
+database a newer release migrated; then deploy a newer release instead.
+
+Who deploys: whoever can log in to the server as a user in the `docker`
+group, which is root on that server in practice. Keep that to the
+operator's own SSH key.

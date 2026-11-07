@@ -8,6 +8,9 @@
 #   delete token, URI with the file ID); the filter below removes those.
 {
 	admin off
+	# The local CA (localhost, FILEBUNNY_TLS=internal) cannot and need not
+	# install its root in the read-only container.
+	skip_install_trust
 	log {
 		level WARN
 		format filter {
@@ -21,7 +24,36 @@
 	}
 }
 
+# Certificates (FILEBUNNY_TLS): "auto" gets one from a public CA (Let's
+# Encrypt) and needs ports 80 and 443 reachable for the challenge;
+# "internal" uses Caddy's own CA, for a test server on an internal name
+# (trust its root certificate in the browser). "localhost" always uses
+# the local CA. Any other value stops Caddy ("File to import not found").
+(tls-auto) {
+}
+(tls-internal) {
+	tls internal
+}
+
+# FILEBUNNY_WWW_REDIRECT=true also serves www.<domain> and redirects it
+# to the domain. Only switch it on when www has a DNS record, or getting
+# its certificate keeps failing.
+(www-false) {
+}
+(www-true) {
+	www.{$FILEBUNNY_DOMAIN:localhost} {
+		import tls-{$FILEBUNNY_TLS:auto}
+		header {
+			Strict-Transport-Security "max-age=31536000"
+			-Server
+		}
+		redir https://{$FILEBUNNY_DOMAIN:localhost}{uri} permanent
+	}
+}
+import www-{$FILEBUNNY_WWW_REDIRECT:false}
+
 {$FILEBUNNY_DOMAIN:localhost} {
+	import tls-{$FILEBUNNY_TLS:auto}
 	header {
 		Strict-Transport-Security "max-age=31536000"
 		X-Content-Type-Options "nosniff"

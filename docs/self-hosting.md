@@ -52,14 +52,94 @@ returns an ID. Optionally run the end-to-end test on the server, from the
 repository directory: `BASE_URL=https://$DOMAIN scripts/smoke-test.sh`.
 It stops and starts the backend once to check the error log.
 
+## Server setup with Ansible
+
+`deploy/ansible` sets up a fresh Debian 13 server for FileBunny. It only
+uses `ansible.builtin`, so `ansible-core` on your own machine is enough;
+nothing is installed on the server for Ansible beyond Python. It is
+idempotent: change a variable and run it again.
+
+What it does:
+
+- an admin user with your SSH key(s) and sudo; the provider's initial
+  user can be removed (`filebunny_remove_users`), root's SSH keys are
+  removed. SSH by key only, no
+  root, `AllowUsers` the admin, only ed25519 (host key, logins, also on a
+  FIDO2 key) with post-quantum hybrid key exchange, `MaxAuthTries 3`,
+  `MaxSessions 2`, `LogLevel VERBOSE` (key fingerprints in the log),
+  fail2ban on SSH. The settings are a drop-in that sshd reads first;
+  check the result with `sudo sshd -T`;
+- a firewall (nftables, table `inet filebunny`) with policy drop on
+  input, forward and output, and **egress filtering**: the server may
+  only open DNS (to `filebunny_dns` only), NTP, HTTPS and ICMP; the
+  containers only HTTPS, DNS to the same provider and the SMTP ports of
+  your relays (`filebunny_smtp_ports`, default 465 and 587). Dropped
+  outgoing connections are logged (rate limited); dropped incoming and
+  forwarded traffic is not, since it carries visitors' addresses.
+  Docker's and fail2ban's tables are left alone: the file has no
+  `flush ruleset`;
+- one DNS provider in a plain `/etc/resolv.conf` (default Quad9, with
+  its IPv4 and IPv6 addresses); systemd-resolved, if the image has it, is
+  switched off (no fallback servers, no LLMNR/mDNS listeners), and
+  resolvconf/openresolv are removed with the `dns-*` lines of the ifupdown
+  config, which they would write back into `resolv.conf` at every boot;
+- cloud-init switched off after the setup, so it cannot reapply the
+  provider's keys, network or DNS at boot (`filebunny_disable_cloud_init`);
+- Debian sources over HTTPS only, automatic updates for Debian and
+  Docker with a reboot at `filebunny_reboot_time` (local time, in
+  `filebunny_timezone`) when one needs it; packages a FileBunny server
+  does not need are removed (`filebunny_remove_packages`);
+- Docker from Docker's repository (key checked against its published
+  fingerprint), with log caps, `no-new-privileges`, `live-restore` and
+  without the userland proxy, so visitors reach Caddy with their own
+  address over IPv4 and IPv6;
+- time sync, a swap file if the server has no swap, a few kernel
+  settings, a capped persistent journal;
+- `/opt/filebunny/.env` from your variables for `scripts/deploy.sh`, and
+  the SMTP file (`filebunny_smtp_file`, kept outside the repository).
+
+DHCP is only allowed through the firewall with `filebunny_dhcp: true`;
+leave it off when the provider configures the network statically.
+
+Copy `deploy/ansible/inventory.example.yml` **outside the repository**,
+fill it in and run:
+
+```sh
+ansible-playbook -i ~/filebunny-inventory.yml deploy/ansible/site.yml
+```
+
+The first run logs in as the provider's initial user (usually `root`) and
+continues as the admin once that exists. After it, only the admin user
+can log in: set `ansible_user` to it.
+Then deploy a release with `scripts/deploy.sh --host admin@server vX.Y.Z`.
+
+A closed test: `filebunny_web_allow` (addresses and networks, IPv4 and
+IPv6) lets only those reach ports 80 and 443; SSH stays open. Let's
+Encrypt checks the domain from addresses nobody knows in advance, so for
+the first certificate run once with the list empty, wait until Caddy has
+it (`docker compose --project-name filebunny logs web`), and run again
+with the list. Caddy renews about a month before expiry; repeat that if
+the test lasts that long.
+
+What the host logs: SSH logins and failures (with the address that
+tried), fail2ban bans and dropped outgoing connections (the server's own
+destinations). Never visitors' web traffic: the firewall does not log it
+and Caddy has no access log.
+
+`scripts/test-vm.sh up` starts a local VM (libvirt) sized like a small
+VPS to try all this first; set `filebunny_tls: internal` and an internal
+name such as `filebunny.home.arpa` there.
+
 ## Configuration
 
 All settings are environment variables; `compose.yaml` passes them to the
-backend with defaults.
+backend (and the two marked "Caddy only" to Caddy) with defaults.
 
 | Variable | Default | Meaning |
 |---|---|---|
 | `FILEBUNNY_DOMAIN` | `localhost` | Domain Caddy serves and gets a certificate for |
+| `FILEBUNNY_TLS` | `auto` | Caddy only. `auto`: certificate from Let's Encrypt (ports 80 and 443 reachable from the internet). `internal`: Caddy's own CA, for a test server on an internal name; trust the root certificate (`docker compose cp web:/data/caddy/pki/authorities/local/root.crt .`) in your browser. `localhost` always uses the local CA |
+| `FILEBUNNY_WWW_REDIRECT` | `false` | Caddy only. `true` also serves `www.$FILEBUNNY_DOMAIN` and redirects it to the domain; needs a DNS record for `www` |
 | `FILEBUNNY_MAX_SIZE` | `104857600` (100 MiB) | Max upload in bytes (ciphertext) |
 | `FILEBUNNY_MAX_TOTAL_SIZE` | `21474836480` (20 GiB) | Max combined size of all files; uploads beyond it get `507` |
 | `FILEBUNNY_DEFAULT_EXPIRY` | `24h` | Expiry when the client does not ask for one (min `1m`) |
@@ -166,10 +246,12 @@ The backend needs outgoing access to the relays' SMTP ports.
 ## Releases
 
 Instead of building, you can run the signed release images
-(`ghcr.io/filebunny/filebunny-backend` and `-web`); check them first as
-described in [verify.md](verify.md). They contain filebunny.eu's contact
-address and `security.txt`, so build your own web image for your own
-contact details. `FILEBUNNY_VERSION=vX.Y.Z docker compose build` labels a
+(`ghcr.io/filebunny/filebunny-backend` and `-web`) with
+`compose.release.yaml`. `scripts/deploy.sh` checks their signatures, runs
+them by digest and can roll back; see
+[release.md](release.md#deploying-a-release). They contain filebunny.eu's
+contact address and `security.txt`, so build your own web image for your
+own contact details. `FILEBUNNY_VERSION=vX.Y.Z docker compose build` labels a
 local build with a version.
 
 ## Contact page and security.txt
@@ -216,9 +298,11 @@ FileBunny stores no IP addresses. Keep it that way on your server:
 - Do not put another proxy or CDN in front that logs addresses, or
   configure it not to.
 - Docker's own logs only contain what the containers print; the
-  containers print no addresses. Consider `journald`/log rotation limits.
+  containers print no addresses. `compose.yaml` caps them at three files
+  of 10 MB per container; keep a cap if you change the log driver.
 - Firewall or fail2ban logs on the host may contain addresses; decide
-  consciously whether you need them.
+  consciously whether you need them. `deploy/ansible` logs SSH (logins
+  are not visitors) and dropped outgoing connections, never web traffic.
 - With the WKD proxy on, your server sees which e-mail addresses are
   looked up (not by whom). It never logs them; keep it that way, and
   switch it off (`FILEBUNNY_WKD_PROXY=false`) if you prefer not to see
@@ -243,9 +327,16 @@ git pull
 docker compose up -d --build
 ```
 
+With the release images: `scripts/deploy.sh vX.Y.Z` (see
+[release.md](release.md#deploying-a-release)).
+
+Updating from v0.9.0 or older: the network now has IPv6, so run
+`docker compose down` once before `up` (data volumes stay).
+
 Uploaded files and certificates live in Docker volumes (`data`,
 `caddy_data`) and survive updates. Database migrations run automatically
-at startup.
+at startup. The backend refuses to start on a database that a newer
+release has migrated, so going back across a migration is not possible.
 
 ## Backups
 

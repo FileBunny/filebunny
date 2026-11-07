@@ -1,6 +1,14 @@
 # Local:      docker compose up --build   → https://localhost
 # Production: FILEBUNNY_DOMAIN=filebunny.eu docker compose up -d --build
 # E-mail:     FILEBUNNY_SMTP=/etc/filebunny/smtp.json (outside the repo; see docs/self-hosting.md)
+# Container logs (json-file) are capped, or they grow without limit. The
+# containers log no addresses; see docs/self-hosting.md.
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: 10m
+    max-file: "3"
+
 services:
   backend:
     build:
@@ -31,6 +39,7 @@ services:
       FILEBUNNY_RATE_LIMITS: ${FILEBUNNY_RATE_LIMITS:-true}
       FILEBUNNY_POW_BITS: ${FILEBUNNY_POW_BITS:-18}
     secrets: [smtp]
+    logging: *logging
     volumes:
       - data:/data
     read_only: true
@@ -50,6 +59,8 @@ services:
     restart: unless-stopped
     environment:
       FILEBUNNY_DOMAIN: ${FILEBUNNY_DOMAIN:-localhost}
+      FILEBUNNY_TLS: ${FILEBUNNY_TLS:-auto}
+      FILEBUNNY_WWW_REDIRECT: ${FILEBUNNY_WWW_REDIRECT:-false}
     ports:
       - "80:80"
       - "443:443"
@@ -58,11 +69,20 @@ services:
       - caddy_data:/data
       - caddy_config:/config
     depends_on: [backend]
+    logging: *logging
     read_only: true
     tmpfs: [/tmp]
     cap_drop: [ALL]
     cap_add: [NET_BIND_SERVICE]
     security_opt: [no-new-privileges:true]
+
+# IPv6 on the network, so Docker forwards IPv6 visitors to Caddy with
+# their own address (NAT). Without it they arrive through Docker's
+# userland proxy with the proxy's address, so they would all share one
+# rate limit; with the proxy off (deploy/ansible) they would not arrive.
+networks:
+  default:
+    enable_ipv6: true
 
 secrets:
   smtp:

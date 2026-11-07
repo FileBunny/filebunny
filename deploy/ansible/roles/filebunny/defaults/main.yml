@@ -1,0 +1,28 @@
+# Defaults; set your own in the inventory (they take precedence).
+filebunny_admin: admin
+filebunny_admin_keys: []
+filebunny_domain: localhost
+filebunny_tls: auto
+filebunny_www_redirect: false
+filebunny_max_total_size: 10737418240
+filebunny_env: {}             # further FILEBUNNY_* settings for .env
+filebunny_dir: /opt/filebunny
+filebunny_web_allow: []       # empty: the site is open to everyone
+filebunny_smtp_file: ""       # local JSON file with the relays; empty: no mail
+filebunny_smtp_ports: [465, 587]
+filebunny_swap_mb: 1024
+filebunny_timezone: Etc/UTC   # the automatic reboot time is local time
+filebunny_reboot_time: "04:30"
+filebunny_ssh_port: 22
+# One DNS provider, its redundant addresses (default: Quad9, which keeps no
+# addresses). The firewall allows DNS to these only.
+filebunny_dns: [9.9.9.9, 149.112.112.112, "2620:fe::fe", "2620:fe::9"]
+# Only when the provider configures the network with DHCP (static: false).
+filebunny_dhcp: false
+# cloud-init applies the provider's config (keys, network, DNS) at boot;
+# after the setup it is switched off so it cannot undo this playbook.
+filebunny_disable_cloud_init: true
+# Not needed on a FileBunny server (some images bring them).
+filebunny_remove_packages: [reportbug, socat, git, bind9-host]
+# The provider's initial user, if any (not root): removed after the admin exists.
+filebunny_remove_users: []

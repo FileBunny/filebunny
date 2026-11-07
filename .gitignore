@@ -21,3 +21,9 @@ frontend/node_modules/
 # Personal Claude Code instructions and settings
 CLAUDE.local.md
 .claude/settings.local.json
+
+# Ansible inventories hold server addresses, keys and allow lists: keep
+# them outside the repository; only the example is tracked.
+*inventory.yml
+*inventory.yaml
+!deploy/ansible/inventory.example.yml
