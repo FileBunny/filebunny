@@ -62,7 +62,8 @@ idempotent: change a variable and run it again.
 What it does:
 
 - an admin user with your SSH key(s) and sudo; the provider's initial
-  user can be removed (`filebunny_remove_users`). SSH by key only, no
+  user can be removed (`filebunny_remove_users`), root's SSH keys are
+  removed. SSH by key only, no
   root, `AllowUsers` the admin, only ed25519 (host key, logins, also on a
   FIDO2 key) with post-quantum hybrid key exchange, `MaxAuthTries 3`,
   `MaxSessions 2`, `LogLevel VERBOSE` (key fingerprints in the log),

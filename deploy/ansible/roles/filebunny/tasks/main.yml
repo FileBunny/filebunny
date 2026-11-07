@@ -119,6 +119,10 @@
   ansible.builtin.set_fact: {ansible_user: "{{ filebunny_admin }}"}
 - name: Reconnect as the admin
   ansible.builtin.meta: reset_connection
+# sshd refuses root already; without keys, a mistake in its config later
+# still does not let root in.
+- name: No SSH keys for root
+  ansible.builtin.file: {path: /root/.ssh/authorized_keys, state: absent}
 - name: Remove the provider's initial user
   ansible.builtin.user: {name: "{{ item }}", state: absent, remove: true, force: true}
   loop: "{{ filebunny_remove_users }}"
