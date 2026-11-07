@@ -37,7 +37,8 @@ ciphertext.
 - **Outgoing requests (later phases) need SSRF protection**; see
   `docs/security-review.md` before adding any.
 - **Minimal dependencies.** Backend: standard library plus
-  `modernc.org/sqlite` (pure Go, no cgo). Ask before adding any dependency,
+  `modernc.org/sqlite` (pure Go, no cgo). Frontend: `openpgp` and
+  `qrcode-generator`, pinned exactly. Ask before adding any dependency,
   in either part.
 
 ## Stack
@@ -64,8 +65,11 @@ backend/internal/storage  external storage adapters (Filebin), SSRF-safe client
 backend/internal/mail     SMTP delivery through operator relays (TLS only); mailtest fake relay
 backend/internal/ratelimit per-visitor limits on a daily-salted hash of the address, memory only
 backend/internal/pow      stateless single-use proof-of-work challenges
-frontend/src/lib          crypto (OpenPGP.js), API client, key lookup, hash routes
-frontend/src/pages        send, download, delete, receive (upload links), key pair pages
+frontend/src/lib          crypto (OpenPGP.js), API client, key lookup, hash routes, QR
+frontend/src/pages        send, download, delete, receive (upload links), key pair,
+                          about, terms, privacy, contact, status pages
+frontend/src/components   Step (send page steps), KeyPicker, FingerprintQR, Logo, ...
+frontend/src/app.css      the design (light and dark, follows the system setting)
 frontend/tests            node --test, incl. gpg interoperability
 testdata/keys             public test keypairs, never for real data
 deploy/Caddyfile          TLS, CSP, /api proxy, log filter
@@ -76,6 +80,7 @@ scripts/pow.py            solves a proof-of-work challenge (curl users, smoke te
 scripts/release-files.sh  release files from the image build stages (reproducible)
 scripts/release-repro.sh  builds them twice from differently set up copies, compares (CI, release)
 scripts/verify-site.sh    does a site serve exactly its release? (also the hourly watcher)
+.github/workflows         ci, release (signed images and files), watch (off until WATCH_URL is set)
 docs/                     architecture, API, self-hosting, security review, verify, release
 docs/storage/             one page per storage adapter
 ```
@@ -124,7 +129,7 @@ overhead on a 100 MB file. Only the SHA-256 of the delete token is stored.
 
 - **Everything public is in English**: code, comments, identifiers, docs,
   commit messages, branch names (e.g. `phase-2`), PR and issue text, and
-  the UI. Dutch comes later as a UI translation only (phase 9).
+  the UI. The UI is English only; a translation is postponed.
 - Go: `gofmt`, standard library first, errors wrapped with context, no
   panics in handlers. Tests use `httptest` and `t.TempDir()`; inject the
   clock (`Server.now`) instead of sleeping, or use `testing/synctest`.
@@ -145,11 +150,15 @@ WKD check), 4 (upload links with a management link, key pair
 generation, publishing on keys.openpgp.org), 5 (external storage:
 Filebin through this server or directly from the browser, also for upload
 links), 6 (mailing a share link through operator SMTP relays, with limits
-and a block list) and 7 (per-visitor limits on a hashed address, proof of
+and a block list), 7 (per-visitor limits on a hashed address, proof of
 work, terms/privacy/contact pages, security.txt; no report button by
-design) are this code. Next: phase 8, integrity (signed releases, an
-external watcher, a signed single HTML file). QR codes for fingerprints
-moved to phase 9.
+design), 8 (integrity: signed, reproducible releases with GitHub artifact
+attestations, `verify-site.sh` and the external watcher, signed single
+HTML file; `v0.8.0`) and 9 (website and UX: the new look in light and
+dark, the send page in steps, fingerprints as QR codes, accessibility and
+mobile; `v0.9.0`) are this code. Next: phase 10, test and launch
+(homelab, then staging on the server, TLS check, security review,
+watcher on, closed beta, then public).
 
 Frontend rules: everything must keep working from the single HTML file
 (no lazy-loaded chunks, workers or extra assets; routes in the fragment;
