@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -174,6 +175,20 @@ func TestReopenKeepsData(t *testing.T) {
 		t.Fatal(err)
 	}
 	blob.Close()
+}
+
+func TestNewerSchemaRefused(t *testing.T) {
+	s, dir := openTest(t)
+	if _, err := s.db.Exec(fmt.Sprintf(`PRAGMA user_version = %d`, len(migrations)+1)); err != nil {
+		t.Fatal(err)
+	}
+	s.Close()
+	if s2, err := Open(dir); err == nil {
+		s2.Close()
+		t.Fatal("Open accepted a database from a newer release")
+	} else if !strings.Contains(err.Error(), "newer") {
+		t.Fatalf("unexpected error: %v", err)
+	}
 }
 
 func TestPutReaderError(t *testing.T) {

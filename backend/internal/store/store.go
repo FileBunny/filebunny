@@ -175,6 +175,11 @@ func (s *Store) migrate() error {
 	if err := s.db.QueryRow(`PRAGMA user_version`).Scan(&version); err != nil {
 		return err
 	}
+	// A database from a newer release (after a rollback across a schema
+	// change) would be written without its newer columns: refuse to start.
+	if version > len(migrations) {
+		return fmt.Errorf("database schema version %d is newer than this release knows (%d); run a newer release", version, len(migrations))
+	}
 	for i := version; i < len(migrations); i++ {
 		tx, err := s.db.Begin()
 		if err != nil {
