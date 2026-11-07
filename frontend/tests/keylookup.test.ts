@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import * as openpgp from 'openpgp';
 import { readPublicKeys } from '../src/lib/crypto.ts';
-import { checkKeyWithWkd, lookupKeys, publishKey, wkdAvailable, type Deps } from '../src/lib/keylookup.ts';
+import { asciiEmail, checkKeyWithWkd, lookupKeys, publishKey, wkdAvailable, type Deps } from '../src/lib/keylookup.ts';
 import { testKey } from './helpers.ts';
 
 const alice = '90E6 2DD2 7AF9 17D6 0D24 641B 896E 0850 A8FC 4BFF';
@@ -289,4 +289,22 @@ test('publishKey: upload, then ask for verification of unpublished addresses', a
   await assert.rejects(publishKey('x', { fetch: refused }), /refused the key \(status 400\)/);
   const down = (async () => Promise.reject(new TypeError('Failed to fetch'))) as typeof globalThis.fetch;
   await assert.rejects(publishKey('x', { fetch: down }), /could not be reached/);
+});
+
+test('internationalized domains: punycode for WKD, either form matches the user ID', async () => {
+  assert.equal(asciiEmail('jan@müller.de'), 'jan@xn--mller-kva.de');
+  assert.equal(asciiEmail('jan@Example.ORG'), 'jan@example.org');
+  assert.equal(asciiEmail('not an address'), 'not an address');
+
+  const key = await otherKey('jan@müller.de');
+  const on = mockFetch({ keys: status(404), wkd: ok(key) });
+  const r = await lookupKeys('jan@müller.de', { wkd: true }, on.deps);
+  const call = on.calls.find((c) => c.url.endsWith('/api/v1/wkd'))!;
+  assert.equal(call.init.body, JSON.stringify({ email: 'jan@xn--mller-kva.de' }));
+  assert.equal(r.candidates.length, 1);
+
+  // A key whose user ID has the punycode form matches the Unicode address.
+  const puny = await otherKey('jan@xn--mller-kva.de');
+  const r2 = await lookupKeys('jan@müller.de', { wkd: false }, mockFetch({ keys: ok(puny) }).deps);
+  assert.equal(r2.candidates.length, 1);
 });

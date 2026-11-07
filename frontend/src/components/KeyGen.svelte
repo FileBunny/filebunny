@@ -9,6 +9,7 @@
   import ErrorMessage from './ErrorMessage.svelte';
   import Info from './Info.svelte';
   import SecretField from './SecretField.svelte';
+  import FingerprintQR from './FingerprintQR.svelte';
 
   let { onCreated, continueLabel = 'Continue' }: { onCreated?: (pair: NewKeyPair) => void; continueLabel?: string } =
     $props();
@@ -128,13 +129,17 @@
       <input type="email" bind:value={email} autocomplete="off" spellcheck="false" />
     </label>
     <p class="note">
-      Anyone who gets your public key sees the name and address; leave both empty for an anonymous key.
+      Anyone who gets your public key sees the name and e-mail address; leave both empty for an anonymous key.
       <Info label="Name and e-mail in the key">
         Without them the key only says "FileBunny key". An e-mail address lets others find your key on a keyserver, if
         you choose to publish it.
       </Info>
     </p>
-    <SecretField label="Passphrase for the private key" bind:value={passphrase} />
+    <SecretField
+      label="Passphrase for the private key"
+      bind:value={passphrase}
+      shortWarning="Short passphrases can be guessed by anyone who gets hold of the private key file. Use Generate, or a long passphrase."
+    />
     <p class="notice">There is no way to recover a lost passphrase or private key. Write the passphrase down.</p>
     <ErrorMessage {error} />
     <button type="button" class="primary" onclick={create} disabled={busy}>{busy ? 'Creating…' : 'Create key pair'}</button>
@@ -144,6 +149,7 @@
     <div class="key chosen">
       {#each pair.info.userIDs as uid (uid)}<div class="uid">{uid}</div>{/each}
       <code class="fingerprint">{pair.info.fingerprint}</code>
+      <FingerprintQR fingerprint={pair.info.fingerprint} />
     </div>
 
     <h3>Save your private key</h3>
@@ -168,7 +174,7 @@
         So others can find your key by e-mail address.
         <Info label="About publishing">
           Your browser sends the public key directly to keys.openpgp.org, which then mails a verification link to the
-          address. Only after you click it is the address findable. keys.openpgp.org sees your IP address. You can remove
+          e-mail address. Only after you click it can others find your key. keys.openpgp.org sees your IP address. You can remove
           the key there later.
         </Info>
       </p>

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import Logo from './components/Logo.svelte';
   import { parseRoute } from './lib/route.ts';
   import { releasesUrl, verifyUrl, version } from './lib/release.ts';
   import Send from './pages/Send.svelte';
@@ -24,10 +25,13 @@
     window.addEventListener('hashchange', update);
     return () => window.removeEventListener('hashchange', update);
   });
+  // Pages that are forms in cards (one per step) have their own cards;
+  // every other page is one card as a whole.
+  const ownCards = ['send', 'receive', 'inbox-upload', 'inbox-manage'];
 </script>
 
 <header>
-  <a href="#/" class="brand">FileBunny</a>
+  <a href="#/" class="brand"><Logo />FileBunny</a>
   <span class="tagline">Encrypt in your browser with OpenPGP, share anonymously.</span>
   <!-- Someone sending to an upload link has no task to choose; the
        management page belongs to Receive. -->
@@ -40,7 +44,7 @@
   {/if}
 </header>
 
-<main>
+<main class:card={!ownCards.includes(route.page)}>
   {#if route.page === 'send'}
     <Send />
   {:else if route.page === 'download'}

@@ -1,8 +1,14 @@
 <script lang="ts">
+  import { onMount } from 'svelte';
   import { ApiError, deleteFile } from '../lib/api.ts';
   import ErrorMessage from '../components/ErrorMessage.svelte';
 
   let { id, token }: { id: string; token: string } = $props();
+
+  // The token stays in this page only: take it out of the address bar, so
+  // it does not linger in this tab's history entry, session restore or a
+  // shared screen. (The browser's history list may still have the visit.)
+  onMount(() => history.replaceState(null, '', `${location.pathname}${location.search}#/`));
 
   let status = $state<'ready' | 'busy' | 'deleted'>('ready');
   let error = $state('');
@@ -28,6 +34,7 @@
   <p><a href="#/">Share something new</a></p>
 {:else}
   <p>This deletes the encrypted file right away. The share link stops working.</p>
+  <p class="note">The delete link was removed from the address bar; keep your own copy if you need it later.</p>
   <ErrorMessage {error} />
   <button type="button" class="danger" onclick={remove} disabled={status === 'busy'}>Delete now</button>
 {/if}

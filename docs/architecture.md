@@ -48,6 +48,24 @@ decrypted file names are stripped of directories and control characters.
 `frontend/tests/gpg.test.ts` checks both directions against `gpg` with
 the test keys in `testdata/keys` (CI requires gpg).
 
+### Algorithms
+
+OpenPGP.js 6 with its defaults, except the encryption settings above.
+
+| | Behavior | Risk and choice |
+|---|---|---|
+| Our messages | AES-256, SEIPDv1 + MDC, no AEAD | MDC (SHA-1 based) is still sound for integrity; AEAD needs RFC 9580, which gpg 2.4 cannot read. Decryption is all or nothing (`allowUnauthenticatedStream: false`), so no partial plaintext is shown |
+| Passwords | Iterated, salted S2K (about 65 MB of hashing per guess) | Anyone with the link can guess offline; Argon2 needs v6 messages. The page warns about passwords under 12 characters; Generate gives 100 bits |
+| Recipients' cipher preferences | Fall back to AES-128, never to an old cipher | — |
+| Keys we encrypt to | RSA under 2048 bits, DSA, ElGamal and secp256k1 are refused; the page says why and suggests a newer key | — |
+| Generated keys | Curve25519 (v4), passphrase required | gpg compatible |
+| Messages without integrity protection (SED) | Refused (`allowUnauthenticatedMessages: false`) | Prevents downgrade and EFAIL-style attacks |
+| Old ciphers when decrypting (CAST5, 3DES, Blowfish, Twofish) | Accepted, for messages made elsewhere | FileBunny never makes them; their weakness matters only at very large volumes |
+| Quantum computers | Public-key encryption (RSA, Curve25519) could be broken by a large quantum computer; AES-256 holds | No post-quantum OpenPGP that gpg reads yet (OpenPGP.js 6.3.2 has no ML-KEM). TLS to the server already uses X25519MLKEM768 |
+
+A future option, not built: an RFC 9580 mode (AEAD, Argon2) for
+recipients who use OpenPGP.js or Sequoia instead of gpg 2.4.
+
 ## Frontend
 
 Svelte without a router library. Routes live in the URL fragment
@@ -64,6 +82,21 @@ script and one stylesheet, without lazy-loaded chunks or workers, so
   downloaded once and kept in the page, so a wrong password can be retried.
   Text is shown as text, files are offered with `<a download>` from a
   `blob:` URL of type `application/octet-stream`.
+- **Send in steps** (`Step.svelte`): only the current step is open, with
+  "Step n of 3", a small bar, Back and Next; earlier steps show a summary
+  and Change; later steps are not shown. Step 3 (storage, expiry,
+  downloads) has defaults and the submit button, so everyone sees them.
+  Enter means Next until the last step. Hidden steps keep their fields.
+- **Fingerprints as QR codes** (`OPENPGP4FPR:<fingerprint>`, readable by
+  OpenPGP apps such as OpenKeychain), drawn as one SVG path from
+  `qrcode-generator` (MIT, no dependencies, pinned): no HTML strings,
+  nothing loaded.
+- **Look:** one stylesheet with color tokens, a light and a dark version
+  that follow the system setting (`prefers-color-scheme`), system fonts
+  only. The logo is an inline SVG component, so the single HTML file needs
+  no extra asset and the CSP stays `style-src 'self'`, `img-src 'self' data:`.
+
+Runtime dependencies: `openpgp` and `qrcode-generator`, both pinned.
 
 ## Public keys
 
@@ -383,10 +416,10 @@ after a crash).
   that the server sends the key the link names. Send upload links
   through a channel you trust.
 - **The server knows whose upload link it is** when the key's user IDs
-  contain a name or address. A generated key without them avoids that.
+  contain a name or e-mail address. A generated key without them avoids that.
 - **Lookups revealing who you write to.** keys.openpgp.org sees your IP
-  address and the address you look up; with WKD on, FileBunny's server
-  sees the address (not stored). Loading the key from your device avoids
+  address and the e-mail address you look up; with WKD on, FileBunny's
+  server sees the e-mail address (not stored). Loading the key from your device avoids
   both.
 - **External storage** you chose: the service can delete the file at any
   time, and with the direct route it sees your IP address and so does

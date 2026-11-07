@@ -15,6 +15,7 @@
   import KeyGen from '../components/KeyGen.svelte';
   import KeyPicker from '../components/KeyPicker.svelte';
   import StorageStatus from '../components/StorageStatus.svelte';
+  import FingerprintQR from '../components/FingerprintQR.svelte';
 
   const expiryOptions = [
     { value: '24h', label: '1 day' },
@@ -140,6 +141,7 @@
         <div class="key chosen">
           {#each key.userIDs as uid (uid)}<div class="uid">{uid}</div>{/each}
           <code class="fingerprint">{key.fingerprint}</code>
+          <FingerprintQR fingerprint={key.fingerprint} />
           {#if keySource === 'new'}<div class="note">New key pair; you saved the private key.</div>{/if}
         </div>
         <button type="button" onclick={changeKey}>Change key</button>

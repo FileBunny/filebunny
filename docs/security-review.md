@@ -178,7 +178,9 @@ IDs, tokens or addresses.
   which is worse. The download page warns before the last download.
 - **Ciphertext size reveals the approximate plaintext size.** No padding.
 - **The delete link is in the browser history** of whoever opens it (in
-  the fragment, so never in server or proxy logs).
+  the fragment, so never in server or proxy logs). *Phase 9:* the delete page takes the token
+  out of the address bar at once; the browser's history list may still
+  have the visit.
 - **Private keys pasted into the download page** live in the page's memory
   until it is closed; browser extensions with page access can read them.
   The page never stores or uploads them.
@@ -253,7 +255,8 @@ failure, and proxying it would show the server every looked-up address.
   server could record them. The UI says so; the option is off by default.
 - **keys.openpgp.org sees the visitor's IP and the address** looked up.
   The UI says so before the lookup.
-- **No IDNA:** internationalized domains must be entered in punycode.
+- **No IDNA:** internationalized domains must be entered in punycode. *Phase 9:* the browser converts the domain to
+  punycode for WKD and matches user IDs in either form.
 - **A matching WKD key is not proof** of the recipient's identity, only
   that the domain publishes it. The UI asks users to compare fingerprints
   through another channel.
@@ -511,6 +514,43 @@ in memory only. Nothing about addresses is written to disk or logs.
   covers the files in `SHA256SUMS`.
 - **Scheduled workflows pause** after 60 days without repository
   activity.
+
+## Phase 9 (website and UX)
+
+| | |
+|---|---|
+| Date | 2026-11-07 |
+| Scope | Branch `phase-9`: send page in steps, short-password warnings, reasons for unusable keys, algorithm overview, internationalized domains for WKD, the delete token out of the address bar, fingerprints as QR codes, accessibility fixes, the new look (light and dark) and clearer wording |
+| Reviewer | Claude Code (AI-assisted), during development |
+
+Frontend only: no backend, API, CSP or deploy changes.
+
+### New attack surface
+
+| Area | Measure | Check |
+|---|---|---|
+| New dependency `qrcode-generator` 2.0.4 | MIT, no dependencies of its own, pinned with its lockfile hash; it only gets a validated fingerprint (40 or 64 hex) and returns modules, drawn as one SVG path, so no HTML strings | `qr.ts`, `qr.test.ts`, `npm audit` |
+| Internationalized domains (WKD) | The browser's URL parser converts the domain to punycode; the backend still validates the address strictly and keeps its SSRF protection | `keylookup.test.ts`, backend `wkd` tests |
+| Hidden steps keep their fields | Only hidden with `hidden`, never sent elsewhere; nothing leaves the browser before "Encrypt and upload" | `Send.svelte` |
+| New look | CSS and an inline SVG logo only; no fonts, images or other assets, no inline styles, so the strict CSP and `make single` are unchanged | `grep style=`, `make repro` |
+
+### Residual risks
+
+- **Password-protected files can be guessed offline** by anyone with the
+  link; the iterated S2K slows guessing but does not stop it. Short
+  passwords get a warning, not a block.
+- **No AEAD, no Argon2:** kept for gpg 2.4 compatibility (see
+  architecture.md, Algorithms).
+- **Not quantum-resistant** in public-key mode: a large quantum computer
+  could decrypt stored copies ("harvest now, decrypt later"). Password
+  mode relies on AES-256 and the password. The About page says so.
+- **The QR code shows the fingerprint, not the key.** A scan proves which
+  fingerprint the page shows; whether it is the recipient's still needs
+  comparing with them.
+- **`npm audit` reports `deepmerge`** (GHSA-gcqx-w48m-w2h4, low, no fix
+  yet) through `@sveltejs/vite-plugin-svelte`. Build time only: it merges
+  this repository's own Vite config, never input from visitors, and is not
+  in the built page (`npm audit --omit=dev`: 0). Update when a fix lands.
 
 ## How to re-run the checks
 

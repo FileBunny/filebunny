@@ -4,12 +4,13 @@
   // so a server (or database) that swapped the key is caught.
   import { onMount } from 'svelte';
   import { ApiError, inboxInfo, uploadToInbox, type InboxInfo } from '../lib/api.ts';
-  import { encrypt, readPublicKeys, type KeyInfo } from '../lib/crypto.ts';
+  import { encrypt, readPublicKeys, unusableText, type KeyInfo } from '../lib/crypto.ts';
   import { linkFingerprint } from '../lib/route.ts';
   import { formatBytes, formatDate } from '../lib/format.ts';
   import { storageLabel } from '../lib/storage.ts';
   import ErrorMessage from '../components/ErrorMessage.svelte';
   import Info from '../components/Info.svelte';
+  import FingerprintQR from '../components/FingerprintQR.svelte';
 
   let { id, fingerprint }: { id: string; fingerprint: string } = $props();
 
@@ -43,7 +44,7 @@
         keyProblem =
           'The key the server sent does not match this link. Do not send anything, and tell the person who gave you the link.';
       } else if (!match.canEncrypt) {
-        keyProblem = 'The key of this upload link can no longer be used (expired or revoked).';
+        keyProblem = `The key of this upload link cannot be used: ${unusableText(match.unusable)}.`;
       } else {
         key = match;
       }
@@ -128,6 +129,7 @@
     <div class="key chosen">
       {#each key.userIDs as uid (uid)}<div class="uid">{uid}</div>{/each}
       <code class="fingerprint">{key.fingerprint}</code>
+      <FingerprintQR fingerprint={key.fingerprint} />
     </div>
     <p class="note">
       The key matches the fingerprint in this link.
@@ -171,6 +173,7 @@
       </fieldset>
       <ErrorMessage error={missing || error} />
       {#if busy}
+        {#if sent === 0}<p class="note" role="status">Encrypting and preparing the upload…</p>{/if}
         <progress max={size} value={Math.min(sent, size)}></progress>
         <button type="button" onclick={() => controller?.abort()}>Cancel</button>
       {:else}

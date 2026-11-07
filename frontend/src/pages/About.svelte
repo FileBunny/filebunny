@@ -28,7 +28,7 @@
   <li><strong>Leaked links:</strong> a link never contains the password or a key.</li>
   <li>
     <strong>Tracking:</strong> no cookies, no trackers, no scripts or fonts from elsewhere. IP addresses are not stored or
-    logged; limits against abuse use a hash of your address that changes every day and is only kept in memory.
+    logged; limits against abuse use a hash of your IP address that changes every day and is only kept in memory.
   </li>
 </ul>
 
@@ -39,7 +39,15 @@
     compromised server could send code that reads what you type. The downloadable single HTML file and reproducible
     builds make that harder to hide, not impossible.
   </li>
-  <li><strong>Weak passwords:</strong> anyone with the link can try to guess the password offline.</li>
+  <li>
+    <strong>Guessing passwords:</strong> anyone with the link to a password-protected file can try passwords offline, as
+    often as they like. Short or common passwords will be found. Use Generate, or a long passphrase.
+  </li>
+  <li>
+    <strong>Future quantum computers:</strong> the public-key encryption in OpenPGP today could be broken by a large
+    quantum computer. Someone who keeps a copy of a file encrypted to a public key might then open it years from now.
+    Password-protected files do not rely on public-key encryption, but they are only as strong as their password.
+  </li>
   <li>
     <strong>Metadata:</strong> the server sees the size of the encrypted data and when it is uploaded and downloaded.
     Your network and the hosting provider can see that you connect.
@@ -50,7 +58,7 @@
   </li>
   <li>
     <strong>External storage you choose:</strong> a file stored directly at an external service of your choice is outside FileBunny's
-    control, and that service sees your address.
+    control, and that service sees your IP address.
   </li>
   <li><strong>Infected devices</strong> of sender or recipient, and recipients who pass the link and password on.</li>
 </ul>

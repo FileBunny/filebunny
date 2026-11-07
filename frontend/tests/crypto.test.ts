@@ -148,3 +148,35 @@ test('generateKeyPair: protected private key, user IDs as given', async () => {
   assert.deepEqual((await generateKeyPair({ name: '', email: 'a@example.org', passphrase: 'p' })).info.userIDs, ['<a@example.org>']);
   await assert.rejects(generateKeyPair({ name: 'x', email: '', passphrase: '' }));
 });
+
+test('readPublicKeys says why a key cannot encrypt', async () => {
+  const openpgp = await import('openpgp');
+  const reason = async (armored: string) => (await readPublicKeys(armored))[0]!.unusable;
+
+  // Old: RSA under 2048 bits (generated with the limit lowered, as old tools did).
+  const old = await openpgp.generateKey({
+    type: 'rsa',
+    rsaBits: 1024,
+    userIDs: [{ name: 'Old' }],
+    format: 'armored',
+    config: { minRSABits: 1024 },
+  });
+  assert.equal(await reason(old.publicKey), 'old-algorithm');
+
+  const created = new Date(Date.now() - 2 * 86400_000);
+  const expired = await openpgp.generateKey({
+    userIDs: [{ name: 'Expired' }],
+    date: created,
+    keyExpirationTime: 3600,
+    format: 'armored',
+  });
+  assert.equal(await reason(expired.publicKey), 'expired');
+
+  const fresh = await openpgp.generateKey({ userIDs: [{ name: 'Revoked' }], format: 'object' });
+  const { publicKey: revoked } = await openpgp.revokeKey({ key: fresh.privateKey, format: 'armored' });
+  assert.equal(await reason(revoked), 'revoked');
+
+  const [usable] = await readPublicKeys(testKey('alice.pub.asc'));
+  assert.equal(usable!.canEncrypt, true);
+  assert.equal(usable!.unusable, undefined);
+});

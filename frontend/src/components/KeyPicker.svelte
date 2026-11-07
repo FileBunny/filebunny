@@ -6,7 +6,7 @@
   // recipient the tabs fold away. User IDs come from keys and are
   // untrusted: they are only ever rendered as text.
   import { onMount, tick } from 'svelte';
-  import { readPublicKeys, type KeyInfo } from '../lib/crypto.ts';
+  import { readPublicKeys, unusableText, type KeyInfo } from '../lib/crypto.ts';
   import {
     checkKeyWithWkd,
     looksLikeEmail,
@@ -22,6 +22,7 @@
   import { copyText } from '../lib/format.ts';
   import ErrorMessage from './ErrorMessage.svelte';
   import Info from './Info.svelte';
+  import FingerprintQR from './FingerprintQR.svelte';
 
   // single: exactly one key (your own, for an upload link), no "add another".
   let {
@@ -115,8 +116,9 @@
       return [];
     }
     const usable = infos.filter((k) => k.canEncrypt);
-    if (usable.length < infos.length) {
-      localError = `${usable.length === 0 ? 'This key' : 'One of these keys'} cannot be used for encryption (expired, revoked or sign-only).`;
+    const bad = infos.find((k) => !k.canEncrypt);
+    if (bad) {
+      localError = `${usable.length === 0 ? 'This key' : 'One of these keys'} cannot be used: ${unusableText(bad.unusable)}.`;
     }
     return usable;
   }
@@ -296,6 +298,7 @@
     <div class="key chosen">
       {#each r.info.userIDs as uid (uid)}<div class="uid">{uid}</div>{/each}
       <code class="fingerprint">{r.info.fingerprint}</code>
+      <FingerprintQR fingerprint={r.info.fingerprint} />
       <div class="row actions">
         <span class="note">from {r.source}</span>
         <button type="button" class="small" onclick={() => copy(r.info.fingerprint)}>
@@ -334,8 +337,8 @@
       <Info label="Why compare the fingerprint?">
         A keyserver or a domain can hand out a key that is not the recipient's. Only the fingerprint, checked with the
         recipient in person or by phone, proves the key is theirs.
-        {#if wkdOffered}The domain check is optional: it asks the recipient's domain through FileBunny, which then sees
-          the address (not logged or stored).{/if}
+        {#if wkdOffered}The domain check (WKD) is optional: it asks the recipient's domain through FileBunny, which then
+          sees the recipient's e-mail address (not logged or stored).{/if}
       </Info>
     </p>{/if}
   {/if}
@@ -415,7 +418,7 @@
           </span>
         </label>
         <p class="note">
-          keys.openpgp.org sees your IP address and the address you look up.
+          keys.openpgp.org sees your IP address and the e-mail address you look up.
           <Info label="About the keyserver lookup">
             Your browser asks keys.openpgp.org directly, so FileBunny does not see who you look up. keys.openpgp.org only
             publishes addresses it has verified by e-mail; that shows the address is real, not who holds the key.
@@ -424,10 +427,10 @@
         {#if wkdOffered}
           <p class="checkbox">
             <label><input type="checkbox" bind:checked={useWkd} /> Also ask the recipient's domain (WKD)</label>
-            <span class="note">– FileBunny then sees the address.</span>
+            <span class="note">– FileBunny then sees the recipient's e-mail address.</span>
             <Info label="About WKD">
               With WKD the key comes from the recipient's own domain, for example example.org for bob@example.org. Your
-              browser cannot reach every domain, so FileBunny fetches it and sees the address; it does not log or store
+              browser cannot reach every domain, so FileBunny fetches it and sees the e-mail address; it does not log or store
               it. Most domains publish no keys.
             </Info>
           </p>

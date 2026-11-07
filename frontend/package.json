@@ -24,6 +24,7 @@
     "vite": "8.3.5"
   },
   "dependencies": {
-    "openpgp": "6.3.2"
+    "openpgp": "6.3.2",
+    "qrcode-generator": "2.0.4"
   }
 }
