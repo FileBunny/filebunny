@@ -251,6 +251,9 @@ docker compose up -d --build
 With the release images: `scripts/deploy.sh vX.Y.Z` (see
 [release.md](release.md#deploying-a-release)).
 
+Updating from v0.9.0 or older: the network now has IPv6, so run
+`docker compose down` once before `up` (data volumes stay).
+
 Uploaded files and certificates live in Docker volumes (`data`,
 `caddy_data`) and survive updates. Database migrations run automatically
 at startup. The backend refuses to start on a database that a newer

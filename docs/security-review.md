@@ -570,6 +570,8 @@ Frontend only: no backend, API, CSP or deploy changes.
 | Container logs | Capped at 3 × 10 MB per container, so they cannot fill the disk | `compose.yaml` |
 | Certificate source | `FILEBUNNY_TLS` picks a Caddyfile snippet; an unknown value stops Caddy instead of falling back | `caddy validate` |
 
+| IPv6 visitors | **Finding:** on an IPv4-only Compose network Docker passes IPv6 visitors through its userland proxy, so Caddy saw the proxy's address and all IPv6 visitors shared one rate limit (v0.9.0 and older). The network now has IPv6 and Docker forwards them with their own address | tested on a VM: IPv6 to the site 200; smoke test |
+
 ### Residual risks
 
 - **The compose files come from the operator's checkout** (at the tag's
