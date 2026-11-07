@@ -1,0 +1,9 @@
+# Sets up a Debian 13 server for FileBunny: admin user, SSH, firewall with
+# egress filtering, fail2ban, automatic updates, Docker, and the deploy
+# directory for scripts/deploy.sh. Idempotent: run it again after changing
+# a variable. See docs/self-hosting.md (Server setup with Ansible).
+# Only ansible.builtin modules: ansible-core is enough.
+- name: FileBunny server
+  hosts: all
+  become: true
+  roles: [filebunny]

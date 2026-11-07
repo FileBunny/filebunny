@@ -1,0 +1,143 @@
+- name: Check the variables
+  ansible.builtin.assert:
+    that:
+      - ansible_facts.distribution == "Debian" and ansible_facts.distribution_major_version == "13"
+      - filebunny_admin_keys | length > 0
+      - filebunny_admin is match('^[a-z][a-z0-9-]{0,30}$')
+      - filebunny_tls in ['auto', 'internal']
+      - filebunny_domain is match('^[a-z0-9.-]+$')
+    fail_msg: Debian 13 only; set filebunny_admin_keys; filebunny_tls is auto or internal.
+
+- name: Debian sources over HTTPS only (outgoing port 80 stays closed)
+  ansible.builtin.template: {src: debian.sources.j2, dest: /etc/apt/sources.list.d/debian.sources, mode: "0644"}
+- name: No other Debian sources
+  ansible.builtin.file: {path: "{{ item }}", state: absent}
+  loop: [/etc/apt/sources.list, /etc/apt/mirrors]
+- name: Upgrade the system
+  ansible.builtin.apt: {update_cache: true, upgrade: dist}
+- name: Base packages
+  ansible.builtin.apt:
+    name: [nftables, fail2ban, python3-systemd, unattended-upgrades, systemd-timesyncd, curl, ca-certificates, gpg]
+    state: present
+
+- name: Admin user
+  ansible.builtin.user: {name: "{{ filebunny_admin }}", shell: /bin/bash, groups: [sudo], append: true}
+- name: Admin's .ssh directory
+  ansible.builtin.file: {path: "/home/{{ filebunny_admin }}/.ssh", state: directory, owner: "{{ filebunny_admin }}", mode: "0700"}
+- name: Admin SSH keys
+  ansible.builtin.copy:
+    dest: "/home/{{ filebunny_admin }}/.ssh/authorized_keys"
+    content: "{{ filebunny_admin_keys | join('\n') }}\n"
+    owner: "{{ filebunny_admin }}"
+    group: "{{ filebunny_admin }}"
+    mode: "0600"
+# The admin is in the docker group, which is root in practice, so a
+# sudo password would add nothing.
+- name: Sudo without password for the admin
+  ansible.builtin.copy:
+    dest: /etc/sudoers.d/filebunny-admin
+    content: "{{ filebunny_admin }} ALL=(ALL) NOPASSWD:ALL\n"
+    mode: "0440"
+    validate: visudo -cf %s
+
+- name: SSH hardening
+  ansible.builtin.template: {src: sshd.conf.j2, dest: /etc/ssh/sshd_config.d/10-filebunny.conf, mode: "0644", validate: sshd -t -f %s}
+
+- name: Kernel settings
+  ansible.builtin.template: {src: sysctl.conf.j2, dest: /etc/sysctl.d/90-filebunny.conf, mode: "0644"}
+  notify: Apply sysctl
+
+- name: Journald drop-in directory
+  ansible.builtin.file: {path: /etc/systemd/journald.conf.d, state: directory, mode: "0755"}
+- name: Journal on disk, capped (SSH and firewall logs for checking the server)
+  ansible.builtin.template: {src: journald.conf.j2, dest: /etc/systemd/journald.conf.d/90-filebunny.conf, mode: "0644"}
+  notify: Restart journald
+
+- name: Time sync
+  ansible.builtin.systemd_service: {name: systemd-timesyncd, enabled: true, state: started}
+
+- name: Swap file
+  ansible.builtin.command: >-
+    sh -c 'fallocate -l {{ filebunny_swap_mb }}M /swapfile && chmod 600 /swapfile && mkswap /swapfile'
+  args: {creates: /swapfile}
+  when: filebunny_swap_mb | int > 0
+- name: Swap in fstab
+  ansible.builtin.lineinfile: {path: /etc/fstab, line: "/swapfile none swap sw 0 0"}
+  when: filebunny_swap_mb | int > 0
+- name: Swap on
+  ansible.builtin.command: swapon --all
+  changed_when: false
+  when: filebunny_swap_mb | int > 0
+
+- name: Firewall (nftables, own table; Docker's tables stay)
+  ansible.builtin.template: {src: nftables.conf.j2, dest: /etc/nftables.conf, mode: "0755", validate: nft -c -f %s}
+- name: Firewall on at boot
+  ansible.builtin.systemd_service: {name: nftables, enabled: true, state: started}
+
+- name: fail2ban for SSH (nftables, journal)
+  ansible.builtin.template: {src: jail.local.j2, dest: /etc/fail2ban/jail.d/filebunny.local, mode: "0644"}
+  notify: Restart fail2ban
+- name: fail2ban on
+  ansible.builtin.systemd_service: {name: fail2ban, enabled: true, state: started}
+
+- name: Automatic updates (Debian, security, Docker), reboot when needed
+  ansible.builtin.template: {src: 52filebunny-upgrades.j2, dest: /etc/apt/apt.conf.d/52filebunny-upgrades, mode: "0644"}
+- name: Automatic updates on
+  ansible.builtin.copy:
+    dest: /etc/apt/apt.conf.d/20auto-upgrades
+    content: |
+      APT::Periodic::Update-Package-Lists "1";
+      APT::Periodic::Unattended-Upgrade "1";
+    mode: "0644"
+
+- name: Docker's signing key
+  ansible.builtin.get_url: {url: https://download.docker.com/linux/debian/gpg, dest: /etc/apt/keyrings/docker.asc, mode: "0644"}
+# Fingerprint from https://docs.docker.com/engine/install/debian/
+- name: Docker's key has the published fingerprint
+  ansible.builtin.shell: >-
+    set -o pipefail &&
+    gpg --show-keys --with-colons /etc/apt/keyrings/docker.asc | awk -F: '/^fpr/ {print $10; exit}'
+  args: {executable: /bin/bash}
+  register: docker_fpr
+  changed_when: false
+  failed_when: docker_fpr.stdout != "9DC858229FC7DD38854AE2D88D81803C0EBFCD88"
+- name: Docker repository
+  ansible.builtin.deb822_repository:
+    name: docker
+    uris: https://download.docker.com/linux/debian
+    suites: trixie
+    components: stable
+    signed_by: /etc/apt/keyrings/docker.asc
+- name: Docker directory
+  ansible.builtin.file: {path: /etc/docker, state: directory, mode: "0755"}
+- name: Docker settings
+  ansible.builtin.template: {src: daemon.json.j2, dest: /etc/docker/daemon.json, mode: "0644"}
+  notify: Restart docker
+- name: Docker
+  ansible.builtin.apt:
+    update_cache: true
+    name: [docker-ce, docker-ce-cli, containerd.io, docker-compose-plugin]
+- name: Admin may run Docker (deploy.sh)
+  ansible.builtin.user: {name: "{{ filebunny_admin }}", groups: [docker], append: true}
+
+- name: Deploy directory
+  ansible.builtin.file: {path: "{{ filebunny_dir }}", state: directory, owner: "{{ filebunny_admin }}", group: "{{ filebunny_admin }}", mode: "0750"}
+- name: Operator settings (.env)
+  ansible.builtin.template: {src: env.j2, dest: "{{ filebunny_dir }}/.env", owner: "{{ filebunny_admin }}", group: "{{ filebunny_admin }}", mode: "0600"}
+- name: SMTP directory
+  ansible.builtin.file: {path: /etc/filebunny, state: directory, mode: "0755"}
+  when: filebunny_smtp_file | length > 0
+- name: SMTP relays, readable by the backend's user only (65532)
+  ansible.builtin.copy: {src: "{{ filebunny_smtp_file }}", dest: /etc/filebunny/smtp.json, owner: "65532", group: "65532", mode: "0400"}
+  when: filebunny_smtp_file | length > 0
+  no_log: true
+
+# Always, not as a handler: a run that was interrupted after changing these
+# files would otherwise leave the old rules active, and the next run would
+# see nothing to change. Reloading keeps open sessions.
+- name: Apply the firewall
+  ansible.builtin.systemd_service: {name: nftables, state: reloaded}
+  changed_when: false
+- name: Apply the SSH settings (from now on only the admin user can log in)
+  ansible.builtin.systemd_service: {name: ssh, state: reloaded}
+  changed_when: false

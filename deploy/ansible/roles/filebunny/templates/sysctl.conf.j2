@@ -1,0 +1,15 @@
+# Managed by deploy/ansible.
+# SYN floods: answer with cookies instead of filling the backlog.
+net.ipv4.tcp_syncookies = 1
+# No ICMP redirects or source routing: nobody may change our routes.
+net.ipv4.conf.all.accept_redirects = 0
+net.ipv4.conf.default.accept_redirects = 0
+net.ipv6.conf.all.accept_redirects = 0
+net.ipv6.conf.default.accept_redirects = 0
+net.ipv4.conf.all.send_redirects = 0
+net.ipv4.conf.all.accept_source_route = 0
+net.ipv6.conf.all.accept_source_route = 0
+# Kernel addresses and the kernel log only for root (harder local exploits).
+kernel.kptr_restrict = 2
+kernel.dmesg_restrict = 1
+kernel.unprivileged_bpf_disabled = 1

@@ -74,6 +74,7 @@ frontend/tests            node --test, incl. gpg interoperability
 testdata/keys             public test keypairs, never for real data
 deploy/Caddyfile          TLS, CSP, /api proxy, log filter
 deploy/well-known         security.txt of filebunny.eu (self-hosters replace it)
+deploy/ansible            server setup: SSH, firewall with egress filtering, fail2ban, updates, Docker
 scripts/repro-check.sh    builds twice, compares hashes
 scripts/smoke-test.sh     end-to-end test of the Compose stack, incl. log privacy
 scripts/pow.py            solves a proof-of-work challenge (curl users, smoke test)

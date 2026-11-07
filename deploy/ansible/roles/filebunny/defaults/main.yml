@@ -1,0 +1,15 @@
+# Defaults; set your own in the inventory (they take precedence).
+filebunny_admin: admin
+filebunny_admin_keys: []
+filebunny_domain: localhost
+filebunny_tls: auto
+filebunny_www_redirect: false
+filebunny_max_total_size: 10737418240
+filebunny_env: {}             # further FILEBUNNY_* settings for .env
+filebunny_dir: /opt/filebunny
+filebunny_web_allow: []       # empty: the site is open to everyone
+filebunny_smtp_file: ""       # local JSON file with the relays; empty: no mail
+filebunny_smtp_ports: [465, 587]
+filebunny_swap_mb: 1024
+filebunny_reboot_time: "04:30"
+filebunny_ssh_port: 22

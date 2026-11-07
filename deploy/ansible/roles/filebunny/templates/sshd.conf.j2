@@ -1,0 +1,17 @@
+# Managed by deploy/ansible. sshd uses the first value it reads, and this
+# file comes before the other drop-ins.
+Port {{ filebunny_ssh_port }}
+PermitRootLogin no
+PasswordAuthentication no
+KbdInteractiveAuthentication no
+PubkeyAuthentication yes
+AuthenticationMethods publickey
+AllowUsers {{ filebunny_admin }}
+MaxAuthTries 3
+LoginGraceTime 20
+X11Forwarding no
+AllowAgentForwarding no
+AllowTcpForwarding no
+PermitTunnel no
+# Logs the key fingerprint of each login, to check who logged in.
+LogLevel VERBOSE

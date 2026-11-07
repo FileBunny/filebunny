@@ -1,0 +1,6 @@
+# Managed by deploy/ansible. The journal holds SSH logins, fail2ban and
+# firewall drops (the containers log no visitor addresses); kept on disk
+# to check the server afterwards, capped so it cannot fill the disk.
+[Journal]
+Storage=persistent
+SystemMaxUse=500M

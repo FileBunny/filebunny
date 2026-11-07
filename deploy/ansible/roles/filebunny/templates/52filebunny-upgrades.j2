@@ -1,0 +1,12 @@
+// Managed by deploy/ansible. Security and point-release updates for
+// Debian and Docker; reboots at a fixed time when an update needs it.
+Unattended-Upgrade::Origins-Pattern {
+	"origin=Debian,codename=${distro_codename},label=Debian";
+	"origin=Debian,codename=${distro_codename}-updates";
+	"origin=Debian,codename=${distro_codename},label=Debian-Security";
+	"origin=Debian,codename=${distro_codename}-security,label=Debian-Security";
+	"origin=Docker,label=Docker CE";
+};
+Unattended-Upgrade::Remove-Unused-Dependencies "true";
+Unattended-Upgrade::Automatic-Reboot "true";
+Unattended-Upgrade::Automatic-Reboot-Time "{{ filebunny_reboot_time }}";

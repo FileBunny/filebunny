@@ -52,6 +52,63 @@ returns an ID. Optionally run the end-to-end test on the server, from the
 repository directory: `BASE_URL=https://$DOMAIN scripts/smoke-test.sh`.
 It stops and starts the backend once to check the error log.
 
+## Server setup with Ansible
+
+`deploy/ansible` sets up a fresh Debian 13 server for FileBunny. It only
+uses `ansible.builtin`, so `ansible-core` on your own machine is enough;
+nothing is installed on the server for Ansible beyond Python. It is
+idempotent: change a variable and run it again.
+
+What it does:
+
+- an admin user with your SSH key(s) and sudo; SSH by key only, no root,
+  `AllowUsers` the admin, `LogLevel VERBOSE` (key fingerprints in the
+  log), fail2ban on SSH;
+- a firewall (nftables, table `inet filebunny`) with **egress filtering**:
+  the server may only open DNS, NTP, HTTPS and ICMP; the containers only
+  HTTPS, DNS and the SMTP ports of your relays (`filebunny_smtp_ports`,
+  default 465 and 587). Everything else is dropped and logged (rate
+  limited). Docker's and fail2ban's tables are left alone: the file has
+  no `flush ruleset`;
+- Debian sources over HTTPS only, automatic updates for Debian and
+  Docker with a reboot at `filebunny_reboot_time` when one needs it;
+- Docker from Docker's repository (key checked against its published
+  fingerprint), with log caps, `no-new-privileges`, `live-restore` and
+  without the userland proxy, so visitors reach Caddy with their own
+  address over IPv4 and IPv6;
+- time sync, a swap file, a few kernel settings, a capped persistent
+  journal;
+- `/opt/filebunny/.env` from your variables for `scripts/deploy.sh`, and
+  the SMTP file (`filebunny_smtp_file`, kept outside the repository).
+
+Copy `deploy/ansible/inventory.example.yml` **outside the repository**,
+fill it in and run:
+
+```sh
+ansible-playbook -i ~/filebunny-inventory.yml deploy/ansible/site.yml
+```
+
+The first run logs in as the provider's initial user (usually `root`).
+After it, only the admin user can log in: set `ansible_user` to it.
+Then deploy a release with `scripts/deploy.sh --host admin@server vX.Y.Z`.
+
+A closed test: `filebunny_web_allow` (addresses and networks, IPv4 and
+IPv6) lets only those reach ports 80 and 443; SSH stays open. Let's
+Encrypt checks the domain from addresses nobody knows in advance, so for
+the first certificate run once with the list empty, wait until Caddy has
+it (`docker compose --project-name filebunny logs web`), and run again
+with the list. Caddy renews about a month before expiry; repeat that if
+the test lasts that long.
+
+What the host logs: SSH logins and failures (with the address that
+tried), fail2ban bans and dropped outgoing connections (the server's own
+destinations). Never visitors' web traffic: the firewall does not log it
+and Caddy has no access log.
+
+`scripts/test-vm.sh up` starts a local VM (libvirt) sized like a small
+VPS to try all this first; set `filebunny_tls: internal` and an internal
+name such as `filebunny.home.arpa` there.
+
 ## Configuration
 
 All settings are environment variables; `compose.yaml` passes them to the
@@ -223,7 +280,8 @@ FileBunny stores no IP addresses. Keep it that way on your server:
   containers print no addresses. `compose.yaml` caps them at three files
   of 10 MB per container; keep a cap if you change the log driver.
 - Firewall or fail2ban logs on the host may contain addresses; decide
-  consciously whether you need them.
+  consciously whether you need them. `deploy/ansible` logs SSH (logins
+  are not visitors) and dropped outgoing connections, never web traffic.
 - With the WKD proxy on, your server sees which e-mail addresses are
   looked up (not by whom). It never logs them; keep it that way, and
   switch it off (`FILEBUNNY_WKD_PROXY=false`) if you prefer not to see

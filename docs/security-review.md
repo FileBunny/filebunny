@@ -570,13 +570,22 @@ Frontend only: no backend, API, CSP or deploy changes.
 | Container logs | Capped at 3 × 10 MB per container, so they cannot fill the disk | `compose.yaml` |
 | Certificate source | `FILEBUNNY_TLS` picks a Caddyfile snippet; an unknown value stops Caddy instead of falling back | `caddy validate` |
 
-| IPv6 visitors | **Finding:** on an IPv4-only Compose network Docker passes IPv6 visitors through its userland proxy, so Caddy saw the proxy's address and all IPv6 visitors shared one rate limit (v0.9.0 and older). The network now has IPv6 and Docker forwards them with their own address | tested on a VM: IPv6 to the site 200; smoke test |
+| IPv6 visitors | **Finding:** on an IPv4-only Compose network Docker passes IPv6 visitors through its userland proxy, so Caddy saw the proxy's address and all IPv6 visitors shared one rate limit (v0.9.0 and older). The network now has IPv6 and Docker forwards them with their own address; with the proxy off (deploy/ansible) they would otherwise not arrive at all | tested on the test VM: IPv6 to the site 200 |
+| Server setup (`deploy/ansible`) | SSH key only, no root, `AllowUsers`, fail2ban; firewall with egress filtering (host: DNS, NTP, HTTPS, ICMP; containers: HTTPS, DNS, SMTP relay ports), no `flush ruleset`; firewall and SSH settings re-applied on every run, so an interrupted run cannot leave old rules active; Docker key checked by fingerprint; apt over HTTPS | test VM: root, `debian` and passwords refused; outgoing 80 and 22 dropped, 443 and 587 (containers) open; allow list closes and opens the site; survives a reboot; second run changes nothing |
 
 ### Residual risks
 
 - **The compose files come from the operator's checkout** (at the tag's
   commit, which the attestation binds to); a compromised laptop can
   deploy anything regardless.
+- **Egress filtering does not stop exfiltration over HTTPS**: port 443
+  must stay open to any address (WKD domains, Filebin, certificates,
+  updates). It blocks other ports and makes unexpected connections
+  visible in the log.
+- **The admin user is root in practice** (sudo without a password, and
+  the `docker` group). Protect its SSH key.
+- **Debian's cloud image sums** (used only by `scripts/test-vm.sh`) come
+  over HTTPS without a signature.
 
 ## How to re-run the checks
 
