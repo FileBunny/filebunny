@@ -216,7 +216,8 @@ FileBunny stores no IP addresses. Keep it that way on your server:
 - Do not put another proxy or CDN in front that logs addresses, or
   configure it not to.
 - Docker's own logs only contain what the containers print; the
-  containers print no addresses. Consider `journald`/log rotation limits.
+  containers print no addresses. `compose.yaml` caps them at three files
+  of 10 MB per container; keep a cap if you change the log driver.
 - Firewall or fail2ban logs on the host may contain addresses; decide
   consciously whether you need them.
 - With the WKD proxy on, your server sees which e-mail addresses are

@@ -1,6 +1,14 @@
 # Local:      docker compose up --build   → https://localhost
 # Production: FILEBUNNY_DOMAIN=filebunny.eu docker compose up -d --build
 # E-mail:     FILEBUNNY_SMTP=/etc/filebunny/smtp.json (outside the repo; see docs/self-hosting.md)
+# Container logs (json-file) are capped, or they grow without limit. The
+# containers log no addresses; see docs/self-hosting.md.
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: 10m
+    max-file: "3"
+
 services:
   backend:
     build:
@@ -31,6 +39,7 @@ services:
       FILEBUNNY_RATE_LIMITS: ${FILEBUNNY_RATE_LIMITS:-true}
       FILEBUNNY_POW_BITS: ${FILEBUNNY_POW_BITS:-18}
     secrets: [smtp]
+    logging: *logging
     volumes:
       - data:/data
     read_only: true
@@ -58,6 +67,7 @@ services:
       - caddy_data:/data
       - caddy_config:/config
     depends_on: [backend]
+    logging: *logging
     read_only: true
     tmpfs: [/tmp]
     cap_drop: [ALL]
