@@ -138,6 +138,15 @@ var migrations = []string{
 		created_at   INTEGER NOT NULL
 	) STRICT;
 	ALTER TABLE files ADD COLUMN notified INTEGER NOT NULL DEFAULT 0;`,
+	// Totals per UTC day for the operator's monitoring (counts.go): one row
+	// per day, nothing per file, visitor or time of day.
+	`CREATE TABLE daily_counts (
+		day             TEXT PRIMARY KEY,
+		uploads         INTEGER NOT NULL DEFAULT 0,
+		inbox_uploads   INTEGER NOT NULL DEFAULT 0,
+		downloads       INTEGER NOT NULL DEFAULT 0,
+		inbox_downloads INTEGER NOT NULL DEFAULT 0
+	) STRICT;`,
 }
 
 // Open opens (or creates) the store in dataDir.
@@ -297,6 +306,7 @@ func (s *Store) CommitRemote(ctx context.Context, size int64, storage, ref strin
 	if err != nil {
 		return File{}, "", err
 	}
+	s.count(ctx, now, countUploads)
 	f := File{ID: id, Size: size, CreatedAt: now, ExpiresAt: expiresAt, MaxDownloads: maxDownloads, Storage: storage, RemoteRef: ref}
 	return f, token, nil
 }
@@ -358,6 +368,11 @@ func (s *Store) commit(ctx context.Context, p *Pending, now, expiresAt time.Time
 		s.db.ExecContext(context.WithoutCancel(ctx), `DELETE FROM files WHERE id = ?`, id)
 		return File{}, err
 	}
+	if inboxID != "" {
+		s.count(ctx, now, countInboxUploads)
+	} else {
+		s.count(ctx, now, countUploads)
+	}
 	return f, nil
 }
 
@@ -413,6 +428,7 @@ func (s *Store) Get(ctx context.Context, id string, now time.Time) (File, *os.Fi
 	if err != nil {
 		return File{}, nil, err
 	}
+	s.count(ctx, now, countDownloads)
 	if f.Storage != "" {
 		if f.DownloadsLeft() == 0 {
 			_ = s.remove(context.WithoutCancel(ctx), id, now.Add(downloadGrace))
@@ -524,6 +540,9 @@ func (s *Store) DeleteExpired(ctx context.Context, now time.Time) (int, error) {
 	}
 	// Mail counters are only needed for the current day.
 	if _, err := s.db.ExecContext(ctx, `DELETE FROM mail_counts WHERE day < ?`, mailDay(now)); err != nil {
+		return n, err
+	}
+	if _, err := s.db.ExecContext(ctx, `DELETE FROM daily_counts WHERE day < ?`, countDay(now.Add(-countsKeep))); err != nil {
 		return n, err
 	}
 	// An expired upload link stays while it holds files, so its owner can

@@ -27,6 +27,10 @@
     <strong>Mailed links:</strong> the recipient's e-mail address is used for that one mail and not stored. To count mails and to
     respect "no more mail" requests, the server keeps a keyed hash of the address (for counting, until the next day).
   </li>
+  <li>
+    <strong>Totals per day:</strong> how many files were uploaded and downloaded that day, as plain numbers for the
+    operator, kept for 400 days. Nothing about which file, who, or when during the day.
+  </li>
 </ul>
 
 <h2>What the server does not store</h2>

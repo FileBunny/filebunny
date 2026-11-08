@@ -368,6 +368,7 @@ after a crash).
 | Mail counters: HMAC of each address, per relay and in total, per day; mails per link | SQLite (`mail_counts`, `files.notified`) | Until the next day's cleanup; with the file |
 | Addresses that asked for no mail | SQLite (`mail_blocks`): only the HMAC | Until allowed again |
 | Key for the address HMAC | `data/mail-pepper` | Permanent |
+| Totals per UTC day: uploads, uploads to upload links, downloads, fetches by link owners | SQLite (`daily_counts`): one row per day, nothing per file, visitor or time of day; read by the operator's monitoring (`deploy/ansible`) | 400 days |
 | File name, content type, plaintext | Nowhere (encrypted inside the ciphertext from phase 2) | — |
 | Logs | Container stdout | No IPs, no IDs, no tokens; see below |
 

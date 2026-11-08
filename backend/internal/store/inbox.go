@@ -160,6 +160,7 @@ func (s *Store) InboxFile(ctx context.Context, inboxID, fileID string, now time.
 	if err != nil {
 		return File{}, nil, err
 	}
+	s.count(ctx, now, countInboxDownloads)
 	if f.Storage != "" {
 		return f, nil, nil
 	}
@@ -199,6 +200,7 @@ func (s *Store) CommitRemoteToInbox(ctx context.Context, size int64, storage, re
 	if err := tx.Commit(); err != nil {
 		return File{}, err
 	}
+	s.count(ctx, now, countInboxUploads)
 	return File{ID: id, Size: size, CreatedAt: now, ExpiresAt: expiresAt, Storage: storage, RemoteRef: ref}, nil
 }
 
