@@ -29,10 +29,17 @@
 # "internal" uses Caddy's own CA, for a test server on an internal name
 # (trust its root certificate in the browser). "localhost" always uses
 # the local CA. Any other value stops Caddy ("File to import not found").
+# TLS 1.3 only (Mozilla's "modern" profile): no TLS 1.2 fallback, so
+# no downgrade to it and forward secrecy also for resumed sessions.
 (tls-auto) {
+	tls {
+		protocols tls1.3
+	}
 }
 (tls-internal) {
-	tls internal
+	tls internal {
+		protocols tls1.3
+	}
 }
 
 # FILEBUNNY_WWW_REDIRECT=true also serves www.<domain> and redirects it

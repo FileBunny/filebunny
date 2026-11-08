@@ -571,7 +571,7 @@ Frontend only: no backend, API, CSP or deploy changes.
 | Monitoring (`filebunny-monitor`) | Runs as root, reads only the server's own state and logs (which hold no visitor addresses), the daily totals (read-only) and crt.sh; mails through the relay as `filebunny-mail`, which the firewall lets reach only the relay's addresses for two minutes (an nftables set with timeout, `meta skuid`) and nothing else but DNS; TLS with certificate checks, never plain SMTP; the relay password goes to the sender on stdin, never on a command line | test VM: login reached the relay; other hosts, other users and HTTPS for that user blocked; alert, recovery and summary mails (dry run) |
 | Daily totals (`daily_counts`) | Counts per UTC day only (uploads, upload-link uploads, downloads, owner fetches); no file ID, visitor, hash or time of day, so they reveal nothing about one transfer. One row per day; after 400 days added up per month (`monthly_counts`, twelve rows a year). No API: only the operator's monitoring reads them. Counting is best effort and never fails a transfer; the column names are constants, never input | `TestDailyCounts` |
 | Caddy without root | Caddy runs as UID 65532 with no capabilities at all (also not `NET_BIND_SERVICE`): the container's own `net.ipv4.ip_unprivileged_port_start=80` lets it bind 80 and 443, and the binary's file capability is removed (the kernel refuses to exec it without that capability). Its directories in the image belong to that user with mode 0700. `deploy.sh` sets the owner of Caddy's files to the web image's user before every start: root without capabilities cannot read files of another user, so converting the volumes before the new release runs (or keeping them on a rollback) would stop the old Caddy | smoke test: no container runs as root or has capabilities; test VM: deploy and rollback across the change |
-| TLS (testssl 3.2.1 against filebunny.eu, 2026-11-08) | Grade A+; TLS 1.2 and 1.3 only, forward secrecy, AEAD ciphers only (AES-GCM, ChaCha20), ECDSA P-256 certificate. No OCSP stapling: Let's Encrypt no longer runs OCSP. Two low findings: no CAA record yet (requested from the DNS provider), and a session ticket lifetime hint of 7 days (see residual risks) | `testssl https://filebunny.eu` |
+| TLS (testssl 3.2.1 against filebunny.eu, 2026-11-08) | Grade A+; TLS 1.2 and 1.3, forward secrecy, AEAD ciphers only (AES-GCM, ChaCha20), ECDSA P-256 certificate. No OCSP stapling: Let's Encrypt no longer runs OCSP. Two low findings: no CAA record yet (requested from the DNS provider), and a session ticket lifetime hint of 7 days. Afterwards **TLS 1.3 only** (Mozilla's modern profile): no downgrade to 1.2, and resumed sessions keep forward secrecy, which settles the ticket finding. Clients without TLS 1.3 (old Android, iOS before 12.2, Windows 7/8.1, some inspecting proxies) cannot connect | `testssl https://filebunny.eu` |
 | HSTS | `max-age=31536000; includeSubDomains`: no subdomain of filebunny.eu serves HTTP (the mail records are DNS only). `preload` waits until some weeks after the public launch, since leaving the preload list takes months | `curl -I` |
 | Certificate source | `FILEBUNNY_TLS` picks a Caddyfile snippet; an unknown value stops Caddy instead of falling back | `caddy validate` |
 
@@ -589,10 +589,10 @@ Frontend only: no backend, API, CSP or deploy changes.
 - **crt.sh** sees the server's address asking about its own domain (CT
   logs are public anyway) and is not always reachable; the summary says
   so.
-- **TLS session tickets**: Go's lifetime hint is 7 days; Caddy rotates
-  the ticket keys every 12 hours and keeps a few, so a ticket works for
-  about two days. TLS 1.3 resumption keeps forward secrecy (psk_dhe_ke);
-  a TLS 1.2 ticket does not within that window. Accepted.
+- **TLS 1.3 only** shuts out clients without it (old Android and iOS,
+  Windows 7/8.1, some TLS-inspecting proxies). Chosen: every current
+  browser has it, and it removes the downgrade to 1.2 and the TLS 1.2
+  session ticket window.
 - **Egress filtering does not stop exfiltration over HTTPS**: port 443
   must stay open to any address (WKD domains, Filebin, certificates,
   updates). It blocks other ports and makes unexpected connections

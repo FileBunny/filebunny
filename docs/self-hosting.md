@@ -314,7 +314,13 @@ cd frontend && VITE_FILEBUNNY_API=https://files.example.org npm run build:single
 The backend allows CORS for `Origin: null` only, which is what such a page
 sends. Share and delete links made from the file point to that origin.
 
-## HSTS
+## TLS and HSTS
+
+Caddy speaks **TLS 1.3 only** (`protocols tls1.3` in `deploy/Caddyfile`).
+Clients without it, such as old Android or iOS versions, Windows 7/8.1 or
+some TLS-inspecting proxies, cannot connect; add `tls1.2` to the
+`protocols` lines if you must support them.
+
 
 Caddy sends `Strict-Transport-Security: max-age=31536000;
 includeSubDomains`: for a year, browsers that visited the site use only
