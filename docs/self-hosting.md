@@ -341,6 +341,15 @@ With the release images: `scripts/deploy.sh vX.Y.Z` (see
 Updating from v0.9.0 or older: the network now has IPv6, so run
 `docker compose down` once before `up` (data volumes stay).
 
+Updating from v0.10.0-rc.1 or older: Caddy now runs as UID 65532 without
+capabilities, so its existing volumes must belong to that user once
+(`deploy/ansible` does this for you):
+
+```sh
+docker compose run --rm --no-deps --user 0:0 --cap-add CHOWN --cap-add DAC_READ_SEARCH \
+  --entrypoint chown web -R 65532:65532 /data/caddy /config/caddy
+```
+
 Uploaded files and certificates live in Docker volumes (`data`,
 `caddy_data`) and survive updates. Database migrations run automatically
 at startup. The backend refuses to start on a database that a newer

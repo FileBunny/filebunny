@@ -72,8 +72,11 @@ services:
     logging: *logging
     read_only: true
     tmpfs: [/tmp]
+    # Caddy runs as UID 65532 without any capability; this sysctl (for the
+    # container's network namespace only) lets it bind 80 and 443.
+    sysctls:
+      net.ipv4.ip_unprivileged_port_start: 80
     cap_drop: [ALL]
-    cap_add: [NET_BIND_SERVICE]
     security_opt: [no-new-privileges:true]
 
 # IPv6 on the network, so Docker forwards IPv6 visitors to Caddy with

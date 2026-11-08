@@ -42,6 +42,10 @@ ARG VITE_FILEBUNNY_SECURITY=""
 ARG VERSION=dev
 ENV VITE_FILEBUNNY_VERSION=${VERSION}
 RUN npm run build
+# Caddy's data and config directories (/data/caddy, /config/caddy), owned
+# by its unprivileged user in the web image; a new volume takes over that
+# owner. The base image's are world-writable (1777).
+RUN mkdir -p /caddy/data/caddy /caddy/config/caddy
 
 FROM caddy:2.11.7-alpine@sha256:e70b164da81ef698b3ad19af799ea6086ce6d9e48ed4079eb9fe26f6fbf14ee5 AS web
 # Fixed modes: COPY keeps the checkout's, which depend on the umask of
@@ -49,3 +53,11 @@ FROM caddy:2.11.7-alpine@sha256:e70b164da81ef698b3ad19af799ea6086ce6d9e48ed4079e
 COPY --chmod=0644 deploy/Caddyfile /etc/caddy/Caddyfile
 COPY --from=frontend-build /src/dist /srv
 COPY --chmod=u=rwX,go=rX deploy/well-known/ /srv/.well-known/
+# Caddy runs as an unprivileged user without capabilities; compose.yaml
+# lets the container bind ports from 80 up (net.ipv4.ip_unprivileged_port_start).
+# The image's binary carries the file capability cap_net_bind_service,
+# which the kernel refuses to exec without it: remove it.
+RUN setcap -r /usr/bin/caddy
+COPY --from=frontend-build --chown=65532:65532 --chmod=0700 /caddy/data /data
+COPY --from=frontend-build --chown=65532:65532 --chmod=0700 /caddy/config /config
+USER 65532:65532

@@ -217,6 +217,16 @@
   ansible.builtin.apt:
     update_cache: true
     name: [docker-ce, docker-ce-cli, containerd.io, docker-compose-plugin]
+# Caddy runs as UID 65532 since v0.10.0-rc.2; volumes from older releases
+# hold root's files. New volumes get the owner from the image.
+- name: Existing Caddy volumes
+  ansible.builtin.stat: {path: "/var/lib/docker/volumes/filebunny_{{ item }}/_data/caddy"}
+  loop: [caddy_data, caddy_config]
+  register: caddy_volumes
+- name: Caddy's volumes belong to its unprivileged user
+  ansible.builtin.file: {path: "{{ item.stat.path }}", state: directory, owner: "65532", group: "65532", recurse: true}
+  loop: "{{ caddy_volumes.results | selectattr('stat.exists') | list }}"
+  loop_control: {label: "{{ item.item }}"}
 - name: Admin may run Docker (deploy.sh)
   ansible.builtin.user: {name: "{{ filebunny_admin }}", groups: [docker], append: true}
 
