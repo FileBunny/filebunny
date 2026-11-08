@@ -8,6 +8,7 @@
       - filebunny_domain is match('^[a-z0-9.-]+$')
       - filebunny_dns | length > 0
       - filebunny_admin not in filebunny_remove_users
+      - not filebunny_monitor or filebunny_smtp_file | length == 0 or filebunny_monitor_mail_to | length > 0
     fail_msg: Debian 13 only; set filebunny_admin_keys and filebunny_dns; filebunny_tls is auto or internal.
 
 - name: Is cloud-init installed?
@@ -165,6 +166,11 @@
   changed_when: false
   when: filebunny_swap_mb | int > 0 and (ansible_facts.swaptotal_mb == 0 or swapfile.stat.exists)
 
+# Sends the monitoring mails; the firewall lets only this user reach the
+# relay (meta skuid), so the user must exist before the rules load.
+- name: Mail user for the monitoring
+  ansible.builtin.user: {name: filebunny-mail, system: true, shell: /usr/sbin/nologin, create_home: false}
+
 - name: Firewall (nftables, own table; Docker's tables stay)
   ansible.builtin.template: {src: nftables.conf.j2, dest: /etc/nftables.conf, mode: "0755", validate: nft -c -f %s}
 - name: Firewall on at boot
@@ -217,16 +223,6 @@
   ansible.builtin.apt:
     update_cache: true
     name: [docker-ce, docker-ce-cli, containerd.io, docker-compose-plugin]
-# Caddy runs as UID 65532 since v0.10.0-rc.2; volumes from older releases
-# hold root's files. New volumes get the owner from the image.
-- name: Existing Caddy volumes
-  ansible.builtin.stat: {path: "/var/lib/docker/volumes/filebunny_{{ item }}/_data/caddy"}
-  loop: [caddy_data, caddy_config]
-  register: caddy_volumes
-- name: Caddy's volumes belong to its unprivileged user
-  ansible.builtin.file: {path: "{{ item.stat.path }}", state: directory, owner: "65532", group: "65532", recurse: true}
-  loop: "{{ caddy_volumes.results | selectattr('stat.exists') | list }}"
-  loop_control: {label: "{{ item.item }}"}
 - name: Admin may run Docker (deploy.sh)
   ansible.builtin.user: {name: "{{ filebunny_admin }}", groups: [docker], append: true}
 
@@ -241,6 +237,71 @@
   ansible.builtin.copy: {src: "{{ filebunny_smtp_file }}", dest: /etc/filebunny/smtp.json, owner: "65532", group: "65532", mode: "0400"}
   when: filebunny_smtp_file | length > 0
   no_log: true
+
+- name: Monitoring scripts directory
+  ansible.builtin.file: {path: /usr/local/lib/filebunny-monitor, state: directory, mode: "0755"}
+  when: filebunny_monitor
+- name: Monitoring scripts
+  ansible.builtin.copy: {src: "{{ item.src }}", dest: "{{ item.dest }}", mode: "{{ item.mode }}"}
+  loop:
+    - {src: filebunny-monitor, dest: /usr/local/sbin/filebunny-monitor, mode: "0700"}
+    - {src: send-mail, dest: /usr/local/lib/filebunny-monitor/send-mail, mode: "0755"}
+  loop_control: {label: "{{ item.dest }}"}
+  when: filebunny_monitor
+- name: Monitoring settings directory
+  ansible.builtin.file: {path: /etc/filebunny, state: directory, mode: "0755"}
+  when: filebunny_monitor
+- name: Monitoring settings
+  ansible.builtin.template: {src: monitor.json.j2, dest: /etc/filebunny/monitor.json, mode: "0600"}
+  when: filebunny_monitor
+- name: Monitoring service and timer (hourly)
+  ansible.builtin.copy:
+    dest: "/etc/systemd/system/{{ item.name }}"
+    content: "{{ item.content }}"
+    mode: "0644"
+  loop:
+    - name: filebunny-monitor.service
+      content: |
+        # Managed by deploy/ansible.
+        [Unit]
+        Description=FileBunny monitoring (checks, alerts, daily summary)
+        After=docker.service network-online.target
+        Wants=network-online.target
+
+        [Service]
+        Type=oneshot
+        ExecStart=/usr/local/sbin/filebunny-monitor
+        PrivateTmp=true
+        ProtectSystem=full
+        ReadWritePaths=/var/lib/filebunny-monitor
+        StateDirectory=filebunny-monitor
+        StateDirectoryMode=0700
+    - name: filebunny-monitor.timer
+      content: |
+        # Managed by deploy/ansible.
+        [Unit]
+        Description=FileBunny monitoring, every hour
+
+        [Timer]
+        OnCalendar=hourly
+        RandomizedDelaySec=120
+        Persistent=true
+
+        [Install]
+        WantedBy=timers.target
+  loop_control: {label: "{{ item.name }}"}
+  register: monitor_units
+  when: filebunny_monitor
+- name: Monitoring timer on
+  ansible.builtin.systemd_service: {name: filebunny-monitor.timer, enabled: true, state: started, daemon_reload: "{{ monitor_units is changed }}"}
+  when: filebunny_monitor
+- name: Is there a monitoring timer?
+  ansible.builtin.stat: {path: /etc/systemd/system/filebunny-monitor.timer}
+  register: monitor_timer
+  when: not filebunny_monitor
+- name: Monitoring timer off
+  ansible.builtin.systemd_service: {name: filebunny-monitor.timer, enabled: false, state: stopped}
+  when: not filebunny_monitor and monitor_timer.stat.exists
 
 # Always, not as a handler: a run that was interrupted after changing these
 # files would otherwise leave the old rules active, and the next run would

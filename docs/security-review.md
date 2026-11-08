@@ -568,6 +568,7 @@ Frontend only: no backend, API, CSP or deploy changes.
 | Deploy access | The server needs no GitHub token; whoever deploys is in the `docker` group (root in practice) | release.md |
 | Rollback | The backend refuses a database schema newer than it knows, instead of writing rows without the newer columns | `TestNewerSchemaRefused` |
 | Container logs | Capped at 3 × 10 MB per container, so they cannot fill the disk | `compose.yaml` |
+| Monitoring (`filebunny-monitor`) | Runs as root, reads only the server's own state and logs (which hold no visitor addresses), the daily totals (read-only) and crt.sh; mails through the relay as `filebunny-mail`, which the firewall lets reach only the relay's addresses for two minutes (an nftables set with timeout, `meta skuid`) and nothing else but DNS; TLS with certificate checks, never plain SMTP; the relay password goes to the sender on stdin, never on a command line | test VM: login reached the relay; other hosts, other users and HTTPS for that user blocked; alert, recovery and summary mails (dry run) |
 | Daily totals (`daily_counts`) | Counts per UTC day only (uploads, upload-link uploads, downloads, owner fetches); no file ID, visitor, hash or time of day, so they reveal nothing about one transfer. One row per day; after 400 days added up per month (`monthly_counts`, twelve rows a year). No API: only the operator's monitoring reads them. Counting is best effort and never fails a transfer; the column names are constants, never input | `TestDailyCounts` |
 | Caddy without root | Caddy runs as UID 65532 with no capabilities at all (also not `NET_BIND_SERVICE`): the container's own `net.ipv4.ip_unprivileged_port_start=80` lets it bind 80 and 443, and the binary's file capability is removed (the kernel refuses to exec it without that capability). Its directories in the image belong to that user with mode 0700. `deploy.sh` sets the owner of Caddy's files to the web image's user before every start: root without capabilities cannot read files of another user, so converting the volumes before the new release runs (or keeping them on a rollback) would stop the old Caddy | smoke test: no container runs as root or has capabilities; test VM: deploy and rollback across the change |
 | TLS (testssl 3.2.1 against filebunny.eu, 2026-11-08) | Grade A+; TLS 1.2 and 1.3 only, forward secrecy, AEAD ciphers only (AES-GCM, ChaCha20), ECDSA P-256 certificate. No OCSP stapling: Let's Encrypt no longer runs OCSP. Two low findings: no CAA record yet (requested from the DNS provider), and a session ticket lifetime hint of 7 days (see residual risks) | `testssl https://filebunny.eu` |
@@ -582,6 +583,12 @@ Frontend only: no backend, API, CSP or deploy changes.
 - **The compose files come from the operator's checkout** (at the tag's
   commit, which the attestation binds to); a compromised laptop can
   deploy anything regardless.
+- **The monitoring reports from the server itself**: a compromised
+  server can stop or fake it. Only a missing summary shows that; the
+  external watcher covers the site once it is public.
+- **crt.sh** sees the server's address asking about its own domain (CT
+  logs are public anyway) and is not always reachable; the summary says
+  so.
 - **TLS session tickets**: Go's lifetime hint is 7 days; Caddy rotates
   the ticket keys every 12 hours and keeps a few, so a ticket works for
   about two days. TLS 1.3 resumption keeps forward secrecy (psk_dhe_ke);

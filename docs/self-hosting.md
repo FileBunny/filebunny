@@ -98,6 +98,31 @@ What it does:
 - `/opt/filebunny/.env` from your variables for `scripts/deploy.sh`, and
   the SMTP file (`filebunny_smtp_file`, kept outside the repository).
 
+### Monitoring
+
+With `filebunny_monitor` (on by default) the playbook installs
+`filebunny-monitor`, which a systemd timer runs every hour. It checks the
+disk, the containers (also restarts), the version and certificate the
+site serves, errors in the container logs, failed systemd units, a reboot
+that is not happening, time sync and outgoing traffic, and every 6 hours
+asks crt.sh (Certificate Transparency) for new certificates for your
+domain. It mails when a problem starts and when it ends, and every day at
+`filebunny_monitor_summary_hour` (default 6) a summary with trends: when
+the disk would be full at the growth of the last 14 days, the traffic
+forecast for the month against `filebunny_monitor_traffic_tb`, and the
+daily totals of uploads and downloads. If the summary does not arrive,
+the server cannot mail.
+
+Mail goes to `filebunny_monitor_mail_to` through the relays of
+`filebunny_smtp_file`, sent by the user `filebunny-mail`: the firewall
+lets only that user reach the relay, and only for two minutes after the
+monitor has put the relay's addresses in a set; that user can do nothing
+else but DNS. Try it with `sudo filebunny-monitor --test-mail`;
+`--summary` sends the summary now, `--dry-run` prints instead of
+sending. Without an SMTP file it only writes to the journal
+(`journalctl -u filebunny-monitor`). The mails count against the relay's
+own limits, not FileBunny's.
+
 DHCP is only allowed through the firewall with `filebunny_dhcp: true`;
 leave it off when the provider configures the network statically.
 

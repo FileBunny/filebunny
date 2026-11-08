@@ -1,0 +1,429 @@
+#!/usr/bin/python3 -I
+"""FileBunny server monitoring (installed by deploy/ansible).
+
+Runs every hour as root (filebunny-monitor.timer): checks the server, keeps
+a small history for trends, mails an alert when a problem starts or ends,
+and once a day a summary. Mail goes through the first working relay of the
+backend's SMTP file, sent by the unprivileged user filebunny-mail: the
+firewall lets only that user reach the relay, and only for two minutes
+after this script has put the relay's addresses in a set.
+
+Nothing here reads or reports visitors' addresses: the logs it counts
+contain none, and the upload and download numbers are daily totals.
+
+  filebunny-monitor               the hourly run
+  filebunny-monitor --summary     send the summary now
+  filebunny-monitor --test-mail   send a test mail
+  filebunny-monitor --dry-run     print mails instead of sending them
+"""
+
+import argparse
+import datetime as dt
+import json
+import os
+import pathlib
+import re
+import shutil
+import socket
+import sqlite3
+import ssl
+import subprocess
+import sys
+import time
+import urllib.parse
+import urllib.request
+
+CONFIG = pathlib.Path("/etc/filebunny/monitor.json")
+STATE_DIR = pathlib.Path("/var/lib/filebunny-monitor")
+SENDER = "/usr/local/lib/filebunny-monitor/send-mail"
+
+
+def run(*cmd, timeout=60):
+    """Output of a command, or "" if it fails."""
+    try:
+        return subprocess.run(cmd, capture_output=True, text=True, timeout=timeout).stdout
+    except (OSError, subprocess.SubprocessError):
+        return ""
+
+
+def gib(n):
+    return f"{n / 2**30:.1f} GiB"
+
+
+# --- checks -----------------------------------------------------------------
+
+
+def check_disk(cfg, m, problems):
+    u = shutil.disk_usage("/")
+    m["disk_used"], m["disk_total"] = u.used, u.total
+    pct = 100 * u.used / u.total
+    m["disk_pct"] = pct
+    if pct >= cfg["disk_alert_percent"]:
+        problems["disk"] = f"disk {pct:.0f}% full ({gib(u.used)} of {gib(u.total)})"
+
+
+def check_data(cfg, m):
+    root = pathlib.Path(cfg["volumes"]) / "filebunny_data/_data"
+    total = 0
+    for dirpath, _, files in os.walk(root):
+        for f in files:
+            try:
+                total += os.lstat(os.path.join(dirpath, f)).st_size
+            except OSError:
+                pass
+    m["data_bytes"] = total
+
+
+def check_containers(cfg, m, state, problems):
+    restarts = state.setdefault("restarts", {})
+    for name in ("filebunny-backend-1", "filebunny-web-1"):
+        out = run("docker", "inspect", "-f", "{{.State.Status}} {{.RestartCount}} {{.State.StartedAt}}", name).split()
+        if len(out) < 3:
+            problems[f"container:{name}"] = f"container {name} does not exist"
+            continue
+        status, count, started = out[0], int(out[1]), out[2]
+        if status != "running":
+            problems[f"container:{name}"] = f"container {name} is {status}"
+        previous = restarts.get(name)
+        if previous and (count > previous["count"] or (started != previous["started"] and count != previous["count"])):
+            problems[f"restart:{name}"] = f"container {name} restarted by Docker (restart count {count})"
+        restarts[name] = {"count": count, "started": started}
+
+
+def check_site(cfg, m, problems):
+    """Version and certificate, as served on this server."""
+    domain = cfg["domain"]
+    try:
+        expected = os.path.basename(os.readlink(pathlib.Path(cfg["deploy_dir"]) / "current"))
+    except OSError:
+        expected = None
+    m["release"] = expected or "none"
+    ctx = ssl.create_default_context()
+    if cfg["tls"] == "internal":
+        ctx.check_hostname, ctx.verify_mode = False, ssl.CERT_NONE
+    try:
+        with socket.create_connection(("127.0.0.1", 443), timeout=10) as raw:
+            with ctx.wrap_socket(raw, server_hostname=domain) as s:
+                cert = s.getpeercert()
+                s.sendall(f"GET /api/v1/version HTTP/1.1\r\nHost: {domain}\r\nConnection: close\r\n\r\n".encode())
+                body = b""
+                while chunk := s.recv(4096):
+                    body += chunk
+    except (OSError, ssl.SSLError) as e:
+        problems["site"] = f"https://{domain} does not answer on this server ({type(e).__name__}: {e})"
+        return
+    got = re.search(rb'"version":"([^"]*)"', body)
+    m["version"] = got.group(1).decode() if got else "?"
+    if expected and m["version"] != expected:
+        problems["version"] = f"the site reports {m['version']}, deployed is {expected}"
+    if cert:
+        m["cert_serial"] = cert.get("serialNumber", "").lower().lstrip("0")
+        end = dt.datetime.fromtimestamp(ssl.cert_time_to_seconds(cert["notAfter"]), dt.timezone.utc)
+        days = (end - dt.datetime.now(dt.timezone.utc)).days
+        m["cert_days"] = days
+        if days < cfg["cert_alert_days"]:
+            problems["cert"] = f"the certificate expires in {days} days ({end:%Y-%m-%d}); Caddy renews from 30 days on"
+
+
+def check_logs(cfg, m, problems):
+    for name, pattern in (("filebunny-backend-1", "level=ERROR"), ("filebunny-web-1", '"level":"error"')):
+        p = subprocess.run(["docker", "logs", "--since", "1h", name], capture_output=True, text=True, timeout=60)
+        lines = [line for line in (p.stdout + p.stderr).splitlines() if pattern in line]
+        m[f"errors:{name}"] = len(lines)
+        if lines:
+            sample = "\n    ".join(line[:300] for line in lines[:3])
+            problems[f"errors:{name}"] = f"{len(lines)} error(s) in the last hour in {name}:\n    {sample}"
+
+
+def check_system(cfg, m, problems):
+    failed = [line.split()[0] for line in run("systemctl", "--failed", "--plain", "--no-legend").splitlines() if line.strip()]
+    if failed:
+        problems["units"] = "failed systemd units: " + ", ".join(failed)
+    flag = pathlib.Path("/run/reboot-required")
+    if flag.exists() and time.time() - flag.stat().st_mtime > 36 * 3600:
+        problems["reboot"] = "an update has been waiting for a reboot for more than 36 hours (automatic reboot not working?)"
+    if run("timedatectl", "show", "--property=NTPSynchronized", "--value").strip() != "yes":
+        problems["time"] = "the clock is not synchronized (NTP)"
+    mem = dict(re.findall(r"^(\w+):\s+(\d+)", pathlib.Path("/proc/meminfo").read_text(), re.M))
+    m["mem_available"] = int(mem.get("MemAvailable", 0)) * 1024
+    m["mem_total"] = int(mem.get("MemTotal", 0)) * 1024
+    m["swap_used"] = (int(mem.get("SwapTotal", 0)) - int(mem.get("SwapFree", 0))) * 1024
+
+
+def check_traffic(cfg, m, state, problems):
+    iface = cfg.get("interface") or (run("ip", "-o", "route", "show", "default").split() + [""] * 5)[4]
+    m["interface"] = iface
+    try:
+        tx = int(pathlib.Path(f"/sys/class/net/{iface}/statistics/tx_bytes").read_text())
+        rx = int(pathlib.Path(f"/sys/class/net/{iface}/statistics/rx_bytes").read_text())
+    except (OSError, ValueError):
+        return
+    t = state.setdefault("traffic", {})
+    month = dt.date.today().strftime("%Y-%m")
+    if t.get("month") != month:
+        t.update(month=month, tx=0, rx=0)
+    # The counters start at 0 again after a reboot; the first run only
+    # takes the starting point.
+    if "last_tx" in t:
+        t["tx"] += tx - t["last_tx"] if tx >= t["last_tx"] else tx
+        t["rx"] += rx - t["last_rx"] if rx >= t["last_rx"] else rx
+    t["last_tx"], t["last_rx"] = tx, rx
+    today = dt.date.today()
+    days_in_month = ((today.replace(day=28) + dt.timedelta(days=4)).replace(day=1) - dt.timedelta(days=1)).day
+    elapsed = (today.day - 1 + dt.datetime.now().hour / 24) / days_in_month
+    m["tx_month"], m["rx_month"] = t["tx"], t["rx"]
+    m["tx_projection"] = t["tx"] / elapsed if elapsed > 0.02 else None
+    limit = cfg["traffic_limit_tb"] * 10**12
+    if m["tx_projection"] and m["tx_projection"] > 0.8 * limit:
+        problems["traffic"] = (f"outgoing traffic this month {t['tx'] / 10**12:.2f} TB, heading for "
+                               f"{m['tx_projection'] / 10**12:.1f} TB of the {cfg['traffic_limit_tb']} TB limit")
+
+
+def check_ct(cfg, m, state, pending):
+    """New certificates for the domain in the Certificate Transparency logs
+    (through crt.sh), at most every 6 hours. The first run only records
+    what is there."""
+    ct = state.setdefault("ct", {})
+    if time.time() - ct.get("checked", 0) < 6 * 3600:
+        m["ct"] = ct.get("result", "not checked yet")
+        return
+    seen, found = set(ct.get("seen", [])), {}
+    try:
+        for q in (cfg["domain"], "%." + cfg["domain"]):
+            url = "https://crt.sh/?" + urllib.parse.urlencode({"q": q, "output": "json"})
+            with urllib.request.urlopen(url, timeout=60) as r:
+                for c in json.load(r):
+                    serial = str(c.get("serial_number", "")).lower().lstrip("0")
+                    found.setdefault(serial, c)
+    except (OSError, ValueError) as e:
+        ct["checked"] = time.time() - 5 * 3600  # try again in an hour
+        m["ct"] = ct["result"] = f"crt.sh not reachable ({type(e).__name__})"
+        return
+    new = [c for serial, c in found.items() if serial not in seen]
+    if seen and new:
+        lines = []
+        for c in new:
+            serial = str(c.get("serial_number", "")).lower().lstrip("0")
+            served = "this server serves it" if serial == m.get("cert_serial") else "NOT served by this server: check it"
+            lines.append(f"- {c.get('name_value', '?').replace(chr(10), ', ')}, issuer {c.get('issuer_name', '?')}, "
+                         f"valid from {c.get('not_before', '?')}, serial {serial} ({served})")
+        pending.append([f"New certificate for {cfg['domain']} in the CT logs",
+                        "Certificate Transparency (crt.sh) lists new certificates:\n" + "\n".join(lines)
+                        + "\n\nAt renewal this is expected. A certificate this server does not serve may be a misissue."])
+    ct.update(checked=time.time(), seen=sorted(seen | set(found)))
+    m["ct"] = ct["result"] = f"{len(found)} certificate(s) known at crt.sh, checked {dt.datetime.now():%Y-%m-%d %H:%M}"
+
+
+def daily_counts(cfg):
+    db = pathlib.Path(cfg["volumes"]) / "filebunny_data/_data/filebunny.db"
+    since = (dt.date.today() - dt.timedelta(days=7)).isoformat()
+    try:
+        con = sqlite3.connect(f"file:{db}?mode=ro", uri=True, timeout=5)
+        rows = con.execute("SELECT day, uploads, inbox_uploads, downloads, inbox_downloads FROM daily_counts "
+                           "WHERE day >= ? ORDER BY day", (since,)).fetchall()
+        month = con.execute("SELECT SUM(uploads), SUM(inbox_uploads), SUM(downloads), SUM(inbox_downloads) "
+                            "FROM daily_counts WHERE day >= ?", (dt.date.today().strftime("%Y-%m-01"),)).fetchone()
+        con.close()
+        return rows, [n or 0 for n in month]
+    except sqlite3.Error:
+        return None
+
+
+# --- history and trends -----------------------------------------------------
+
+
+def update_history(m):
+    """One line per day (the day's last values), at most 400 days."""
+    path = STATE_DIR / "history.json"
+    try:
+        history = json.loads(path.read_text())
+    except (OSError, ValueError):
+        history = []
+    today = dt.date.today().isoformat()
+    row = {"day": today, "disk_used": m["disk_used"], "disk_total": m["disk_total"], "data_bytes": m.get("data_bytes", 0)}
+    history = [h for h in history if h["day"] != today][-399:] + [row]
+    path.write_text(json.dumps(history))
+    return history
+
+
+def disk_full_in_days(history):
+    """Days until the disk is full at the trend of the last 14 days, or None."""
+    pts = history[-14:]
+    if len(pts) < 3:
+        return None
+    xs = [dt.date.fromisoformat(h["day"]).toordinal() for h in pts]
+    ys = [h["disk_used"] for h in pts]
+    n, mx, my = len(xs), sum(xs) / len(xs), sum(ys) / len(ys)
+    var = sum((x - mx) ** 2 for x in xs)
+    if var == 0:
+        return None
+    slope = sum((x - mx) * (y - my) for x, y in zip(xs, ys)) / var  # bytes per day
+    if slope <= 0:
+        return None
+    return (pts[-1]["disk_total"] - pts[-1]["disk_used"]) / slope
+
+
+# --- mail -------------------------------------------------------------------
+
+
+def allow_relay(relay):
+    """Lets filebunny-mail reach the relay for two minutes (nftables set)."""
+    for family, _, _, _, addr in socket.getaddrinfo(relay["host"], relay["port"], proto=socket.IPPROTO_TCP):
+        setname = "mail_relay4" if family == socket.AF_INET else "mail_relay6"
+        subprocess.run(["nft", "add", "element", "inet", "filebunny", setname, f"{{ {addr[0]} timeout 2m }}"],
+                       capture_output=True, timeout=10)
+
+
+def send(cfg, subject, body, dry_run):
+    domain = cfg["domain"]
+    message = {
+        "from": None, "to": cfg["mail_to"],
+        "subject": f"[{domain}] {subject}", "body": body, "domain": domain,
+    }
+    if dry_run:
+        print(f"--- mail to {cfg['mail_to']}: {message['subject']}\n{body}\n")
+        return True
+    try:
+        smtp = json.loads(pathlib.Path(cfg["smtp_file"]).read_text())
+    except (OSError, ValueError):
+        print("monitor: no SMTP file, mail not sent:", subject, file=sys.stderr)
+        return False
+    message["from"] = smtp.get("from")
+    for relay in smtp.get("relays", []):
+        try:
+            allow_relay(relay)
+        except OSError as e:
+            print(f"monitor: cannot resolve relay {relay.get('name')}: {e}", file=sys.stderr)
+            continue
+        p = subprocess.run(["runuser", "-u", "filebunny-mail", "--", SENDER], input=json.dumps({"relay": relay, "message": message}),
+                           capture_output=True, text=True, timeout=120)
+        if p.returncode == 0:
+            return True
+        print(f"monitor: relay {relay.get('name')} failed: {p.stderr.strip()[:300]}", file=sys.stderr)
+    return False
+
+
+def summary(cfg, m, history, state, problems):
+    lines = [f"FileBunny on {cfg['domain']}, {dt.datetime.now().astimezone():%Y-%m-%d %H:%M %Z}", ""]
+    lines.append(f"Release: {m.get('version', '?')} (deployed: {m.get('release')})")
+    uptime = float(pathlib.Path("/proc/uptime").read_text().split()[0])
+    lines.append(f"Uptime: {uptime / 86400:.1f} days")
+    lines.append("")
+    lines.append(f"Disk: {gib(m['disk_used'])} of {gib(m['disk_total'])} used ({m['disk_pct']:.0f}%)")
+    days = disk_full_in_days(history)
+    if days is not None:
+        lines.append(f"  at the trend of the last {min(len(history), 14)} days: full in about {days:.0f} days")
+    else:
+        lines.append(f"  trend: not growing" if len(history) >= 3 else f"  trend: after {3 - len(history)} more day(s) of data")
+    lines.append(f"FileBunny data: {gib(m.get('data_bytes', 0))}")
+    lines.append(f"Memory: {gib(m['mem_available'])} of {gib(m['mem_total'])} available, swap used {gib(m['swap_used'])}")
+    if "tx_month" in m:
+        proj = m.get("tx_projection")
+        lines.append(f"Traffic this month ({m['interface']}): out {m['tx_month'] / 10**9:.1f} GB, in {m['rx_month'] / 10**9:.1f} GB"
+                     + (f"; heading for {proj / 10**12:.2f} TB out of {cfg['traffic_limit_tb']} TB" if proj else ""))
+    if "cert_days" in m:
+        lines.append(f"Certificate: valid for {m['cert_days']} more days")
+    lines.append(f"Certificate Transparency: {m.get('ct', 'not checked')}")
+    lines.append("")
+    counts = daily_counts(cfg)
+    if counts is None:
+        lines.append("Uploads and downloads: not available")
+    else:
+        days, month = counts
+        lines.append("Uploads and downloads per day (UTC): uploads / to upload links / downloads / fetched by link owners")
+        for day, up, inbox_up, down, inbox_down in days:
+            lines.append(f"  {day}: {up} / {inbox_up} / {down} / {inbox_down}")
+        if not days:
+            lines.append("  none in the last 7 days")
+        lines.append(f"  this month: {month[0]} / {month[1]} / {month[2]} / {month[3]}")
+    lines.append("")
+    banned = re.search(r"Currently banned:\s*(\d+).*?Total banned:\s*(\d+)", run("fail2ban-client", "status", "sshd"), re.S)
+    if banned:
+        lines.append(f"fail2ban (SSH): {banned.group(1)} banned now, {banned.group(2)} since its start")
+    drops = [line for line in run("journalctl", "-k", "--since", "-24h", "--no-pager", "--grep", "filebunny egress drop").splitlines()
+             if "filebunny egress drop" in line]
+    ports = {}
+    for line in drops:
+        port = re.search(r"DPT=(\d+)", line)
+        proto = re.search(r"PROTO=(\S+)", line)
+        key = ("container " if "(container)" in line else "host ") + (
+            f"port {port.group(1)}" if port else (proto.group(1) if proto else "other"))
+        ports[key] = ports.get(key, 0) + 1
+    lines.append("Blocked outgoing connections (24 h): " + (", ".join(f"{k}: {v}" for k, v in sorted(ports.items())) or "none"))
+    lines.append("")
+    open_problems = state.get("open", {})
+    if open_problems:
+        lines.append("Open problems:")
+        lines += [f"- {text} (since {since})" for text, since in ((v["text"], v["since"]) for v in open_problems.values())]
+    else:
+        lines.append("No open problems.")
+    return "\n".join(lines)
+
+
+# --- main -------------------------------------------------------------------
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--summary", action="store_true")
+    ap.add_argument("--test-mail", action="store_true")
+    ap.add_argument("--dry-run", action="store_true")
+    args = ap.parse_args()
+
+    cfg = json.loads(CONFIG.read_text())
+    STATE_DIR.mkdir(mode=0o700, exist_ok=True)
+    state_path = STATE_DIR / "state.json"
+    try:
+        state = json.loads(state_path.read_text())
+    except (OSError, ValueError):
+        state = {}
+
+    if args.test_mail:
+        ok = send(cfg, "Test mail", "This is a test mail from filebunny-monitor.", args.dry_run)
+        sys.exit(0 if ok else 1)
+
+    m, problems = {}, {}
+    check_disk(cfg, m, problems)
+    check_data(cfg, m)
+    check_containers(cfg, m, state, problems)
+    check_site(cfg, m, problems)
+    check_logs(cfg, m, problems)
+    check_system(cfg, m, problems)
+    check_traffic(cfg, m, state, problems)
+    pending = state.setdefault("pending", [])
+    check_ct(cfg, m, state, pending)
+    history = update_history(m)
+    days = disk_full_in_days(history)
+    if days is not None and days < cfg["disk_alert_days"]:
+        problems["disk-trend"] = f"at the current trend the disk is full in about {days:.0f} days"
+
+    # A mail when a problem starts and when it ends; open ones are in the summary.
+    now = dt.datetime.now().strftime("%Y-%m-%d %H:%M")
+    open_problems = state.setdefault("open", {})
+    started = {k: v for k, v in problems.items() if k not in open_problems}
+    ended = {k: v["text"] for k, v in open_problems.items() if k not in problems}
+    for k, v in problems.items():
+        open_problems.setdefault(k, {"since": now})["text"] = v
+    for k in ended:
+        del open_problems[k]
+    if started:
+        pending.append(["Problem: " + "; ".join(v.splitlines()[0] for v in started.values())[:150],
+                        "New problems:\n" + "\n".join(f"- {v}" for v in started.values())])
+    if ended:
+        pending.append(["Resolved: " + "; ".join(v.splitlines()[0] for v in ended.values())[:150],
+                        "No longer a problem:\n" + "\n".join(f"- {v}" for v in ended.values())])
+
+    today = dt.date.today().isoformat()
+    if args.summary or (dt.datetime.now().hour == cfg["summary_hour"] and state.get("summary_day") != today):
+        subject = "Daily summary" + (f" ({len(open_problems)} open problem(s))" if open_problems else ": all fine")
+        pending.append([subject, summary(cfg, m, history, state, problems)])
+        if not args.summary:
+            state["summary_day"] = today
+
+    # Unsent mails are retried next hour (at most 20 kept).
+    state["pending"] = [p for p in pending[-20:] if not send(cfg, p[0], p[1], args.dry_run)]
+    state_path.write_text(json.dumps(state))
+
+
+if __name__ == "__main__":
+    main()

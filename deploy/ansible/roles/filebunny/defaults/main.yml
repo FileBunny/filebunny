@@ -26,3 +26,13 @@ filebunny_disable_cloud_init: true
 filebunny_remove_packages: [reportbug, socat, git, bind9-host]
 # The provider's initial user, if any (not root): removed after the admin exists.
 filebunny_remove_users: []
+# Monitoring (filebunny-monitor, hourly): mails an alert when a problem
+# starts or ends and a daily summary with trends, through the relays of
+# filebunny_smtp_file. Without that file it only logs to the journal.
+filebunny_monitor: true
+filebunny_monitor_mail_to: ""          # where alerts and summaries go
+filebunny_monitor_summary_hour: 6      # local time
+filebunny_monitor_disk_percent: 85     # alert from this disk usage on
+filebunny_monitor_disk_days: 14        # alert when the trend says full within this many days
+filebunny_monitor_cert_days: 21        # alert when the certificate expires sooner (Caddy renews from 30 days)
+filebunny_monitor_traffic_tb: 20       # the provider's monthly outgoing traffic; alert at 80% of the forecast
