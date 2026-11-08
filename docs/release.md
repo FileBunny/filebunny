@@ -64,8 +64,9 @@ It looks up both images' digests and checks each with
 so a moved tag or an older signed image is refused. It then copies the
 compose files of that commit and a `release.env` with the images by
 digest to `/opt/filebunny/releases/<tag>/` (`--dir` for another place),
-points `current` at it, starts it and waits until the site reports the
-version. The server needs Docker and curl, and `/opt/filebunny/.env` with
+points `current` at it, gives Caddy's files to the user the web image
+runs as, starts it (containers always recreated) and waits until the site
+reports the version. The server needs Docker and curl, and `/opt/filebunny/.env` with
 the operator's settings; it holds no GitHub token.
 
 To go back to the release before:

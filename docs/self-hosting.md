@@ -343,7 +343,9 @@ Updating from v0.9.0 or older: the network now has IPv6, so run
 
 Updating from v0.10.0-rc.1 or older: Caddy now runs as UID 65532 without
 capabilities, so its existing volumes must belong to that user once
-(`deploy/ansible` does this for you):
+(`scripts/deploy.sh` does this before every start, also for a rollback to
+an older release, where root must own them again). After building the new
+images and before `up`:
 
 ```sh
 docker compose run --rm --no-deps --user 0:0 --cap-add CHOWN --cap-add DAC_READ_SEARCH \
