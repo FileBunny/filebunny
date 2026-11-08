@@ -64,11 +64,31 @@ func TestDailyCounts(t *testing.T) {
 		t.Errorf("a failed download was counted: %+v", got[0])
 	}
 
-	// Cleanup keeps 400 days.
+	// Cleanup keeps 400 days, then adds them up per month.
 	if _, err := s.DeleteExpired(ctx, t0.Add(countsKeep+24*time.Hour)); err != nil {
 		t.Fatal(err)
 	}
 	if got, _ := s.DailyCounts(ctx, t0); len(got) != 1 || got[0].Day != "2026-10-28" {
-		t.Errorf("after cleanup: %+v", got)
+		t.Errorf("days after cleanup: %+v", got)
+	}
+	months, err := s.MonthlyCounts(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(months) != 1 || months[0] != (DailyCount{Day: "2026-10", Uploads: 4, InboxUploads: 1, Downloads: 2, InboxDownloads: 1}) {
+		t.Errorf("months after the first cleanup: %+v", months)
+	}
+	// The next roll-up adds to the same month, and running it again changes nothing.
+	for range 2 {
+		if _, err := s.DeleteExpired(ctx, t0.Add(countsKeep+48*time.Hour)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	months, _ = s.MonthlyCounts(ctx)
+	if len(months) != 1 || months[0] != (DailyCount{Day: "2026-10", Uploads: 5, InboxUploads: 1, Downloads: 2, InboxDownloads: 1}) {
+		t.Errorf("months after the second cleanup: %+v", months)
+	}
+	if got, _ := s.DailyCounts(ctx, t0); len(got) != 0 {
+		t.Errorf("days left: %+v", got)
 	}
 }

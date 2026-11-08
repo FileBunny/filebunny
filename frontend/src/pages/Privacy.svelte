@@ -29,7 +29,8 @@
   </li>
   <li>
     <strong>Totals per day:</strong> how many files were uploaded and downloaded that day, as plain numbers for the
-    operator, kept for 400 days. Nothing about which file, who, or when during the day.
+    operator; after 400 days only the totals per month are kept. Nothing about which file, who, or when during the
+    day.
   </li>
 </ul>
 

@@ -147,6 +147,14 @@ var migrations = []string{
 		downloads       INTEGER NOT NULL DEFAULT 0,
 		inbox_downloads INTEGER NOT NULL DEFAULT 0
 	) STRICT;`,
+	// Daily totals older than countsKeep, added up per month (kept).
+	`CREATE TABLE monthly_counts (
+		month           TEXT PRIMARY KEY,
+		uploads         INTEGER NOT NULL DEFAULT 0,
+		inbox_uploads   INTEGER NOT NULL DEFAULT 0,
+		downloads       INTEGER NOT NULL DEFAULT 0,
+		inbox_downloads INTEGER NOT NULL DEFAULT 0
+	) STRICT;`,
 }
 
 // Open opens (or creates) the store in dataDir.
@@ -542,7 +550,7 @@ func (s *Store) DeleteExpired(ctx context.Context, now time.Time) (int, error) {
 	if _, err := s.db.ExecContext(ctx, `DELETE FROM mail_counts WHERE day < ?`, mailDay(now)); err != nil {
 		return n, err
 	}
-	if _, err := s.db.ExecContext(ctx, `DELETE FROM daily_counts WHERE day < ?`, countDay(now.Add(-countsKeep))); err != nil {
+	if err := s.rollUpCounts(ctx, now); err != nil {
 		return n, err
 	}
 	// An expired upload link stays while it holds files, so its owner can
