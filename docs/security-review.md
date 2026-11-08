@@ -568,6 +568,7 @@ Frontend only: no backend, API, CSP or deploy changes.
 | Deploy access | The server needs no GitHub token; whoever deploys is in the `docker` group (root in practice) | release.md |
 | Rollback | The backend refuses a database schema newer than it knows, instead of writing rows without the newer columns | `TestNewerSchemaRefused` |
 | Container logs | Capped at 3 × 10 MB per container, so they cannot fill the disk | `compose.yaml` |
+| TLS (testssl 3.2.1 against filebunny.eu, 2026-11-08) | Grade A+; TLS 1.2 and 1.3 only, forward secrecy, AEAD ciphers only (AES-GCM, ChaCha20), ECDSA P-256 certificate. No OCSP stapling: Let's Encrypt no longer runs OCSP. Two low findings: no CAA record yet (requested from the DNS provider), and a session ticket lifetime hint of 7 days (see residual risks) | `testssl https://filebunny.eu` |
 | HSTS | `max-age=31536000; includeSubDomains`: no subdomain of filebunny.eu serves HTTP (the mail records are DNS only). `preload` waits until some weeks after the public launch, since leaving the preload list takes months | `curl -I` |
 | Certificate source | `FILEBUNNY_TLS` picks a Caddyfile snippet; an unknown value stops Caddy instead of falling back | `caddy validate` |
 
@@ -579,6 +580,10 @@ Frontend only: no backend, API, CSP or deploy changes.
 - **The compose files come from the operator's checkout** (at the tag's
   commit, which the attestation binds to); a compromised laptop can
   deploy anything regardless.
+- **TLS session tickets**: Go's lifetime hint is 7 days; Caddy rotates
+  the ticket keys every 12 hours and keeps a few, so a ticket works for
+  about two days. TLS 1.3 resumption keeps forward secrecy (psk_dhe_ke);
+  a TLS 1.2 ticket does not within that window. Accepted.
 - **Egress filtering does not stop exfiltration over HTTPS**: port 443
   must stay open to any address (WKD domains, Filebin, certificates,
   updates). It blocks other ports and makes unexpected connections
