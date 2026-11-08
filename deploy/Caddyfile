@@ -44,7 +44,7 @@
 	www.{$FILEBUNNY_DOMAIN:localhost} {
 		import tls-{$FILEBUNNY_TLS:auto}
 		header {
-			Strict-Transport-Security "max-age=31536000"
+			Strict-Transport-Security "max-age=31536000; includeSubDomains"
 			-Server
 		}
 		redir https://{$FILEBUNNY_DOMAIN:localhost}{uri} permanent
@@ -55,7 +55,7 @@ import www-{$FILEBUNNY_WWW_REDIRECT:false}
 {$FILEBUNNY_DOMAIN:localhost} {
 	import tls-{$FILEBUNNY_TLS:auto}
 	header {
-		Strict-Transport-Security "max-age=31536000"
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
 		X-Content-Type-Options "nosniff"
 		Referrer-Policy "no-referrer"
 		-Server

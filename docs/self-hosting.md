@@ -289,6 +289,14 @@ cd frontend && VITE_FILEBUNNY_API=https://files.example.org npm run build:single
 The backend allows CORS for `Origin: null` only, which is what such a page
 sends. Share and delete links made from the file point to that origin.
 
+## HSTS
+
+Caddy sends `Strict-Transport-Security: max-age=31536000;
+includeSubDomains`: for a year, browsers that visited the site use only
+HTTPS for your domain **and all its subdomains**. If a subdomain of your
+FileBunny domain must stay reachable over plain HTTP, remove
+`includeSubDomains` in `deploy/Caddyfile`.
+
 ## Privacy checklist
 
 FileBunny stores no IP addresses. Keep it that way on your server:

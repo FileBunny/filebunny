@@ -104,7 +104,7 @@ client becomes a file path: blob names are server-generated IDs.
 - CI: `permissions: contents: read`, actions pinned by SHA, no
   `pull_request_target`, no persisted credentials.
 - **Open:** HSTS has no `includeSubDomains`/`preload` yet; decide once all
-  subdomains (mail, status) are known.
+  subdomains (mail, status) are known. (Phase 10: `includeSubDomains` on, `preload` after the public launch.)
 
 ### Business logic — fixed (#5, #6, #7)
 Expired files are unreachable even before cleanup (`GET`, `DELETE`).
@@ -568,6 +568,7 @@ Frontend only: no backend, API, CSP or deploy changes.
 | Deploy access | The server needs no GitHub token; whoever deploys is in the `docker` group (root in practice) | release.md |
 | Rollback | The backend refuses a database schema newer than it knows, instead of writing rows without the newer columns | `TestNewerSchemaRefused` |
 | Container logs | Capped at 3 × 10 MB per container, so they cannot fill the disk | `compose.yaml` |
+| HSTS | `max-age=31536000; includeSubDomains`: no subdomain of filebunny.eu serves HTTP (the mail records are DNS only). `preload` waits until some weeks after the public launch, since leaving the preload list takes months | `curl -I` |
 | Certificate source | `FILEBUNNY_TLS` picks a Caddyfile snippet; an unknown value stops Caddy instead of falling back | `caddy validate` |
 
 | IPv6 visitors | **Finding:** on an IPv4-only Compose network Docker passes IPv6 visitors through its userland proxy, so Caddy saw the proxy's address and all IPv6 visitors shared one rate limit (v0.9.0 and older). The network now has IPv6 and Docker forwards them with their own address; with the proxy off (deploy/ansible) they would otherwise not arrive at all | tested on the test VM: IPv6 to the site 200 |
