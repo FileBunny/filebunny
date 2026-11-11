@@ -47,6 +47,15 @@ RUN npm run build
 # owner. The base image's are world-writable (1777).
 RUN mkdir -p /caddy/data/caddy /caddy/config/caddy
 
+# The Caddy binary without its file capability (cap_net_bind_service): the
+# kernel refuses to exec it for a user without that capability. Removed on
+# the build platform (setcap only edits an attribute, it never runs the
+# binary), so the arm64 image needs no emulation.
+FROM caddy:2.11.7-alpine@sha256:e70b164da81ef698b3ad19af799ea6086ce6d9e48ed4079eb9fe26f6fbf14ee5 AS caddy-target
+FROM --platform=$BUILDPLATFORM caddy:2.11.7-alpine@sha256:e70b164da81ef698b3ad19af799ea6086ce6d9e48ed4079eb9fe26f6fbf14ee5 AS caddy-nocap
+COPY --from=caddy-target /usr/bin/caddy /caddy
+RUN setcap -r /caddy 2>/dev/null; test -z "$(getcap /caddy)"
+
 FROM caddy:2.11.7-alpine@sha256:e70b164da81ef698b3ad19af799ea6086ce6d9e48ed4079eb9fe26f6fbf14ee5 AS web
 # Fixed modes: COPY keeps the checkout's, which depend on the umask of
 # whoever cloned the repository.
@@ -55,9 +64,7 @@ COPY --from=frontend-build /src/dist /srv
 COPY --chmod=u=rwX,go=rX deploy/well-known/ /srv/.well-known/
 # Caddy runs as an unprivileged user without capabilities; compose.yaml
 # lets the container bind ports from 80 up (net.ipv4.ip_unprivileged_port_start).
-# The image's binary carries the file capability cap_net_bind_service,
-# which the kernel refuses to exec without it: remove it.
-RUN setcap -r /usr/bin/caddy
+COPY --from=caddy-nocap /caddy /usr/bin/caddy
 COPY --from=frontend-build --chown=65532:65532 --chmod=0700 /caddy/data /data
 COPY --from=frontend-build --chown=65532:65532 --chmod=0700 /caddy/config /config
 USER 65532:65532
