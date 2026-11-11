@@ -114,7 +114,8 @@ daily totals of uploads and downloads. If the summary does not arrive,
 the server cannot mail.
 
 Mail goes to `filebunny_monitor_mail_to` through the relays of
-`filebunny_smtp_file`, sent by the user `filebunny-mail`: the firewall
+`filebunny_smtp_file` (with `filebunny_share_mail: false` only the
+monitoring uses them, and the site does not mail share links), sent by the user `filebunny-mail`: the firewall
 lets only that user reach the relay, and only for two minutes after the
 monitor has put the relay's addresses in a set; that user can do nothing
 else but DNS. Try it with `sudo filebunny-monitor --test-mail`;

@@ -9,6 +9,7 @@ filebunny_env: {}             # further FILEBUNNY_* settings for .env
 filebunny_dir: /opt/filebunny
 filebunny_web_allow: []       # empty: the site is open to everyone
 filebunny_smtp_file: ""       # local JSON file with the relays; empty: no mail
+filebunny_share_mail: true    # false: the site does not mail share links; the monitoring still uses the relays
 filebunny_smtp_ports: [465, 587]
 filebunny_swap_mb: 1024
 filebunny_timezone: Etc/UTC   # the automatic reboot time is local time
