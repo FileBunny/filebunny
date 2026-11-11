@@ -257,10 +257,18 @@ strictly (plain ASCII, no line breaks) and only used as the recipient.
 - **Relays:** listed in a secret file (`FILEBUNNY_SMTP_FILE`), each with
   a daily limit; used round-robin, skipping relays that are full or fail.
   A relay that refuses the recipient (5xx) is not retried elsewhere.
+- **Relay types:** SMTP (the default), or a relay's HTTPS API for
+  servers whose provider blocks outgoing SMTP: `mailjet-api` posts to
+  Mailjet's Send API v3.1 (`internal/mail/api.go`). Its address is fixed
+  in the code, it follows no redirects and uses no proxy, and every
+  message turns tracking off. Both types share the limits and the
+  round-robin; other APIs can be added as further types.
 - **No address is stored or logged.** The limits and the block list use
   an HMAC of the lower-cased address with a secret key in the data
-  directory (`mail-pepper`). Errors carry the SMTP code only, since relays
-  echo addresses in their replies.
+  directory (`mail-pepper`). Errors carry the SMTP code or HTTP status
+  only, since relays echo addresses in their replies. The relay itself
+  keeps its own logs, and may keep each recipient as a contact (Mailjet
+  does, through SMTP and the API).
 - **Blocking:** every mail has a block link (`#/block/<token>`, the token
   being that HMAC) and a one-click `List-Unsubscribe` header. Opening the
   page does nothing until the visitor confirms.

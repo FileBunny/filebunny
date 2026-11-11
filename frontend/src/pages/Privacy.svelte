@@ -64,7 +64,8 @@
   </li>
   <li>
     <strong>E-mail:</strong> a mailed link goes through a mail relay, which sees the recipient's e-mail address and the mail, and
-    keeps its own logs. The recipient's mail provider sees it too, as with any mail.
+    keeps its own logs; a relay may also keep the address in its own contact list (Mailjet does). The recipient's mail
+    provider sees it too, as with any mail.
   </li>
   <li>
     These services keep their own logs under their own terms. They never get your password, your private key or the

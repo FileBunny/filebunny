@@ -238,6 +238,16 @@ sudo install -m 0400 -o 65532 smtp.json /etc/filebunny/smtp.json   # 65532: the 
 FILEBUNNY_SMTP=/etc/filebunny/smtp.json docker compose up -d
 ```
 
+- `type`: `smtp` (the default) or `mailjet-api`. Use `mailjet-api` when
+  your provider blocks outgoing SMTP (465/587): it sends through
+  Mailjet's Send API over HTTPS, so only port 443 is needed. It takes no
+  `host`, `port` or `implicit_tls`; `username` and `password` are the API
+  key and secret (the same as Mailjet's SMTP credentials):
+
+  ```json
+  {"name": "mailjet", "type": "mailjet-api",
+   "username": "<API key>", "password": "<secret key>", "daily_limit": 200}
+  ```
 - `name`: shown in logs and used for counters (a-z, 0-9, `-`); never the
   account. `daily_limit`: the relay's own free-tier limit; FileBunny sends
   no more than that through it per UTC day.
@@ -252,7 +262,10 @@ FILEBUNNY_SMTP=/etc/filebunny/smtp.json docker compose up -d
 - Prefer keys with sending rights only, for your sender address only,
   and, where the relay offers it, only from your server's IP address.
 - Switch off open and click tracking at the relay: FileBunny sends plain
-  text, but a relay that rewrites links would see every click.
+  text, but a relay that rewrites links would see every click. (An API
+  relay switches tracking off in every message itself.)
+- A relay may keep every recipient in its own contact list; Mailjet does,
+  through SMTP and the API. Delete them there if you do not want that.
 - Some relays (Mailjet, for example) replace FileBunny's
   `List-Unsubscribe` header with their own; addresses that unsubscribe
   that way end up on the relay's suppression list instead of FileBunny's
@@ -267,7 +280,8 @@ headers say `spf=pass`, `dkim=pass` and `dmarc=pass`.
 The backend keeps a secret key (`data/mail-pepper`) for the address
 hashes behind the limits and the block list. Losing it resets both.
 
-The backend needs outgoing access to the relays' SMTP ports.
+The backend needs outgoing access to the relays' SMTP ports, or to 443
+for an API relay.
 
 ## Releases
 
