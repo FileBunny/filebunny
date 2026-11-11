@@ -128,9 +128,10 @@ table inet filebunny {
 		ct state new meta l4proto { tcp, udp } th dport 53 ip daddr @dns4 accept
 		ct state new meta l4proto { tcp, udp } th dport 53 ip6 daddr @dns6 accept
 		# Monitoring mail: only the user filebunny-mail, only to the relay
-		# while it is in the set; that user may do nothing else but DNS.
-		ct state new meta skuid "filebunny-mail" ip daddr @mail_relay4 tcp dport { {{ filebunny_smtp_ports | join(', ') }} } accept
-		ct state new meta skuid "filebunny-mail" ip6 daddr @mail_relay6 tcp dport { {{ filebunny_smtp_ports | join(', ') }} } accept
+		# while it is in the set (SMTP ports, or 443 for an API relay);
+		# that user may do nothing else but DNS.
+		ct state new meta skuid "filebunny-mail" ip daddr @mail_relay4 tcp dport { {{ (filebunny_smtp_ports + [443]) | unique | join(', ') }} } accept
+		ct state new meta skuid "filebunny-mail" ip6 daddr @mail_relay6 tcp dport { {{ (filebunny_smtp_ports + [443]) | unique | join(', ') }} } accept
 		meta skuid "filebunny-mail" limit rate 6/minute log prefix "filebunny egress drop (mail user): " level warn
 		meta skuid "filebunny-mail" drop
 		ct state new udp dport 123 accept
