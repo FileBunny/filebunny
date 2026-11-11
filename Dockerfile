@@ -9,7 +9,7 @@
 
 # Built on the build machine's platform and cross-compiled for the target
 # (the same binary as a native build), so multi-arch images need no emulation.
-FROM --platform=$BUILDPLATFORM golang:1.27.3-trixie@sha256:c124b9ad3452f46061b5054607d26ea51730dae5372c5e469920063ba2bc6dcc AS backend-build
+FROM --platform=$BUILDPLATFORM golang:1.27.4-trixie@sha256:b54b2639de8c1bfe538ec5ffc45f29b1932235ac5f6d63c059853646677112d9 AS backend-build
 ENV CGO_ENABLED=0 GOTOOLCHAIN=local GOFLAGS=-mod=readonly
 ARG TARGETOS TARGETARCH
 WORKDIR /src
