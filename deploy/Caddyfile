@@ -29,10 +29,17 @@
 # "internal" uses Caddy's own CA, for a test server on an internal name
 # (trust its root certificate in the browser). "localhost" always uses
 # the local CA. Any other value stops Caddy ("File to import not found").
+# TLS 1.3 only (Mozilla's "modern" profile): no TLS 1.2 fallback, so
+# no downgrade to it and forward secrecy also for resumed sessions.
 (tls-auto) {
+	tls {
+		protocols tls1.3
+	}
 }
 (tls-internal) {
-	tls internal
+	tls internal {
+		protocols tls1.3
+	}
 }
 
 # FILEBUNNY_WWW_REDIRECT=true also serves www.<domain> and redirects it
@@ -44,7 +51,7 @@
 	www.{$FILEBUNNY_DOMAIN:localhost} {
 		import tls-{$FILEBUNNY_TLS:auto}
 		header {
-			Strict-Transport-Security "max-age=31536000"
+			Strict-Transport-Security "max-age=31536000; includeSubDomains"
 			-Server
 		}
 		redir https://{$FILEBUNNY_DOMAIN:localhost}{uri} permanent
@@ -55,7 +62,7 @@ import www-{$FILEBUNNY_WWW_REDIRECT:false}
 {$FILEBUNNY_DOMAIN:localhost} {
 	import tls-{$FILEBUNNY_TLS:auto}
 	header {
-		Strict-Transport-Security "max-age=31536000"
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
 		X-Content-Type-Options "nosniff"
 		Referrer-Policy "no-referrer"
 		-Server

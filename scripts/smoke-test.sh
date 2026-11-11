@@ -28,8 +28,26 @@ echo "frontend headers"
 headers=$("${curl[@]}" -D - -o /dev/null "$base/")
 grep -qi "^content-security-policy: default-src 'none'; script-src 'self'" <<<"$headers" || fail "frontend CSP missing"
 grep -qi "^content-security-policy: .*connect-src 'self' https://keys.openpgp.org https://filebin.net https://storage.filebin.net;" <<<"$headers" || fail "connect-src not exactly self + keys.openpgp.org + filebin"
-grep -qi '^strict-transport-security:' <<<"$headers" || fail "HSTS missing"
+grep -qi '^strict-transport-security: max-age=31536000; includeSubDomains' <<<"$headers" || fail "HSTS missing or without includeSubDomains"
 grep -qi '^server:' <<<"$headers" && fail "Server header present"
+
+echo "TLS 1.3 only"
+host=${base#https://}; host=${host%%/*}
+connect=$host; [[ $connect == *:* ]] || connect=$connect:443
+if echo | timeout 10 openssl s_client -tls1_2 -connect "$connect" -servername "${host%%:*}" >/dev/null 2>&1; then
+	fail "TLS 1.2 accepted"
+fi
+echo | timeout 10 openssl s_client -tls1_3 -connect "$connect" -servername "${host%%:*}" >/dev/null 2>&1 || fail "TLS 1.3 refused"
+
+echo "containers run without root and capabilities"
+for service in backend web; do
+	pid=$(docker inspect -f '{{.State.Pid}}' "$(docker compose ps -q "$service")")
+	status=$(cat "/proc/$pid/status")
+	uid=$(awk '/^Uid:/ {print $3}' <<<"$status")    # effective UID
+	caps=$(awk '/^CapEff:/ {print $2}' <<<"$status")
+	[[ $uid != 0 ]] || fail "$service runs as root"
+	[[ $caps == 0000000000000000 ]] || fail "$service has capabilities ($caps)"
+done
 
 echo "version"
 "${curl[@]}" "$base/api/v1/version" | grep -q '"version":"' || fail "version"

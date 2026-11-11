@@ -82,7 +82,7 @@ client becomes a file path: blob names are server-generated IDs.
   read-only root filesystem, admin API off.
 - **Residual:** the official Caddy image runs as root inside the container.
   With all capabilities dropped this is limited; running Caddy as a
-  non-root user is a possible follow-up.
+  non-root user is a possible follow-up. (Done in phase 10.)
 
 ### API security risks — fixed (#3, #4, #5, #10)
 - Size limit enforced while streaming (`MaxBytesReader`), not only via
@@ -104,7 +104,7 @@ client becomes a file path: blob names are server-generated IDs.
 - CI: `permissions: contents: read`, actions pinned by SHA, no
   `pull_request_target`, no persisted credentials.
 - **Open:** HSTS has no `includeSubDomains`/`preload` yet; decide once all
-  subdomains (mail, status) are known.
+  subdomains (mail, status) are known. (Phase 10: `includeSubDomains` on, `preload` after the public launch.)
 
 ### Business logic — fixed (#5, #6, #7)
 Expired files are unreachable even before cleanup (`GET`, `DELETE`).
@@ -568,6 +568,12 @@ Frontend only: no backend, API, CSP or deploy changes.
 | Deploy access | The server needs no GitHub token; whoever deploys is in the `docker` group (root in practice) | release.md |
 | Rollback | The backend refuses a database schema newer than it knows, instead of writing rows without the newer columns | `TestNewerSchemaRefused` |
 | Container logs | Capped at 3 × 10 MB per container, so they cannot fill the disk | `compose.yaml` |
+| Monitoring (`filebunny-monitor`) | Runs as root, reads only the server's own state and logs (which hold no visitor addresses), the daily totals (read-only) and crt.sh; mails through the relay as `filebunny-mail`, which the firewall lets reach only the relay's addresses for two minutes (an nftables set with timeout, `meta skuid`) and nothing else but DNS; TLS with certificate checks, never plain SMTP; the relay password goes to the sender on stdin, never on a command line | test VM: login reached the relay; other hosts, other users and HTTPS for that user blocked; alert, recovery and summary mails (dry run) |
+| Go 1.27.4 | **Finding:** GO-2026-6859, a crash of the HTTP/1 server through a header race in `MaxBytesReader` (used on every upload), in Go 1.27.3, so also in v0.10.0-rc.1. Fixed by Go 1.27.4 (`go.mod` and the `golang` image together) | `make vuln` |
+| Daily totals (`daily_counts`) | Counts per UTC day only (uploads, upload-link uploads, downloads, owner fetches); no file ID, visitor, hash or time of day, so they reveal nothing about one transfer. One row per day; after 400 days added up per month (`monthly_counts`, twelve rows a year). No API: only the operator's monitoring reads them. Counting is best effort and never fails a transfer; the column names are constants, never input | `TestDailyCounts` |
+| Caddy without root | Caddy runs as UID 65532 with no capabilities at all (also not `NET_BIND_SERVICE`): the container's own `net.ipv4.ip_unprivileged_port_start=80` lets it bind 80 and 443, and the binary's file capability is removed (the kernel refuses to exec it without that capability), in a stage on the build platform so the arm64 image needs no emulation. Its directories in the image belong to that user with mode 0700. `deploy.sh` sets the owner of Caddy's files to the web image's user before every start: root without capabilities cannot read files of another user, so converting the volumes before the new release runs (or keeping them on a rollback) would stop the old Caddy | smoke test: no container runs as root or has capabilities; test VM: deploy and rollback across the change |
+| TLS (testssl 3.2.1 against filebunny.eu, 2026-11-08) | Grade A+; TLS 1.2 and 1.3, forward secrecy, AEAD ciphers only (AES-GCM, ChaCha20), ECDSA P-256 certificate. No OCSP stapling: Let's Encrypt no longer runs OCSP. Two low findings: no CAA record yet (requested from the DNS provider), and a session ticket lifetime hint of 7 days. Afterwards **TLS 1.3 only** (Mozilla's modern profile): no downgrade to 1.2, and resumed sessions keep forward secrecy, which settles the ticket finding. Clients without TLS 1.3 (old Android, iOS before 12.2, Windows 7/8.1, some inspecting proxies) cannot connect | `testssl https://filebunny.eu` |
+| HSTS | `max-age=31536000; includeSubDomains`: no subdomain of filebunny.eu serves HTTP (the mail records are DNS only). `preload` waits until some weeks after the public launch, since leaving the preload list takes months | `curl -I` |
 | Certificate source | `FILEBUNNY_TLS` picks a Caddyfile snippet; an unknown value stops Caddy instead of falling back | `caddy validate` |
 
 | IPv6 visitors | **Finding:** on an IPv4-only Compose network Docker passes IPv6 visitors through its userland proxy, so Caddy saw the proxy's address and all IPv6 visitors shared one rate limit (v0.9.0 and older). The network now has IPv6 and Docker forwards them with their own address; with the proxy off (deploy/ansible) they would otherwise not arrive at all | tested on the test VM: IPv6 to the site 200 |
@@ -578,6 +584,16 @@ Frontend only: no backend, API, CSP or deploy changes.
 - **The compose files come from the operator's checkout** (at the tag's
   commit, which the attestation binds to); a compromised laptop can
   deploy anything regardless.
+- **The monitoring reports from the server itself**: a compromised
+  server can stop or fake it. Only a missing summary shows that; the
+  external watcher covers the site once it is public.
+- **crt.sh** sees the server's address asking about its own domain (CT
+  logs are public anyway) and is not always reachable; the summary says
+  so.
+- **TLS 1.3 only** shuts out clients without it (old Android and iOS,
+  Windows 7/8.1, some TLS-inspecting proxies). Chosen: every current
+  browser has it, and it removes the downgrade to 1.2 and the TLS 1.2
+  session ticket window.
 - **Egress filtering does not stop exfiltration over HTTPS**: port 443
   must stay open to any address (WKD domains, Filebin, certificates,
   updates). It blocks other ports and makes unexpected connections

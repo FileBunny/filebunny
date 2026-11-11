@@ -30,6 +30,17 @@ table inet filebunny {
 		elements = { {{ dns6 | join(', ') }} }
 {% endif %}
 	}
+
+	# The SMTP relay, for the monitoring's mail: filebunny-monitor adds its
+	# addresses for two minutes before sending.
+	set mail_relay4 {
+		type ipv4_addr
+		flags timeout
+	}
+	set mail_relay6 {
+		type ipv6_addr
+		flags timeout
+	}
 {% if filebunny_web_allow | length > 0 %}
 
 	# Closed test: only these addresses reach the site.
@@ -116,6 +127,12 @@ table inet filebunny {
 {% endif %}
 		ct state new meta l4proto { tcp, udp } th dport 53 ip daddr @dns4 accept
 		ct state new meta l4proto { tcp, udp } th dport 53 ip6 daddr @dns6 accept
+		# Monitoring mail: only the user filebunny-mail, only to the relay
+		# while it is in the set; that user may do nothing else but DNS.
+		ct state new meta skuid "filebunny-mail" ip daddr @mail_relay4 tcp dport { {{ filebunny_smtp_ports | join(', ') }} } accept
+		ct state new meta skuid "filebunny-mail" ip6 daddr @mail_relay6 tcp dport { {{ filebunny_smtp_ports | join(', ') }} } accept
+		meta skuid "filebunny-mail" limit rate 6/minute log prefix "filebunny egress drop (mail user): " level warn
+		meta skuid "filebunny-mail" drop
 		ct state new udp dport 123 accept
 		ct state new tcp dport 443 accept
 		# To the containers (the deploy check on this server).

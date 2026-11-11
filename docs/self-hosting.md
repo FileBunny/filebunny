@@ -98,6 +98,31 @@ What it does:
 - `/opt/filebunny/.env` from your variables for `scripts/deploy.sh`, and
   the SMTP file (`filebunny_smtp_file`, kept outside the repository).
 
+### Monitoring
+
+With `filebunny_monitor` (on by default) the playbook installs
+`filebunny-monitor`, which a systemd timer runs every hour. It checks the
+disk, the containers (also restarts), the version and certificate the
+site serves, errors in the container logs, failed systemd units, a reboot
+that is not happening, time sync and outgoing traffic, and every 6 hours
+asks crt.sh (Certificate Transparency) for new certificates for your
+domain. It mails when a problem starts and when it ends, and every day at
+`filebunny_monitor_summary_hour` (default 6) a summary with trends: when
+the disk would be full at the growth of the last 14 days, the traffic
+forecast for the month against `filebunny_monitor_traffic_tb`, and the
+daily totals of uploads and downloads. If the summary does not arrive,
+the server cannot mail.
+
+Mail goes to `filebunny_monitor_mail_to` through the relays of
+`filebunny_smtp_file`, sent by the user `filebunny-mail`: the firewall
+lets only that user reach the relay, and only for two minutes after the
+monitor has put the relay's addresses in a set; that user can do nothing
+else but DNS. Try it with `sudo filebunny-monitor --test-mail`;
+`--summary` sends the summary now, `--dry-run` prints instead of
+sending. Without an SMTP file it only writes to the journal
+(`journalctl -u filebunny-monitor`). The mails count against the relay's
+own limits, not FileBunny's.
+
 DHCP is only allowed through the firewall with `filebunny_dhcp: true`;
 leave it off when the provider configures the network statically.
 
@@ -289,6 +314,20 @@ cd frontend && VITE_FILEBUNNY_API=https://files.example.org npm run build:single
 The backend allows CORS for `Origin: null` only, which is what such a page
 sends. Share and delete links made from the file point to that origin.
 
+## TLS and HSTS
+
+Caddy speaks **TLS 1.3 only** (`protocols tls1.3` in `deploy/Caddyfile`).
+Clients without it, such as old Android or iOS versions, Windows 7/8.1 or
+some TLS-inspecting proxies, cannot connect; add `tls1.2` to the
+`protocols` lines if you must support them.
+
+
+Caddy sends `Strict-Transport-Security: max-age=31536000;
+includeSubDomains`: for a year, browsers that visited the site use only
+HTTPS for your domain **and all its subdomains**. If a subdomain of your
+FileBunny domain must stay reachable over plain HTTP, remove
+`includeSubDomains` in `deploy/Caddyfile`.
+
 ## Privacy checklist
 
 FileBunny stores no IP addresses. Keep it that way on your server:
@@ -332,6 +371,17 @@ With the release images: `scripts/deploy.sh vX.Y.Z` (see
 
 Updating from v0.9.0 or older: the network now has IPv6, so run
 `docker compose down` once before `up` (data volumes stay).
+
+Updating from v0.10.0-rc.1 or older: Caddy now runs as UID 65532 without
+capabilities, so its existing volumes must belong to that user once
+(`scripts/deploy.sh` does this before every start, also for a rollback to
+an older release, where root must own them again). After building the new
+images and before `up`:
+
+```sh
+docker compose run --rm --no-deps --user 0:0 --cap-add CHOWN --cap-add DAC_READ_SEARCH \
+  --entrypoint chown web -R 65532:65532 /data/caddy /config/caddy
+```
 
 Uploaded files and certificates live in Docker volumes (`data`,
 `caddy_data`) and survive updates. Database migrations run automatically
