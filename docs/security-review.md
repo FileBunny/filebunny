@@ -644,7 +644,7 @@ Frontend only: no backend, API, CSP or deploy changes.
 | Area | Measure | Test |
 |---|---|---|
 | Camera permission | `Permissions-Policy: camera=(self)` (was `camera=()`): only this site's own pages, no frames (`frame-ancestors 'none'`); microphone and location stay off. The camera starts only on a click, never on page load | `camera.test.ts` (video only, no audio); headless Chromium with a fake camera |
-| Metadata in the photo | Encoded from a canvas: no EXIF, so no location, device or time; neutral name `photo.jpg`; literal date 0 as for every file | Decrypted with `gpg`: JFIF without an Exif segment |
+| Metadata in the photo | Encoded from a canvas: no EXIF, so no location, device or time; neutral name `photo-<5 random digits>.jpg`; literal date 0 as for every file | Decrypted with `gpg`: JFIF without an Exif segment |
 | Plaintext in the browser | No object URL, no `localStorage`/IndexedDB/Cache API; the camera stream is never fetched, so the HTTP cache is not involved. Camera off and canvas emptied (`width = 0`) and the Blob dropped after sending, on Retake, on another choice, on leaving the page and on `pagehide` | Headless Chromium: canvas 0 after `pagehide`, no stream after taking the photo |
 | CSP | Unchanged: the still is a canvas, so no `img-src blob:` | Build |
 

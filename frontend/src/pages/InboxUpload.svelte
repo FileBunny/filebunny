@@ -103,7 +103,7 @@
         what === 'text'
           ? { kind: 'text' as const, text }
           : what === 'photo'
-            ? { kind: 'file' as const, name: photoName, data: photo!.blob.stream() }
+            ? { kind: 'file' as const, name: photoName(), data: photo!.blob.stream() }
             : { kind: 'file' as const, name: file!.name, data: file!.stream() };
       const ciphertext = await encrypt(plaintext, { publicKeys: [key.key] });
       const stored = await uploadToInbox(id, ciphertext, (n) => (sent = n), controller.signal);

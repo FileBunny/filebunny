@@ -10,8 +10,14 @@ import {
   photoSummary,
 } from '../src/lib/camera.ts';
 
-test('photo name is neutral', () => {
-  assert.equal(photoName, 'photo.jpg');
+test('photo name: neutral, with a random five-digit number', () => {
+  const names = new Set<string>();
+  for (let i = 0; i < 200; i++) {
+    const name = photoName();
+    assert.match(name, /^photo-\d{5}\.jpg$/);
+    names.add(name);
+  }
+  assert.ok(names.size > 190, 'names repeat too often');
 });
 
 test('constraints: video only, back camera by default, chosen camera exact', () => {

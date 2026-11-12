@@ -94,7 +94,9 @@ script and one stylesheet, without lazy-loaded chunks or workers, so
   gives), Switch camera when there is more than one, and Retake. Taking
   the photo stops the camera. The frame is drawn on a `<canvas>` and
   encoded as JPEG there, so the file has no EXIF (no location, device or
-  time); it is encrypted as a file named `photo.jpg`, like any other file.
+  time); it is encrypted as a file named `photo-<5 random digits>.jpg` (so a
+  second photo does not overwrite the first in the recipient's downloads),
+  like any other file.
   The photo is only kept in memory: no object URL, no browser storage. The
   camera stops and the canvas and Blob are dropped after sending, on
   Retake, when another choice is picked, when the page is left and on

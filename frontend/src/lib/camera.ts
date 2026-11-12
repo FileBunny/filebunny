@@ -3,8 +3,20 @@
 // EXIF data: no location, no device, no time. It never leaves the page
 // unencrypted and is not written to any browser storage.
 
-/** The file name inside the OpenPGP message. Neutral: no date or device. */
-export const photoName = 'photo.jpg';
+/**
+ * The file name inside the OpenPGP message, e.g. "photo-04821.jpg": a
+ * random number, so a second photo does not overwrite the first in the
+ * recipient's downloads. Neutral: no date or device.
+ */
+export function photoName(): string {
+  // Rejection sampling: 100000 does not divide 2^32, so plain modulo would
+  // be (very slightly) biased.
+  const limit = Math.floor(2 ** 32 / 100_000) * 100_000;
+  const n = new Uint32Array(1);
+  do crypto.getRandomValues(n);
+  while (n[0]! >= limit);
+  return `photo-${String(n[0]! % 100_000).padStart(5, '0')}.jpg`;
+}
 
 /** JPEG quality for canvas.toBlob. */
 export const jpegQuality = 0.92;

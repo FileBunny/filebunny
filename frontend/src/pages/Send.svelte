@@ -198,7 +198,7 @@
         what === 'text'
           ? { kind: 'text' as const, text }
           : what === 'photo'
-            ? { kind: 'file' as const, name: photoName, data: photo!.blob.stream() }
+            ? { kind: 'file' as const, name: photoName(), data: photo!.blob.stream() }
             : { kind: 'file' as const, name: file!.name, data: file!.stream() };
       const to = mode === 'password' ? { password } : { publicKeys: recipients.map((r) => r.info.key) };
       const ciphertext = await encrypt(plaintext, to);
