@@ -42,6 +42,14 @@ type Relay struct {
 	// ImplicitTLS connects with TLS right away, as on port 465 (always
 	// used there); otherwise STARTTLS is required.
 	ImplicitTLS bool `json:"implicit_tls"`
+	// DeleteContacts (API relays, default true) removes the contacts the
+	// relay keeps of every recipient, once a day; see server.cleanupContacts.
+	DeleteContacts *bool `json:"delete_contacts"`
+}
+
+// DeletesContacts reports whether the contact cleanup runs for r.
+func (r Relay) DeletesContacts() bool {
+	return r.kind() == TypeMailjetAPI && (r.DeleteContacts == nil || *r.DeleteContacts)
 }
 
 func (r Relay) implicitTLS() bool { return r.ImplicitTLS || r.Port == 465 }
@@ -106,6 +114,8 @@ func LoadConfig(path string) (Config, error) {
 				return Config{}, fmt.Errorf("mail config: relay %s: host must be a host name", r.Name)
 			case r.Port < 1 || r.Port > 65535:
 				return Config{}, fmt.Errorf("mail config: relay %s: port out of range", r.Name)
+			case r.DeleteContacts != nil:
+				return Config{}, fmt.Errorf("mail config: relay %s: delete_contacts is for API relays only", r.Name)
 			}
 		case TypeMailjetAPI:
 			// The API address is fixed: a host or port here would be ignored.
@@ -221,12 +231,12 @@ func sendErr(step string, err error) error {
 	return &SendError{Step: step}
 }
 
-// Sender delivers through one relay. TLS and APIURL can be replaced in
+// Sender delivers through one relay. TLS and APIBase can be replaced in
 // tests.
 type Sender struct {
 	Timeout time.Duration
 	TLS     *tls.Config
-	APIURL  string
+	APIBase string
 }
 
 // DefaultTimeout bounds a whole delivery.

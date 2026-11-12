@@ -269,6 +269,14 @@ strictly (plain ASCII, no line breaks) and only used as the recipient.
   only, since relays echo addresses in their replies. The relay itself
   keeps its own logs, and may keep each recipient as a contact (Mailjet
   does, through SMTP and the API).
+- **Contact cleanup** (`internal/server/contacts.go`): for API relays
+  with `delete_contacts` (default on), once a day (first a minute after
+  the start) the server lists the relay's contacts and deletes those
+  older than a day with Mailjet's GDPR delete, at most 2000 per relay and
+  day, one request at a time with a pause, stopping at a rate limit.
+  Contacts that unsubscribed at Mailjet or complained go on the block
+  list first, so those requests reach FileBunny. Nothing about the
+  addresses is logged, only counts.
 - **Blocking:** every mail has a block link (`#/block/<token>`, the token
   being that HMAC) and a one-click `List-Unsubscribe` header. Opening the
   page does nothing until the visitor confirms.

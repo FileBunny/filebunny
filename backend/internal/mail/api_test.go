@@ -26,7 +26,7 @@ func apiSender(t *testing.T, h http.HandlerFunc) mail.Sender {
 	t.Helper()
 	srv := httptest.NewTLSServer(h)
 	t.Cleanup(srv.Close)
-	return mail.Sender{APIURL: srv.URL + "/v3.1/send", TLS: srv.Client().Transport.(*http.Transport).TLSClientConfig}
+	return mail.Sender{APIBase: srv.URL, TLS: srv.Client().Transport.(*http.Transport).TLSClientConfig}
 }
 
 func TestMailjetAPIRequest(t *testing.T) {
@@ -145,5 +145,65 @@ func TestLoadConfigRelayTypes(t *testing.T) {
 				t.Errorf("ok=%v, err=%v", tc.ok, err)
 			}
 		})
+	}
+}
+
+func TestMailjetContacts(t *testing.T) {
+	var deleted []string
+	s := apiSender(t, func(w http.ResponseWriter, r *http.Request) {
+		if u, p, ok := r.BasicAuth(); !ok || u != "key" || p != "secret" {
+			t.Errorf("auth on %s", r.URL.Path)
+		}
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/v3/REST/contact":
+			if r.URL.Query().Get("Limit") != "1000" || r.URL.Query().Get("Offset") != "1000" {
+				t.Errorf("query %s", r.URL.RawQuery)
+			}
+			// IDs come as numbers or strings.
+			io.WriteString(w, `{"Count":2,"Total":1002,"Data":[
+				{"ID":7,"Email":"a@example.org","CreatedAt":"2026-11-02T21:08:00Z","UnsubscribedAt":"","IsSpamComplaining":false},
+				{"ID":"8","Email":"b@example.org","CreatedAt":"2026-11-02T21:15:00Z","UnsubscribedAt":"2026-11-03T10:00:00Z","IsSpamComplaining":true}]}`)
+		case r.Method == http.MethodDelete && strings.HasPrefix(r.URL.Path, "/v4/contacts/"):
+			deleted = append(deleted, strings.TrimPrefix(r.URL.Path, "/v4/contacts/"))
+			if strings.HasSuffix(r.URL.Path, "/9") {
+				w.WriteHeader(http.StatusTooManyRequests)
+			}
+		default:
+			t.Errorf("unexpected %s %s", r.Method, r.URL.Path)
+			w.WriteHeader(http.StatusNotFound)
+		}
+	})
+	page, total, err := s.MailjetContacts(t.Context(), apiRelay, 1000)
+	if err != nil || total != 1002 || len(page) != 2 {
+		t.Fatalf("page %+v total %d err %v", page, total, err)
+	}
+	if a, b := page[0], page[1]; a.ID != 7 || a.Unsubscribed || a.SpamComplaint || a.CreatedAt.IsZero() ||
+		b.ID != 8 || !b.Unsubscribed || !b.SpamComplaint {
+		t.Errorf("contacts %+v", page)
+	}
+	if err := s.MailjetDeleteContact(t.Context(), apiRelay, 7); err != nil {
+		t.Error(err)
+	}
+	if err := s.MailjetDeleteContact(t.Context(), apiRelay, 9); !mail.IsRateLimited(err) {
+		t.Errorf("429 not seen as a rate limit: %v", err)
+	}
+	if strings.Join(deleted, ",") != "7,9" {
+		t.Errorf("deleted %v", deleted)
+	}
+	if !(mail.Contact{Email: "x1@domain.invalid"}).Anonymized() || (mail.Contact{Email: "a@example.org"}).Anonymized() {
+		t.Error("Anonymized")
+	}
+}
+
+func TestDeleteContactsOnlyForAPIRelays(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "smtp.json")
+	os.WriteFile(path, []byte(`{"from":"noreply@example.org","relays":[{"name":"a","host":"smtp.example.org","port":587,"daily_limit":1,"delete_contacts":true}]}`), 0o600)
+	if _, err := mail.LoadConfig(path); err == nil {
+		t.Error("delete_contacts accepted for an SMTP relay")
+	}
+	os.WriteFile(path, []byte(`{"from":"noreply@example.org","relays":[{"name":"a","type":"mailjet-api","username":"k","password":"s","daily_limit":1,"delete_contacts":false}]}`), 0o600)
+	c, err := mail.LoadConfig(path)
+	if err != nil || c.Relays[0].DeletesContacts() {
+		t.Errorf("delete_contacts false: %v %v", err, c.Relays)
 	}
 }

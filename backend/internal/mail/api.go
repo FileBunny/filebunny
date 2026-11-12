@@ -6,8 +6,11 @@ import (
 	"crypto/tls"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
+	"strconv"
+	"strings"
 	"time"
 )
 
@@ -17,16 +20,22 @@ const (
 	// TypeMailjetAPI is Mailjet's Send API v3.1 over HTTPS, for servers
 	// whose provider blocks outgoing SMTP. Username and password are the
 	// API key and secret (Mailjet's SMTP credentials); host and port are
-	// fixed (mailjetURL).
+	// fixed (mailjetBase).
 	TypeMailjetAPI = "mailjet-api"
 )
 
-// mailjetURL is the only address the API relay ever connects to; nothing
-// in it comes from a client or the configuration.
-const mailjetURL = "https://api.mailjet.com/v3.1/send"
+// mailjetBase is the only host the API relay ever connects to; nothing in
+// its URLs comes from a client or the configuration.
+const mailjetBase = "https://api.mailjet.com"
 
-// maxAPIResponse caps the response body that is read (and discarded).
-const maxAPIResponse = 64 << 10
+const (
+	// maxAPIResponse caps the response body that is read (and discarded).
+	maxAPIResponse = 64 << 10
+	// maxContactsResponse caps one page of contacts (at most 1000).
+	maxContactsResponse = 4 << 20
+	// ContactsPage is the most contacts Mailjet returns at once.
+	ContactsPage = 1000
+)
 
 // Deliver sends m to m.To through r, by the relay's type.
 func (s Sender) Deliver(ctx context.Context, r Relay, m Message) error {
@@ -82,11 +91,7 @@ func (s Sender) sendMailjet(ctx context.Context, r Relay, m Message) error {
 	if err != nil {
 		return &SendError{Via: TypeMailjetAPI, Step: "request"}
 	}
-	url := mailjetURL
-	if s.APIURL != "" {
-		url = s.APIURL
-	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, s.apiBase()+"/v3.1/send", bytes.NewReader(body))
 	if err != nil {
 		return &SendError{Via: TypeMailjetAPI, Step: "request"}
 	}
@@ -111,6 +116,116 @@ func (s Sender) sendMailjet(ctx context.Context, r Relay, m Message) error {
 		return &SendError{Via: TypeMailjetAPI, Step: "response"}
 	}
 	return nil
+}
+
+func (s Sender) apiBase() string {
+	if s.APIBase != "" {
+		return s.APIBase
+	}
+	return mailjetBase
+}
+
+// Contact is a contact in the relay's account, as far as the contact
+// cleanup needs it.
+type Contact struct {
+	ID        int64
+	Email     string
+	CreatedAt time.Time
+	// Unsubscribed and SpamComplaint: the address asked for no more mail
+	// at the relay (Mailjet's own unsubscribe link) or reported spam.
+	Unsubscribed, SpamComplaint bool
+}
+
+// Anonymized reports whether a GDPR delete already anonymized the contact;
+// Mailjet keeps it for 30 days with an address in the .invalid domain.
+func (c Contact) Anonymized() bool { return strings.HasSuffix(strings.ToLower(c.Email), ".invalid") }
+
+// flexInt is a number Mailjet sends as a number or as a string.
+type flexInt int64
+
+func (n *flexInt) UnmarshalJSON(b []byte) error {
+	v, err := strconv.ParseInt(strings.Trim(string(b), `"`), 10, 64)
+	*n = flexInt(v)
+	return err
+}
+
+// MailjetContacts returns one page of the account's contacts (at most
+// ContactsPage, from offset) and the total number.
+func (s Sender) MailjetContacts(ctx context.Context, r Relay, offset int) ([]Contact, int, error) {
+	ctx, cancel := context.WithTimeout(ctx, s.apiTimeout())
+	defer cancel()
+	url := fmt.Sprintf("%s/v3/REST/contact?Limit=%d&Offset=%d", s.apiBase(), ContactsPage, offset)
+	resp, err := s.apiDo(ctx, r, http.MethodGet, url)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil, 0, &SendError{Via: TypeMailjetAPI, Step: "contacts", Code: resp.StatusCode}
+	}
+	var page struct {
+		Total flexInt `json:"Total"`
+		Data  []struct {
+			ID                flexInt `json:"ID"`
+			Email             string  `json:"Email"`
+			CreatedAt         string  `json:"CreatedAt"`
+			UnsubscribedAt    string  `json:"UnsubscribedAt"`
+			IsSpamComplaining bool    `json:"IsSpamComplaining"`
+		} `json:"Data"`
+	}
+	if err := json.NewDecoder(io.LimitReader(resp.Body, maxContactsResponse)).Decode(&page); err != nil {
+		return nil, 0, &SendError{Via: TypeMailjetAPI, Step: "contacts"}
+	}
+	out := make([]Contact, 0, len(page.Data))
+	for _, d := range page.Data {
+		created, _ := time.Parse(time.RFC3339, d.CreatedAt) // zero if missing: never deleted
+		out = append(out, Contact{ID: int64(d.ID), Email: d.Email, CreatedAt: created,
+			Unsubscribed: d.UnsubscribedAt != "", SpamComplaint: d.IsSpamComplaining})
+	}
+	return out, int(page.Total), nil
+}
+
+// MailjetDeleteContact deletes a contact for good (GDPR delete): Mailjet
+// anonymizes it at once and removes it after 30 days.
+func (s Sender) MailjetDeleteContact(ctx context.Context, r Relay, id int64) error {
+	ctx, cancel := context.WithTimeout(ctx, s.apiTimeout())
+	defer cancel()
+	resp, err := s.apiDo(ctx, r, http.MethodDelete, fmt.Sprintf("%s/v4/contacts/%d", s.apiBase(), id))
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	io.Copy(io.Discard, io.LimitReader(resp.Body, maxAPIResponse))
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusNoContent {
+		return &SendError{Via: TypeMailjetAPI, Step: "delete contact", Code: resp.StatusCode}
+	}
+	return nil
+}
+
+// IsRateLimited reports whether the API said "too many requests".
+func IsRateLimited(err error) bool {
+	var se *SendError
+	return errors.As(err, &se) && se.Via == TypeMailjetAPI && se.Code == http.StatusTooManyRequests
+}
+
+func (s Sender) apiTimeout() time.Duration {
+	if s.Timeout != 0 {
+		return s.Timeout
+	}
+	return DefaultTimeout
+}
+
+func (s Sender) apiDo(ctx context.Context, r Relay, method, url string) (*http.Response, error) {
+	req, err := http.NewRequestWithContext(ctx, method, url, nil)
+	if err != nil {
+		return nil, &SendError{Via: TypeMailjetAPI, Step: "request"}
+	}
+	req.SetBasicAuth(r.Username, r.Password)
+	resp, err := s.apiClient().Do(req)
+	if err != nil {
+		return nil, &SendError{Via: TypeMailjetAPI, Step: "connect"}
+	}
+	return resp, nil
 }
 
 // apiClient follows no redirects, uses no proxy from the environment and

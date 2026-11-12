@@ -265,7 +265,16 @@ FILEBUNNY_SMTP=/etc/filebunny/smtp.json docker compose up -d
   text, but a relay that rewrites links would see every click. (An API
   relay switches tracking off in every message itself.)
 - A relay may keep every recipient in its own contact list; Mailjet does,
-  through SMTP and the API. Delete them there if you do not want that.
+  through SMTP and the API. For an API relay the backend removes them
+  once a day (`"delete_contacts": true`, the default; `false` keeps
+  them): every contact older than a day, through Mailjet's GDPR delete
+  (anonymized at once, gone after 30 days). Addresses that unsubscribed
+  through Mailjet's own link or reported spam go on FileBunny's block
+  list first (as an HMAC), since Mailjet replaces FileBunny's
+  unsubscribe header. **Use a Mailjet account for FileBunny only**: the
+  cleanup deletes every contact in it. At most 2000 deletions per relay
+  and day; a rate limit (429) ends the run until the next day. For an
+  SMTP relay, delete them in the relay's dashboard.
 - Some relays (Mailjet, for example) replace FileBunny's
   `List-Unsubscribe` header with their own; addresses that unsubscribe
   that way end up on the relay's suppression list instead of FileBunny's

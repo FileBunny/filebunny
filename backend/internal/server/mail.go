@@ -42,7 +42,9 @@ type mailer struct {
 	from   string
 	relays []mail.Relay
 	sender mailSender
-	pepper []byte
+	// contacts removes the relays' contacts (contacts.go).
+	contacts contactsClient
+	pepper   []byte
 	// next is where the round-robin over the relays starts.
 	next  atomic.Uint32
 	slots chan struct{}
@@ -57,7 +59,7 @@ func (s *Server) EnableMail(c mail.Config, pepper []byte) error {
 	if s.cfg.PublicURL == "" {
 		return errors.New("FILEBUNNY_PUBLIC_URL is required when mail is on")
 	}
-	s.mail = &mailer{from: c.From, relays: c.Relays, sender: mail.Sender{}, pepper: pepper,
+	s.mail = &mailer{from: c.From, relays: c.Relays, sender: mail.Sender{}, contacts: mail.Sender{}, pepper: pepper,
 		slots: make(chan struct{}, maxMailSends)}
 	return nil
 }

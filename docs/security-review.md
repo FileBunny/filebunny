@@ -569,6 +569,7 @@ Frontend only: no backend, API, CSP or deploy changes.
 | Rollback | The backend refuses a database schema newer than it knows, instead of writing rows without the newer columns | `TestNewerSchemaRefused` |
 | Container logs | Capped at 3 × 10 MB per container, so they cannot fill the disk | `compose.yaml` |
 | API relay (`mailjet-api`) | For providers that block outgoing SMTP. One fixed URL (`https://api.mailjet.com/v3.1/send`), no client input in the request but the checked recipient; no redirects, no proxy from the environment, TLS 1.2+ with a verified certificate, the response capped and only its status kept (it may quote the recipient); tracking off in every message; an API error never counts as a refused recipient. The monitor sends the same way, and the firewall lets its mail user reach 443 only for the relay's addresses | `TestMailjetAPIRequest`, `TestMailjetAPIErrors`, `TestMailjetAPINoRedirect`, `TestLoadConfigRelayTypes`; a fake key against the real API gives 401 |
+| Relay contact cleanup | Once a day for API relays (`delete_contacts`, default on): lists the contacts (paged, response capped) and deletes those older than a day through `DELETE /v4/contacts/{id}`, at most 2000 per relay and day, a pause between requests, stop at 429 or after 5 failures; addresses that unsubscribed or complained at the relay go on the block list (HMAC) first. Same fixed host and client settings as the Send API; only counts are logged | `TestCleanupContacts*`, `TestMailjetContacts`, `TestDeleteContactsOnlyForAPIRelays` |
 | Monitoring (`filebunny-monitor`) | Runs as root, reads only the server's own state and logs (which hold no visitor addresses), the daily totals (read-only) and crt.sh; mails through the relay as `filebunny-mail`, which the firewall lets reach only the relay's addresses for two minutes (an nftables set with timeout, `meta skuid`) and nothing else but DNS; TLS with certificate checks, never plain SMTP; the relay password goes to the sender on stdin, never on a command line | test VM: login reached the relay; other hosts, other users and HTTPS for that user blocked; alert, recovery and summary mails (dry run) |
 | Go 1.27.4 | **Finding:** GO-2026-6859, a crash of the HTTP/1 server through a header race in `MaxBytesReader` (used on every upload), in Go 1.27.3, so also in v0.10.0-rc.1. Fixed by Go 1.27.4 (`go.mod` and the `golang` image together) | `make vuln` |
 | Daily totals (`daily_counts`) | Counts per UTC day only (uploads, upload-link uploads, downloads, owner fetches); no file ID, visitor, hash or time of day, so they reveal nothing about one transfer. One row per day; after 400 days added up per month (`monthly_counts`, twelve rows a year). No API: only the operator's monitoring reads them. Counting is best effort and never fails a transfer; the column names are constants, never input | `TestDailyCounts` |
@@ -586,8 +587,14 @@ Frontend only: no backend, API, CSP or deploy changes.
   commit, which the attestation binds to); a compromised laptop can
   deploy anything regardless.
 - **Mailjet keeps every recipient as a contact**, through SMTP and the
-  API alike (seen in its dashboard). The privacy page says so; deleting
-  them after each mail would be a further API call.
+  API alike (seen in its dashboard). For API relays the server deletes
+  them after a day (below); Mailjet keeps them anonymized for 30 more
+  days. For SMTP relays they stay.
+- **The contact cleanup deletes every contact in the relay account**, so
+  that account must serve FileBunny only (self-hosting.md says so).
+  Whether a GDPR delete also clears Mailjet's suppression of an address
+  is not documented; FileBunny blocks unsubscribed and complaining
+  addresses itself before deleting them.
 - **The monitoring reports from the server itself**: a compromised
   server can stop or fake it. Only a missing summary shows that; the
   external watcher covers the site once it is public.
