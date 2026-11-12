@@ -81,6 +81,7 @@ func run(log *slog.Logger) error {
 	defer func() { stop(); wg.Wait() }()
 	wg.Go(func() { cleanup.Run(ctx, st, cfg.CleanupInterval, log) })
 	wg.Go(func() { api.RunBackground(ctx) })
+	wg.Go(func() { api.RunMailCleanup(ctx) })
 
 	srv := &http.Server{
 		Addr:              cfg.Listen,

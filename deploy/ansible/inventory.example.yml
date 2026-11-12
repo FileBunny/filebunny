@@ -27,3 +27,4 @@ all:
       # SMTP relays (465/587) the backend may connect to; see docs/self-hosting.md.
       # filebunny_smtp_file: ~/secrets/filebunny-smtp.json   # outside the repo
       # filebunny_monitor_mail_to: you@example.org   # alerts and the daily summary (needs filebunny_smtp_file)
+      # filebunny_share_mail: false   # keep the relays for the monitoring only
