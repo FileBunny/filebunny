@@ -8,10 +8,10 @@ flowchart LR
     C -- "/api/* without client address" --> G[Go backend]
     G --> D[(SQLite<br/>metadata)]
     G --> F[(Disk<br/>ciphertext blobs)]
-    B -- "key lookup by e-mail" --> K[keys.openpgp.org]
+    B -- "key lookup by e-mail" --> K[Public keyserver]
     G -. "WKD, only when asked" .-> W[Recipient's domain]
-    G -. "external storage, when chosen" .-> X[Filebin]
-    B -. "direct to Filebin, when chosen" .-> X
+    G -. "external storage, when chosen" .-> X[External storage]
+    B -. "direct to the service, when chosen" .-> X
 ```
 
 | Component | Role |
@@ -21,7 +21,7 @@ flowchart LR
 | Go backend | Stores and serves ciphertext by random ID, enforces limits, removes expired files; optional WKD proxy (phase 3) |
 | SQLite | One row per file: ID, hash of the delete token, size, created, expires, download limit and count |
 | Disk | One file per upload in `data/blobs/<id>`, written via `data/tmp/` and an atomic rename |
-| External storage | Optional (phase 5): ciphertext at a service such as Filebin instead of on disk, through the server or directly from the browser; see [External storage](#external-storage) |
+| External storage | Optional (phase 5): ciphertext at an external service instead of on disk, through the server or directly from the browser; see [External storage](#external-storage) |
 
 ## Encryption
 
@@ -87,6 +87,28 @@ script and one stylesheet, without lazy-loaded chunks or workers, so
   and Change; later steps are not shown. Step 3 (storage, expiry,
   downloads) has defaults and the submit button, so everyone sees them.
   Enter means Next until the last step. Hidden steps keep their fields.
+- **Photos** (`CameraCapture.svelte`, `lib/camera.ts`): a third choice
+  next to Text and File, on the send page and on upload links. The camera
+  starts only on a click (`getUserMedia`, video only). While it is on:
+  three resolutions (Small 1280×720, Medium 1920×1080, Largest: what the
+  camera gives), Take photo, Flip and Stop on one line. Flip switches
+  between front and back on a phone (`facingMode` exact, so the browser
+  picks the main lens of that side instead of going through every lens);
+  on a computer, whose cameras report no side, it goes to the next webcam.
+  If there is no camera on the other side, the current one stays on and
+  Flip disappears. Taking the photo stops the camera; Retake starts it
+  again. The frame is drawn on a `<canvas>` and
+  encoded as JPEG there, so the file has no EXIF (no location, device or
+  time); it is encrypted as a file named `photo-<5 random digits>.jpg` (so a
+  second photo does not overwrite the first in the recipient's downloads),
+  like any other file.
+  The photo is only kept in memory: no object URL, no browser storage. The
+  camera stops and the canvas and Blob are dropped after sending, on
+  Retake, when another choice is picked, when the page is left and on
+  `pagehide` (also when the page goes into the back/forward cache). Caddy
+  sends `Permissions-Policy: camera=(self)`; microphone and location stay
+  off. In the single HTML file the camera works where the browser treats
+  `file://` as a secure context.
 - **Fingerprints as QR codes** (`OPENPGP4FPR:<fingerprint>`, readable by
   OpenPGP apps such as OpenKeychain), drawn as one SVG path from
   `qrcode-generator` (MIT, no dependencies, pinned): no HTML strings,
@@ -112,9 +134,10 @@ script). There are three ways to get a recipient's key
    drop it on the key field, or paste it. The key is read in the browser
    only and never sent anywhere.
 2. **Look up by e-mail:** only when the user clicks "Look up key", the
-   browser asks keys.openpgp.org
-   (`GET /vks/v1/by-email/<address>`). keys.openpgp.org only publishes
-   user IDs whose address it has verified.
+   browser asks a public keyserver over its VKS API
+   (`GET /vks/v1/by-email/<address>`; the host is set in
+   `frontend/src/lib/keylookup.ts`). It uses a keyserver that only
+   publishes user IDs whose address it has verified.
 3. **Also via WKD** (checkbox, off by default; hidden when the server has
    `FILEBUNNY_WKD_PROXY=false`): the backend fetches the key from the
    recipient's own domain (`POST /api/v1/wkd`, see `docs/api.md`). A
@@ -147,22 +170,22 @@ fingerprints: *matches*, *different key published* (warning), *no WKD key
 published* (neutral: most domains publish none) or *check failed*. It is
 never needed to send and never runs automatically.
 
-keyserver.ubuntu.com is deliberately not used: it sends no CORS headers
-on "not found", so a browser cannot tell a missing key from an outage,
-and proxying it would show our server every looked-up address.
+Keyservers that accept any key for any address are deliberately not
+used. Neither are keyservers without CORS headers on "not found": a
+browser cannot tell a missing key from an outage, and proxying them would
+show our server every looked-up address.
 
 **Who sees what:**
 
 | Way | Sees the looked-up address | Sees your IP address |
 |---|---|---|
 | From your device | Nobody | Nobody |
-| keys.openpgp.org | keys.openpgp.org | keys.openpgp.org |
+| Keyserver | The keyserver | The keyserver |
 | WKD (lookup or check) | FileBunny's server (never logged or stored) and the recipient's domain | Only FileBunny's server; the recipient's domain sees the server's address |
 
-**CSP:** `connect-src` is `'self'` plus exactly `https://keys.openpgp.org`
-and, for the direct route to external storage, `https://filebin.net
-https://storage.filebin.net` (in `deploy/Caddyfile` and in the single
-HTML's CSP); no wildcard.
+**CSP:** `connect-src` is `'self'` plus exactly the keyserver's host and,
+for the direct route to external storage, the hosts of those adapters (in
+`deploy/Caddyfile` and in the single HTML's CSP); no wildcard.
 
 ## Upload links
 
@@ -201,14 +224,15 @@ private key always gets a passphrase, and the page only lets the user
 go on after saving it (as an `.asc` file from a `blob:` URL) and
 confirming. Name and e-mail are optional; without both the user ID is
 "FileBunny key". With an e-mail address the public key can be published
-on keys.openpgp.org (VKS API, directly from the browser), which then
-mails a verification link.
+on the keyserver (VKS API, directly from the browser), which then mails a
+verification link.
 
 ## External storage
 
 A share link's ciphertext can be kept at an external service instead of
-on this server's disk (`backend/internal/storage`, step 3 on Send). For
-now one service: [Filebin](storage/filebin.md). The owner of an upload
+on this server's disk (`backend/internal/storage`, step 3 on Send). There are
+several external adapters, each with its own page in
+[`docs/storage/`](storage/). The owner of an upload
 link can choose external storage too, through FileBunny only
 (`inboxes.storage`): uploads to the link are sent on like share links, and
 the owner's downloads are streamed back. The sender of a share link
@@ -227,7 +251,7 @@ chooses:
   transfer, otherwise after an hour of grace for a running transfer),
   retried until it succeeds.
 - **Directly:** the browser uploads to the service itself; the server
-  knows nothing about the file. The link is `#/x/filebin/<bin>`, with the
+  knows nothing about the file. The link is `#/x/<adapter>/<reference>`, with the
   service's reference only in the fragment. No download limit or delete
   link; the service's own expiry applies, and it sees the sender's and
   recipients' IP addresses. If the browser cannot fetch the file (the
@@ -258,23 +282,22 @@ strictly (plain ASCII, no line breaks) and only used as the recipient.
   a daily limit; used round-robin, skipping relays that are full or fail.
   A relay that refuses the recipient (5xx) is not retried elsewhere.
 - **Relay types:** SMTP (the default), or a relay's HTTPS API for
-  servers whose provider blocks outgoing SMTP: `mailjet-api` posts to
-  Mailjet's Send API v3.1 (`internal/mail/api.go`). Its address is fixed
-  in the code, it follows no redirects and uses no proxy, and every
+  servers whose provider blocks outgoing SMTP (`internal/mail/api.go`;
+  one page per type in [`docs/mail/`](mail/)). Its address is fixed in
+  the code, it follows no redirects and uses no proxy, and every
   message turns tracking off. Both types share the limits and the
   round-robin; other APIs can be added as further types.
 - **No address is stored or logged.** The limits and the block list use
   an HMAC of the lower-cased address with a secret key in the data
   directory (`mail-pepper`). Errors carry the SMTP code or HTTP status
   only, since relays echo addresses in their replies. The relay itself
-  keeps its own logs, and may keep each recipient as a contact (Mailjet
-  does, through SMTP and the API).
+  keeps its own logs, and may keep each recipient as a contact.
 - **Contact cleanup** (`internal/server/contacts.go`): for API relays
   with `delete_contacts` (default on), once a day (first a minute after
   the start) the server lists the relay's contacts and deletes those
-  older than a day with Mailjet's GDPR delete, at most 2000 per relay and
+  older than a day with the relay's GDPR delete, at most 2000 per relay and
   day, one request at a time with a pause, stopping at a rate limit.
-  Contacts that unsubscribed at Mailjet or complained go on the block
+  Contacts that unsubscribed at the relay or complained go on the block
   list first, so those requests reach FileBunny. Nothing about the
   addresses is logged, only counts.
 - **Blocking:** every mail has a block link (`#/block/<token>`, the token
@@ -371,14 +394,14 @@ after a crash).
 
 | Data | Where | How long |
 |---|---|---|
-| Ciphertext | `data/blobs/<id>`, or at the external service chosen | Until expiry (max 7 days, 6 at Filebin) or deletion |
+| Ciphertext | `data/blobs/<id>`, or at the external service chosen | Until expiry (max 7 days, or the adapter's own limit) or deletion |
 | Storage name and reference at the external service | SQLite (`files`; `remote_trash` until it is deleted there) | Same as the file, plus until the service confirms the deletion |
 | ID, size, created, expires, download limit and count | SQLite | Same, or until the last allowed download |
 | SHA-256 of the delete token | SQLite | Same |
 | Client IP address | Nowhere. In memory only as a keyed hash (daily random key, never stored) with hourly and daily counters | Until the hour or day ends, or a restart |
 | Looked-up e-mail addresses (WKD) | Nowhere; in memory during the request only | — |
 | Upload links: the owner's public key (incl. its user IDs), SHA-256 of the management token, expiry, limits and counters | SQLite | Until the link is revoked, or expired and empty |
-| Files received by an upload link | `data/blobs/<id>`, row with `inbox_id`; or at the link's external storage, as above | 7 days after arrival (6 at Filebin), or until deleted or the link is revoked |
+| Files received by an upload link | `data/blobs/<id>`, row with `inbox_id`; or at the link's external storage, as above | 7 days after arrival (or the adapter's own limit), or until deleted or the link is revoked |
 | Private keys and passphrases of generated key pairs | Nowhere (browser only) | — |
 | Recipient addresses of mailed links | Nowhere; in memory during the delivery only. The relay sees them | — |
 | Mail counters: HMAC of each address, per relay and in total, per day; mails per link | SQLite (`mail_counts`, `files.notified`) | Until the next day's cleanup; with the file |
@@ -386,6 +409,7 @@ after a crash).
 | Key for the address HMAC | `data/mail-pepper` | Permanent |
 | Totals per UTC day: uploads, uploads to upload links, downloads, fetches by link owners | SQLite (`daily_counts`): one row per day, nothing per file, visitor or time of day; read by the operator's monitoring (`deploy/ansible`) | 400 days, then added up per month in `monthly_counts` (kept) |
 | File name, content type, plaintext | Nowhere (encrypted inside the ciphertext from phase 2) | — |
+| Photos taken with the camera | Nowhere before encryption: in the page's memory only, dropped after sending or when the page is left | — |
 | Logs | Container stdout | No IPs, no IDs, no tokens; see below |
 
 ### Logs
@@ -423,9 +447,9 @@ after a crash).
   provider's infrastructure, even though FileBunny does not store it.
 - **Compromised devices** of sender or recipient.
 - **A wrong public key.** A keyserver or a domain can serve a key that is
-  not the recipient's (keyserver.ubuntu.com-style servers accept any key
-  for any address; keys.openpgp.org verifies the address, not the
-  person; a domain can be compromised). The page warns when sources
+  not the recipient's (some keyservers accept any key for any address; the
+  one FileBunny uses verifies the address, not the person; a domain can
+  be compromised). The page warns when sources
   disagree and offers a WKD check, but only comparing the fingerprint with
   the recipient through another channel proves the key is theirs.
 - **A swapped key behind an upload link** if the link itself was
@@ -434,13 +458,13 @@ after a crash).
   through a channel you trust.
 - **The server knows whose upload link it is** when the key's user IDs
   contain a name or e-mail address. A generated key without them avoids that.
-- **Lookups revealing who you write to.** keys.openpgp.org sees your IP
+- **Lookups revealing who you write to.** The keyserver sees your IP
   address and the e-mail address you look up; with WKD on, FileBunny's
   server sees the e-mail address (not stored). Loading the key from your device avoids
   both.
 - **External storage** you chose: the service can delete the file at any
   time, and with the direct route it sees your IP address and so does
-  anyone who learns the link's bin name; that person can also delete it.
+  anyone who learns the link's reference; that person can also delete it.
   It can never decrypt it.
 - **A mailed link looking like phishing.** The mail has no sender name
   (that would be free text from the client); recipients only know it is
@@ -459,7 +483,7 @@ after a crash).
 | Open upload links | 1000 server-wide | `FILEBUNNY_MAX_INBOXES` |
 | Per upload link | 10 uploads (max 100), 100 MiB, open 7 days (max 30) | `FILEBUNNY_INBOX_*` |
 | WKD lookups in progress | 8 server-wide, 10 s and 1 MiB each | fixed; switch off with `FILEBUNNY_WKD_PROXY` |
-| External storage | 8 transfers per service, 15 min each; 50 GiB of traffic per UTC day | fixed; `FILEBUNNY_PROXY_DAILY_BYTES`; off unless `FILEBUNNY_FILEBIN` |
+| External storage | 8 transfers per service, 15 min each; 50 GiB of traffic per UTC day | fixed; `FILEBUNNY_PROXY_DAILY_BYTES`; off unless an adapter is switched on |
 | E-mail | 3 addresses per link, 3 mails per address per day, 500 per day, each relay's own daily limit, 4 at a time, 30 s each | `FILEBUNNY_MAIL_*`, `daily_limit` per relay; off without relays |
 
 | Per visitor | 60 uploads, 1 GiB, 10 upload links, 10 mails, 60 WKD lookups, 600 downloads per hour; more per day (see api.md) | fixed; `FILEBUNNY_RATE_LIMITS` |

@@ -194,7 +194,7 @@ IDs, tokens or addresses.
 | | |
 |---|---|
 | Date | 2026-10-29 |
-| Scope | Branch `phase-3`: key lookup on keys.openpgp.org from the browser, WKD proxy (`POST /api/v1/wkd`, `GET /api/v1/features`), local key upload, optional WKD check |
+| Scope | Branch `phase-3`: key lookup on a public keyserver from the browser, WKD proxy (`POST /api/v1/wkd`, `GET /api/v1/features`), local key upload, optional WKD check |
 | Reviewer | Claude Code (AI-assisted), during development |
 
 ### Requirement from phase 1: SSRF in the WKD proxy
@@ -237,10 +237,10 @@ The only outgoing requests the backend makes. `internal/wkd`:
 | Server as anonymous lookup relay | 8 lookups at a time, 10 s each; switch off with `FILEBUNNY_WKD_PROXY=false` | `TestWKDConcurrencyCap`, `TestWKDSwitchedOff` |
 | Privacy of looked-up addresses | POST body, not URL; never logged; error responses do not echo input | `TestNoClientAddressInLogs` (address, domain, hash), `TestWKDErrors`, smoke test |
 | Untrusted keys from keyservers or domains | Parsed in the browser only; keys need a valid user ID for exactly the address and must be able to encrypt; all armored blocks are read, so a second key cannot hide; conflicts are shown, never resolved automatically; user IDs rendered as text | `keylookup.test.ts`, `crypto.test.ts` |
-| Browser requests to a keyserver | Only on click; `connect-src` adds exactly `https://keys.openpgp.org`; no cookies, referrer, cache or redirects; 10 s, 1 MiB read from the stream | `keylookup.test.ts`, smoke test (CSP), build (single HTML CSP) |
+| Browser requests to a keyserver | Only on click; `connect-src` adds exactly the keyserver's host; no cookies, referrer, cache or redirects; 10 s, 1 MiB read from the stream | `keylookup.test.ts`, smoke test (CSP), build (single HTML CSP) |
 
-keyserver.ubuntu.com was left out: it sends no CORS headers on a 404
-(checked 2026-10-29), so a browser cannot distinguish "not found" from a
+Keyservers without CORS headers on a 404 were left out (checked
+2026-10-29): a browser cannot distinguish "not found" from a
 failure, and proxying it would show the server every looked-up address.
 
 ### Residual risks
@@ -253,7 +253,7 @@ failure, and proxying it would show the server every looked-up address.
 - **The server sees looked-up addresses** when the user turns WKD on or
   runs a WKD check. They are not logged or stored, but a compromised
   server could record them. The UI says so; the option is off by default.
-- **keys.openpgp.org sees the visitor's IP and the address** looked up.
+- **The keyserver sees the visitor's IP and the address** looked up.
   The UI says so before the lookup.
 - **No IDNA:** internationalized domains must be entered in punycode. *Phase 9:* the browser converts the domain to
   punycode for WKD and matches user IDs in either form.
@@ -268,7 +268,7 @@ failure, and proxying it would show the server every looked-up address.
 | | |
 |---|---|
 | Date | 2026-10-29 |
-| Scope | Branch `phase-4`: upload links (`/api/v1/inboxes…`, chunked uploads with `?inbox=`), key pair generation, publishing on keys.openpgp.org, Receive / upload / management pages |
+| Scope | Branch `phase-4`: upload links (`/api/v1/inboxes…`, chunked uploads with `?inbox=`), key pair generation, publishing on the keyserver, Receive / upload / management pages |
 | Reviewer | Claude Code (AI-assisted), during development |
 
 ### Requirement from phase 1: the management link
@@ -290,7 +290,7 @@ so does the smoke test).
 | Free storage through "public keys" | Key body ≤ 64 KiB, printable ASCII between public key armor lines, served only as JSON; at most 1000 open links server-wide (one atomic `INSERT … WHERE count <`) | `TestCreateInbox`, `TestInboxCap` |
 | Content of keys and received files | Never rendered as HTML: user IDs and decrypted text as text, files as `blob:` downloads of type `application/octet-stream` | `grep` for `{@html}`/`innerHTML`, Chromium walk-through |
 | Weak or unusable generated keys | v4 Curve25519 legacy (gpg 2.4 compatible), passphrase of at least 8 characters required, private key must be saved before use | `crypto.test.ts`, `gpg.test.ts` |
-| Publishing on keys.openpgp.org | Directly from the browser (CORS allowed), only on click, only with an address in the key; keys.openpgp.org verifies the address by mail | `keylookup.test.ts` |
+| Publishing on the keyserver | Directly from the browser (CORS allowed), only on click, only with an address in the key; the keyserver verifies the address by mail | `keylookup.test.ts` |
 
 ### Residual risks
 
@@ -320,19 +320,19 @@ so does the smoke test).
 | | |
 |---|---|
 | Date | 2026-10-31 |
-| Scope | Branch `phase-5`: `internal/storage` (Filebin adapter), `?storage=` on uploads, remote downloads, `remote_trash`, health checks, `GET /api/v1/storage`, `?storage=` on upload links (through FileBunny only); frontend storage choice, direct route to Filebin, `#/x/filebin/…`, `#/status` |
+| Scope | Branch `phase-5`: `internal/storage` (first adapter), `?storage=` on uploads, remote downloads, `remote_trash`, health checks, `GET /api/v1/storage`, `?storage=` on upload links (through FileBunny only); frontend storage choice, direct route to the service, `#/x/…`, `#/status` |
 | Reviewer | Claude Code (AI-assisted), during development |
 
 ### Requirement from phase 1: SSRF in outgoing requests
 
-The Filebin client has its own `http.Client`: only `filebin.net` and
-`storage.filebin.net` (fixed, not from the client or the service), HTTPS
+Each storage client has its own `http.Client`: only the adapter's own
+hosts (fixed in the code, not from the client or the service), HTTPS
 on port 443, no proxy from the environment, every resolved address and
 the connected address checked with `wkd.Allowed`, at most one redirect and
 only to those hosts, time limits on dial, TLS and headers, limited header
 size. Blob references are generated by the server; nothing from the
-client goes into a URL. The verification cookie is kept for
-`filebin.net` only.
+client goes into a URL. A verification cookie is kept for the
+service's main host only.
 
 ### New attack surface
 
@@ -345,7 +345,7 @@ client goes into a URL. The verification cookie is kept for
 | Exhausting the server through proxied traffic | 8 transfers per service, 15 minutes each, daily traffic cap; claimed before sending on and before a download is counted. An unavailable service is refused before any data is accepted | `TestRemoteDailyCap`, `TestRemoteRefusedBeforeData` |
 | Blobs left at the service | Removal moves the reference to `remote_trash` in the same transaction; background deletion retries until the service confirms | `TestRemoteDeleteAndExpiry`, `TestRemoteDeleteAndExpiryAreDueAtOnce`, `TestRemoteLastDownloadWaitsForGrace` |
 | Local quota bypass | Remote files do not count against the local quota; each upload still passes through a temp file under the same size limit and stall timeouts, removed after it was sent on | `TestTotalSizeCountsOnlyLocal`, `TestRemoteUploadDownload` |
-| Direct route from the browser | Only on submit or click; `connect-src` adds exactly the two Filebin hosts; no cookies, no referrer; the bin name only in the fragment and checked against a strict pattern; a download larger than 100 MiB is refused | `filebin.test.ts`, `route.test.ts`, smoke test (CSP), build (single HTML CSP) |
+| Direct route from the browser | Only on submit or click; `connect-src` adds exactly the adapter's hosts; no cookies, no referrer; the reference only in the fragment and checked against a strict pattern; a download larger than 100 MiB is refused | `filebin.test.ts`, `route.test.ts`, smoke test (CSP), build (single HTML CSP) |
 
 ### Residual risks
 
@@ -359,7 +359,7 @@ client goes into a URL. The verification cookie is kept for
   visitors' addresses. Anyone who knows a bin name can delete it.
 - **The direct route has no download limit, expiry or delete link**; the
   page says so before upload.
-- **Dependence on the service's behavior:** if Filebin changes its API or
+- **Dependence on the service's behavior:** if a service changes its API or
   verification, the health check takes it out of use; the direct route
   falls back to opening the file in a tab.
 - **No per-client limit on proxied traffic** yet (phase 7); one client
@@ -406,9 +406,9 @@ clear. Each delivery is bounded by a 30 s deadline.
   address still gets at most 3 mails a day. *Phase 7:* 30 mails per
   visitor per day, each with proof of work.
 - **A failed delivery still uses up its claim** against the limits.
-- **A relay can replace the unsubscribe header** with its own (Mailjet
-  does). An address that unsubscribes that way lands on the relay's
-  suppression list, not on FileBunny's: the relay then accepts and drops
+- **A relay can replace the unsubscribe header** with its own (see
+  [mail/](mail/)). An address that unsubscribes that way lands on the
+  relay's suppression list, not on FileBunny's: the relay then accepts and drops
   further mail to it, and the sender still sees "Sent". The block link in
   the mail text keeps working.
 - **New domains land in spam** at first (seen at Outlook with SPF, DKIM
@@ -568,7 +568,7 @@ Frontend only: no backend, API, CSP or deploy changes.
 | Deploy access | The server needs no GitHub token; whoever deploys is in the `docker` group (root in practice) | release.md |
 | Rollback | The backend refuses a database schema newer than it knows, instead of writing rows without the newer columns | `TestNewerSchemaRefused` |
 | Container logs | Capped at 3 × 10 MB per container, so they cannot fill the disk | `compose.yaml` |
-| API relay (`mailjet-api`) | For providers that block outgoing SMTP. One fixed URL (`https://api.mailjet.com/v3.1/send`), no client input in the request but the checked recipient; no redirects, no proxy from the environment, TLS 1.2+ with a verified certificate, the response capped and only its status kept (it may quote the recipient); tracking off in every message; an API error never counts as a refused recipient. The monitor sends the same way, and the firewall lets its mail user reach 443 only for the relay's addresses | `TestMailjetAPIRequest`, `TestMailjetAPIErrors`, `TestMailjetAPINoRedirect`, `TestLoadConfigRelayTypes`; a fake key against the real API gives 401 |
+| API relay (`mailjet-api`) | For providers that block outgoing SMTP. One fixed URL (in the code), no client input in the request but the checked recipient; no redirects, no proxy from the environment, TLS 1.2+ with a verified certificate, the response capped and only its status kept (it may quote the recipient); tracking off in every message; an API error never counts as a refused recipient. The monitor sends the same way, and the firewall lets its mail user reach 443 only for the relay's addresses | `TestMailjetAPIRequest`, `TestMailjetAPIErrors`, `TestMailjetAPINoRedirect`, `TestLoadConfigRelayTypes`; a fake key against the real API gives 401 |
 | Relay contact cleanup | Once a day for API relays (`delete_contacts`, default on): lists the contacts (paged, response capped) and deletes those older than a day through `DELETE /v4/contacts/{id}`, at most 2000 per relay and day, a pause between requests, stop at 429 or after 5 failures; addresses that unsubscribed or complained at the relay go on the block list (HMAC) first. Same fixed host and client settings as the Send API; only counts are logged | `TestCleanupContacts*`, `TestMailjetContacts`, `TestDeleteContactsOnlyForAPIRelays` |
 | Monitoring (`filebunny-monitor`) | Runs as root, reads only the server's own state and logs (which hold no visitor addresses), the daily totals (read-only) and crt.sh; mails through the relay as `filebunny-mail`, which the firewall lets reach only the relay's addresses for two minutes (an nftables set with timeout, `meta skuid`) and nothing else but DNS; TLS with certificate checks, never plain SMTP; the relay password goes to the sender on stdin, never on a command line | test VM: login reached the relay; other hosts, other users and HTTPS for that user blocked; alert, recovery and summary mails (dry run) |
 | Go 1.27.4 | **Finding:** GO-2026-6859, a crash of the HTTP/1 server through a header race in `MaxBytesReader` (used on every upload), in Go 1.27.3, so also in v0.10.0-rc.1. Fixed by Go 1.27.4 (`go.mod` and the `golang` image together) | `make vuln` |
@@ -598,15 +598,14 @@ Frontend only: no backend, API, CSP or deploy changes.
 - **The compose files come from the operator's checkout** (at the tag's
   commit, which the attestation binds to); a compromised laptop can
   deploy anything regardless.
-- **Mailjet keeps every recipient as a contact**, through SMTP and the
-  API alike (seen in its dashboard). For API relays the server deletes
-  them after a day (below); Mailjet keeps them anonymized for 30 more
-  days. For SMTP relays they stay.
+- **An API relay may keep every recipient as a contact**, through SMTP
+  and the API alike. The server deletes them after a day (below); the
+  relay may keep them anonymized for a while (see its page in
+  [mail/](mail/)). For SMTP relays they stay.
 - **The contact cleanup deletes every contact in the relay account**, so
   that account must serve FileBunny only (self-hosting.md says so).
-  Whether a GDPR delete also clears Mailjet's suppression of an address
-  is not documented; FileBunny blocks unsubscribed and complaining
-  addresses itself before deleting them.
+  FileBunny blocks unsubscribed and complaining addresses itself before
+  deleting them.
 - **The monitoring reports from the server itself**: a compromised
   server can stop or fake it. Only a missing summary shows that; the
   external watcher covers the site once it is public.
@@ -618,7 +617,7 @@ Frontend only: no backend, API, CSP or deploy changes.
   browser has it, and it removes the downgrade to 1.2 and the TLS 1.2
   session ticket window.
 - **Egress filtering does not stop exfiltration over HTTPS**: port 443
-  must stay open to any address (WKD domains, Filebin, certificates,
+  must stay open to any address (WKD domains, external storage, certificates,
   updates). It blocks other ports and makes unexpected connections
   visible in the log.
 - **Caddy 2.11.9 still has known flaws** (above): a visitor may crash
@@ -631,6 +630,36 @@ Frontend only: no backend, API, CSP or deploy changes.
   the `docker` group). Protect its SSH key.
 - **Debian's cloud image sums** (used only by `scripts/test-vm.sh`) come
   over HTTPS without a signature.
+
+## Photos from the camera (2026-11-12)
+
+| | |
+|---|---|
+| Date | 2026-11-12 |
+| Scope | Branch `photo-capture`: taking a photo in the browser on the send page and on upload links |
+| Reviewer | Claude Code (AI-assisted), during development |
+
+### New attack surface
+
+| Area | Measure | Test |
+|---|---|---|
+| Camera permission | `Permissions-Policy: camera=(self)` (was `camera=()`): only this site's own pages, no frames (`frame-ancestors 'none'`); microphone and location stay off. The camera starts only on a click, never on page load | `camera.test.ts` (video only, no audio); headless Chromium with a fake camera |
+| Metadata in the photo | Encoded from a canvas: no EXIF, so no location, device or time; neutral name `photo-<5 random digits>.jpg`; literal date 0 as for every file | Decrypted with `gpg`: JFIF without an Exif segment |
+| Plaintext in the browser | No object URL, no `localStorage`/IndexedDB/Cache API; the camera stream is never fetched, so the HTTP cache is not involved. Camera off and canvas emptied (`width = 0`) and the Blob dropped after sending, on Retake, on another choice, on leaving the page and on `pagehide` | Headless Chromium: canvas 0 after `pagehide`, no stream after taking the photo |
+| CSP | Unchanged: the still is a canvas, so no `img-src blob:` | Build |
+
+### Residual risks
+
+- **When the browser frees the memory** is up to the browser: the page
+  only drops every reference. The operating system can still write it to
+  swap or a crash dump, and a browser may move very large Blobs to disk
+  (a photo of a few MB normally stays in memory).
+- **Code from the server sees the camera image.** As with typed text: a
+  compromised server could serve code that sends the photo elsewhere. The
+  same mitigations apply (signed releases, the watcher, the single HTML
+  file).
+- **What is in the picture** (faces, screens, documents, a window with a
+  view) is up to the person taking it; removing EXIF does not remove that.
 
 ## How to re-run the checks
 

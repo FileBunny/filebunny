@@ -30,6 +30,8 @@ grep -qi "^content-security-policy: default-src 'none'; script-src 'self'" <<<"$
 grep -qi "^content-security-policy: .*connect-src 'self' https://keys.openpgp.org https://filebin.net https://storage.filebin.net;" <<<"$headers" || fail "connect-src not exactly self + keys.openpgp.org + filebin"
 grep -qi '^strict-transport-security: max-age=31536000; includeSubDomains' <<<"$headers" || fail "HSTS missing or without includeSubDomains"
 grep -qi '^server:' <<<"$headers" && fail "Server header present"
+# The camera for this site only (photos); microphone and location stay off.
+grep -qi '^permissions-policy: camera=(self), microphone=(), geolocation=()' <<<"$headers" || fail "Permissions-Policy not camera=(self) with microphone and geolocation off"
 
 echo "TLS 1.3 only"
 host=${base#https://}; host=${host%%/*}
