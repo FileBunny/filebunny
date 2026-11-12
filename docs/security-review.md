@@ -632,6 +632,36 @@ Frontend only: no backend, API, CSP or deploy changes.
 - **Debian's cloud image sums** (used only by `scripts/test-vm.sh`) come
   over HTTPS without a signature.
 
+## Photos from the camera (2026-11-12)
+
+| | |
+|---|---|
+| Date | 2026-11-12 |
+| Scope | Branch `photo-capture`: taking a photo in the browser on the send page and on upload links |
+| Reviewer | Claude Code (AI-assisted), during development |
+
+### New attack surface
+
+| Area | Measure | Test |
+|---|---|---|
+| Camera permission | `Permissions-Policy: camera=(self)` (was `camera=()`): only this site's own pages, no frames (`frame-ancestors 'none'`); microphone and location stay off. The camera starts only on a click, never on page load | `camera.test.ts` (video only, no audio); headless Chromium with a fake camera |
+| Metadata in the photo | Encoded from a canvas: no EXIF, so no location, device or time; neutral name `photo.jpg`; literal date 0 as for every file | Decrypted with `gpg`: JFIF without an Exif segment |
+| Plaintext in the browser | No object URL, no `localStorage`/IndexedDB/Cache API; the camera stream is never fetched, so the HTTP cache is not involved. Camera off and canvas emptied (`width = 0`) and the Blob dropped after sending, on Retake, on another choice, on leaving the page and on `pagehide` | Headless Chromium: canvas 0 after `pagehide`, no stream after taking the photo |
+| CSP | Unchanged: the still is a canvas, so no `img-src blob:` | Build |
+
+### Residual risks
+
+- **When the browser frees the memory** is up to the browser: the page
+  only drops every reference. The operating system can still write it to
+  swap or a crash dump, and a browser may move very large Blobs to disk
+  (a photo of a few MB normally stays in memory).
+- **Code from the server sees the camera image.** As with typed text: a
+  compromised server could serve code that sends the photo elsewhere. The
+  same mitigations apply (signed releases, the watcher, the single HTML
+  file).
+- **What is in the picture** (faces, screens, documents, a window with a
+  view) is up to the person taking it; removing EXIF does not remove that.
+
 ## How to re-run the checks
 
 ```sh

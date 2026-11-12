@@ -65,10 +65,10 @@ backend/internal/storage  external storage adapters (Filebin), SSRF-safe client
 backend/internal/mail     SMTP delivery through operator relays (TLS only); mailtest fake relay
 backend/internal/ratelimit per-visitor limits on a daily-salted hash of the address, memory only
 backend/internal/pow      stateless single-use proof-of-work challenges
-frontend/src/lib          crypto (OpenPGP.js), API client, key lookup, hash routes, QR
+frontend/src/lib          crypto (OpenPGP.js), API client, key lookup, hash routes, QR, camera
 frontend/src/pages        send, download, delete, receive (upload links), key pair,
                           about, terms, privacy, contact, status pages
-frontend/src/components   Step (send page steps), KeyPicker, FingerprintQR, Logo, ...
+frontend/src/components   Step (send page steps), KeyPicker, FingerprintQR, CameraCapture, Logo, ...
 frontend/src/app.css      the design (light and dark, follows the system setting)
 frontend/tests            node --test, incl. gpg interoperability
 testdata/keys             public test keypairs, never for real data

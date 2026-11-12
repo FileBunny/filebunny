@@ -87,6 +87,21 @@ script and one stylesheet, without lazy-loaded chunks or workers, so
   and Change; later steps are not shown. Step 3 (storage, expiry,
   downloads) has defaults and the submit button, so everyone sees them.
   Enter means Next until the last step. Hidden steps keep their fields.
+- **Photos** (`CameraCapture.svelte`, `lib/camera.ts`): a third choice
+  next to Text and File, on the send page and on upload links. The camera
+  starts only on a click (`getUserMedia`, video only), with three
+  resolutions (Small 1280×720, Medium 1920×1080, Largest: what the camera
+  gives), Switch camera when there is more than one, and Retake. Taking
+  the photo stops the camera. The frame is drawn on a `<canvas>` and
+  encoded as JPEG there, so the file has no EXIF (no location, device or
+  time); it is encrypted as a file named `photo.jpg`, like any other file.
+  The photo is only kept in memory: no object URL, no browser storage. The
+  camera stops and the canvas and Blob are dropped after sending, on
+  Retake, when another choice is picked, when the page is left and on
+  `pagehide` (also when the page goes into the back/forward cache). Caddy
+  sends `Permissions-Policy: camera=(self)`; microphone and location stay
+  off. In the single HTML file the camera works where the browser treats
+  `file://` as a secure context.
 - **Fingerprints as QR codes** (`OPENPGP4FPR:<fingerprint>`, readable by
   OpenPGP apps such as OpenKeychain), drawn as one SVG path from
   `qrcode-generator` (MIT, no dependencies, pinned): no HTML strings,
@@ -386,6 +401,7 @@ after a crash).
 | Key for the address HMAC | `data/mail-pepper` | Permanent |
 | Totals per UTC day: uploads, uploads to upload links, downloads, fetches by link owners | SQLite (`daily_counts`): one row per day, nothing per file, visitor or time of day; read by the operator's monitoring (`deploy/ansible`) | 400 days, then added up per month in `monthly_counts` (kept) |
 | File name, content type, plaintext | Nowhere (encrypted inside the ciphertext from phase 2) | — |
+| Photos taken with the camera | Nowhere before encryption: in the page's memory only, dropped after sending or when the page is left | — |
 | Logs | Container stdout | No IPs, no IDs, no tokens; see below |
 
 ### Logs
