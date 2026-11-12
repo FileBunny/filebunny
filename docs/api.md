@@ -83,7 +83,7 @@ All parameters are optional:
   unlimited until expiry.
 - `storage`: where the ciphertext is kept. `local` or empty: this server.
   Otherwise an external service this server offers (see
-  [Storage](#storage)), e.g. `filebin`: the server passes the ciphertext on
+  [Storage](#storage)): the server passes the ciphertext on
   and keeps only the metadata. `expires` may then be at most that
   service's `max_expiry_seconds`. Download limit, expiry and deletion work
   the same.
@@ -323,7 +323,7 @@ Content-Type: text/plain
 |---|---|---|
 | `expires` | `168h` (`FILEBUNNY_INBOX_DEFAULT_EXPIRY`) | `1m` to `720h` (`FILEBUNNY_INBOX_MAX_EXPIRY`) |
 | `max_uploads` | 10 | 1 to 100 (`FILEBUNNY_INBOX_MAX_UPLOADS`) |
-| `storage` | `local` (this server) | a name from [Storage](#storage), e.g. `filebin` |
+| `storage` | `local` (this server) | a name from [Storage](#storage) |
 
 With `storage`, everything sent to the link goes on to that service
 through this server, as for share links: the service sees this server,
@@ -344,7 +344,7 @@ in total (default 100 MiB).
 
 `keep_seconds` is how long each upload is kept after it arrives
 (`FILEBUNNY_MAX_EXPIRY`, or the service's maximum if that is shorter).
-With external storage the answer also has `"storage": "filebin"`.
+With external storage the answer also has `"storage": "<name>"`.
 
 Only a SHA-256 of the management token is stored.
 
@@ -362,7 +362,7 @@ GET /api/v1/inboxes/{id}
 
 **200 OK**: `{"public_key": "-----BEGIN PGP…", "expires_at": "…",
 "uploads_left": 9, "bytes_left": 104857586, "max_file_size": 104857586}`,
-plus `"storage": "filebin"` when uploads go to external storage.
+plus `"storage": "<name>"` when uploads go to external storage.
 A full link is still returned (with nothing left). **404** when unknown,
 expired or revoked.
 
@@ -376,8 +376,8 @@ Body: the ciphertext, at most `max_file_size`. Larger files use the
 chunked upload with `POST /api/v1/uploads?inbox={id}` (no `expires` or
 `max_downloads`; `max_size` is what the link has left); `complete` then
 answers like this endpoint. Files of a link are kept for 7 days
-(`FILEBUNNY_MAX_EXPIRY`; 6 at Filebin) after the upload, independent of
-the link.
+(`FILEBUNNY_MAX_EXPIRY`, or the service's `max_expiry_seconds`) after
+the upload, independent of the link.
 
 **201 Created**: `{"size": 14}`. The uploader gets no ID and no delete
 token. The upload and byte counters are updated atomically with storing
@@ -422,13 +422,13 @@ GET /api/v1/storage
 ```
 
 **200 OK**: the external services this server offers and whether they
-work now. Empty when none is configured (`FILEBUNNY_FILEBIN`).
+work now. Empty when none is switched on.
 
 ```json
 {
   "storage": [
     {
-      "name": "filebin",
+      "name": "<adapter>",
       "available": true,
       "checked_at": "2026-10-31T16:51:03Z",
       "max_expiry_seconds": 518400
@@ -442,7 +442,7 @@ work now. Empty when none is configured (`FILEBUNNY_FILEBIN`).
 - `checked_at`: the last health check; omitted before the first.
 - `max_expiry_seconds`: the longest `expires` for uploads there.
 
-Per service: [Filebin](storage/filebin.md). Files stored *directly* at a
+One page per adapter in [storage/](storage/). Files stored *directly* at a
 service from the browser never touch this API.
 
 ## WKD lookup
