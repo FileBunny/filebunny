@@ -581,6 +581,18 @@ Frontend only: no backend, API, CSP or deploy changes.
 | IPv6 visitors | **Finding:** on an IPv4-only Compose network Docker passes IPv6 visitors through its userland proxy, so Caddy saw the proxy's address and all IPv6 visitors shared one rate limit (v0.9.0 and older). The network now has IPv6 and Docker forwards them with their own address; with the proxy off (deploy/ansible) they would otherwise not arrive at all | tested on the test VM: IPv6 to the site 200 |
 | Server setup (`deploy/ansible`) | SSH key only, ed25519 only, no root, `AllowUsers`, fail2ban; firewall with policy drop on input, forward and output and egress filtering (host: DNS to one provider, NTP, HTTPS, ICMP; containers: HTTPS, DNS to that provider, SMTP relay ports), no `flush ruleset`, only outgoing drops logged; one DNS provider, systemd-resolved and cloud-init off; connection tracking starts before the firewall loads, so the first run keeps its SSH session; firewall and SSH settings re-applied on every run; Docker key checked by fingerprint; apt over HTTPS | fresh test VM, one complete first run: root, the initial user, passwords and non-ed25519 host keys refused; outgoing 80, 22 and DNS to another provider dropped, 443 and 587 (containers) open; allow list closes and opens the site; nothing listens but SSH; survives a reboot; a second run changes nothing |
 
+### Automated checks (2026-11-12, against `v0.10.0-rc.3`)
+
+| Check | Result | Done |
+|---|---|---|
+| Trivy and `govulncheck -mode=binary` on the release images | Backend: nothing. **Finding:** the web image had Caddy 2.11.7, built with Go 1.26.8: 18 Go advisories in the binary: four in the HTTP/2 server (a crash, double flow control refunds, CPU, memory through trailers), HTTP/1 desynchronization after CONNECT, unlimited `Range` headers, a MIME header memory limit bypass, ECH, html/template, the distrust of compromised intermediates and the `MaxBytesReader` race (GO-2026-6859); in Alpine a critical brotli flaw and curl. Caddy 2.11.9 fixes 13 of the 18 and the Alpine ones. Left in 2.11.9: GO-2026-6859 (Go 1.27.3), a panic in klauspost/compress, two x/net/html flaws (only Caddy's templates and markdown parse HTML; the Caddyfile uses neither) | Caddy 2.11.9 (Dependabot); the rest accepted until 2026-12-15 in `.trivyignore`, so the weekly scan fails again if no Caddy release fixes them |
+| Weekly scan | CI only ran govulncheck on a push, so a new advisory for a released image went unnoticed until the next change | `.github/workflows/scan.yml` (release.md) |
+| Trivy on the repository (secrets, misconfiguration) | No secrets. Only "no `HEALTHCHECK`" (distroless has no shell; Compose restarts). **Finding:** a compiled `.pyc` of the monitor was committed | removed, `__pycache__/` ignored |
+| OWASP ZAP baseline (passive) on the release images, served locally | 0 failures, 7 warnings, all informational or low: no `Cross-Origin-Embedder-Policy`/`-Resource-Policy` (the page loads nothing cross-origin and the static files are public, so they would add nothing), "timestamps" and "Base64" in OpenPGP.js, `Sec-Fetch-*` (sent by browsers, not ZAP), cacheable static files | none needed |
+| ssh-audit | ed25519 only, AEAD ciphers, ETM MACs, strict key exchange (Terrapin). `curve25519-sha256` was still allowed as a non-post-quantum fallback. The host key is offered twice on the VPS: the provider's image uncommented `HostKey` in `sshd_config`, which the drop-in repeats (harmless). OpenSSH 10's `PerSourcePenalties` briefly refused the scanner after its unauthenticated connections | only post-quantum hybrid key exchange (client OpenSSH 9.0+) |
+| Lynis 3.1.4 on the VPS (installed for the run, then purged with its logs) | Hardening index 73, no warnings, 38 suggestions. Most are a generic checklist without a threat here (GRUB password, password ageing, separate partitions, file integrity and malware scanners, a login banner, another SSH port, remote logging, which would tie the server to other infrastructure). Not taken: `rp_filter` and `forwarding` (Docker needs them), `log_martians` (would log visitors' addresses), `modules_disabled` (breaks Docker and nftables), needrestart (restarts services by itself and had a privilege escalation of its own, CVE-2024-48990) | `kernel.yama.ptrace_scope=1`, `dev.tty.ldisc_autoload=0`, `fs.protected_fifos=2`: only of use after a first break-in as an ordinary user |
+| Open ports | nmap from the operator's laptop measured nothing: the VPN on the way accepts every TCP connection itself (even to 9.9.9.9:31337), so every port looks open; only SSH answered with its own banner. Checked on the server instead (configuration, not a measurement from outside): only sshd listens; Docker publishes only 80 and 443 (TCP and UDP for HTTP/3), not the backend's 8080 or Caddy's admin port 2019; nftables accepts new connections on input only for 22, and forwards DNATed traffic only to 80/443 and only from the allow list, for IPv4 and IPv6 | none needed; scan from outside without such a VPN once the site is public |
+
 ### Residual risks
 
 - **The compose files come from the operator's checkout** (at the tag's
@@ -609,6 +621,12 @@ Frontend only: no backend, API, CSP or deploy changes.
   must stay open to any address (WKD domains, Filebin, certificates,
   updates). It blocks other ports and makes unexpected connections
   visible in the log.
+- **Caddy 2.11.9 still has known flaws** (above): a visitor may crash
+  it over HTTP/1 until a Caddy release is built with Go 1.27.4; Docker
+  restarts it. Accepted until 2026-12-15 in `.trivyignore`.
+- **deepmerge 4.3.1** (GHSA-gcqx-w48m-w2h4, low, no fix yet): prototype
+  poisoning, pulled in by `@sveltejs/vite-plugin-svelte`. Only a build
+  dependency that merges the plugin's own options; it is not in the site.
 - **The admin user is root in practice** (sudo without a password, and
   the `docker` group). Protect its SSH key.
 - **Debian's cloud image sums** (used only by `scripts/test-vm.sh`) come
@@ -622,3 +640,24 @@ make vuln     # govulncheck
 cd frontend && npm audit
 docker compose up -d --build && scripts/smoke-test.sh   # end to end
 ```
+
+Against a release (also weekly in `.github/workflows/scan.yml`):
+
+```sh
+img=ghcr.io/filebunny/filebunny-web:v0.10.0
+docker run --rm -v /var/run/docker.sock:/var/run/docker.sock:ro \
+  -v "$PWD/.trivyignore:/.trivyignore:ro" aquasec/trivy:0.76.2 image \
+  --ignorefile /.trivyignore --severity UNKNOWN,HIGH,CRITICAL --ignore-unfixed "$img"
+id=$(docker create "$img") && docker cp "$id:/usr/bin/caddy" /tmp/caddy && docker rm "$id"
+(cd backend && go run golang.org/x/vuln/cmd/govulncheck@v1.9.0 -mode=binary /tmp/caddy)
+```
+
+ZAP needs a host name with a dot (Java sends no SNI for `localhost`), so
+serve the release images as `filebunny.test` with `FILEBUNNY_TLS=internal`
+(`compose.release.yaml`) and run
+`docker run --rm --net=host --add-host filebunny.test:127.0.0.1 ghcr.io/zaproxy/zaproxy:stable zap-baseline.py -t https://filebunny.test/`.
+Port scans (nmap) only from a network that does not answer for the
+target (check that a closed port of another host is refused). On the
+server: `ssh-audit <host>` from outside, and Lynis only
+temporarily (`apt install lynis`, `lynis audit system`, then
+`apt purge lynis` and remove `/var/log/lynis*`).

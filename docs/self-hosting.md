@@ -65,7 +65,8 @@ What it does:
   user can be removed (`filebunny_remove_users`), root's SSH keys are
   removed. SSH by key only, no
   root, `AllowUsers` the admin, only ed25519 (host key, logins, also on a
-  FIDO2 key) with post-quantum hybrid key exchange, `MaxAuthTries 3`,
+  FIDO2 key) with only post-quantum hybrid key exchange (the client
+  needs OpenSSH 9.0 or newer), `MaxAuthTries 3`,
   `MaxSessions 2`, `LogLevel VERBOSE` (key fingerprints in the log),
   fail2ban on SSH. The settings are a drop-in that sshd reads first;
   check the result with `sudo sshd -T`;
@@ -93,8 +94,12 @@ What it does:
   fingerprint), with log caps, `no-new-privileges`, `live-restore` and
   without the userland proxy, so visitors reach Caddy with their own
   address over IPv4 and IPv6;
-- time sync, a swap file if the server has no swap, a few kernel
-  settings, a capped persistent journal;
+- time sync, a swap file if the server has no swap, a capped persistent
+  journal, and kernel settings: SYN cookies, no ICMP redirects or source
+  routing, kernel addresses, the kernel log and BPF for root only,
+  `ptrace` only of a process's own children, no tty line disciplines
+  loaded by ordinary users, protected FIFOs in sticky directories. They
+  only help after a first break-in as an ordinary user;
 - `/opt/filebunny/.env` from your variables for `scripts/deploy.sh`, and
   the SMTP file (`filebunny_smtp_file`, kept outside the repository).
 
