@@ -61,7 +61,7 @@ backend/internal/server   HTTP handlers, quota, stall timeouts, security headers
 backend/internal/logging  slog logger that redacts IP addresses
 backend/internal/cleanup  periodic removal of expired files
 backend/internal/wkd      WKD client with SSRF protection (key lookup proxy)
-backend/internal/storage  external storage adapters (Filebin), SSRF-safe client
+backend/internal/storage  external storage adapters, SSRF-safe client
 backend/internal/mail     SMTP delivery through operator relays (TLS only); mailtest fake relay
 backend/internal/ratelimit per-visitor limits on a daily-salted hash of the address, memory only
 backend/internal/pow      stateless single-use proof-of-work challenges
@@ -86,6 +86,7 @@ scripts/test-vm.sh        local Debian 13 VM (libvirt) sized like the VPS, to te
 .github/workflows         ci, release (signed images and files), watch (off until WATCH_URL is set)
 docs/                     architecture, API, self-hosting, security review, verify, release
 docs/storage/             one page per storage adapter
+docs/mail/                one page per API mail relay type
 ```
 
 ## Build and test
@@ -148,11 +149,11 @@ overhead on a 100 MB file. Only the SHA-256 of the delete token is stored.
 ## Roadmap
 
 Phases 1 (foundation), 2 (browser encryption, share links with download
-limits, chunked upload, single HTML build), 3 (keys: lookup on
-keys.openpgp.org from the browser, optional WKD proxy, local key upload,
+limits, chunked upload, single HTML build), 3 (keys: lookup on a
+public keyserver from the browser, optional WKD proxy, local key upload,
 WKD check), 4 (upload links with a management link, key pair
-generation, publishing on keys.openpgp.org), 5 (external storage:
-Filebin through this server or directly from the browser, also for upload
+generation, publishing on the keyserver), 5 (external storage
+adapters, through this server or directly from the browser, also for upload
 links), 6 (mailing a share link through operator SMTP relays, with limits
 and a block list), 7 (per-visitor limits on a hashed address, proof of
 work, terms/privacy/contact pages, security.txt; no report button by

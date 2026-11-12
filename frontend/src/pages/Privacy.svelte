@@ -64,8 +64,8 @@
   </li>
   <li>
     <strong>E-mail:</strong> a mailed link goes through a mail relay, which sees the recipient's e-mail address and the mail, and
-    keeps its own logs; a relay may also keep the address in its own contact list (Mailjet does). This server has Mailjet
-    delete those contacts a day after the mail; Mailjet anonymizes them at once and removes them 30 days later. The
+    keeps its own logs; a relay may also keep the address in its own contact list. Where the relay allows it, this server
+    has it delete those contacts a day after the mail; the relay may keep them anonymized for some time after that. The
     recipient's mail provider sees the address too, as with any mail.
   </li>
   <li>
