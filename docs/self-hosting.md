@@ -103,14 +103,16 @@ What it does:
 With `filebunny_monitor` (on by default) the playbook installs
 `filebunny-monitor`, which a systemd timer runs every hour. It checks the
 disk, the containers (also restarts), the version and certificate the
-site serves, errors in the container logs, failed systemd units, a reboot
+site serves, errors in the container logs, problems of the relay contact
+cleanup, failed systemd units, a reboot
 that is not happening, time sync and outgoing traffic, and every 6 hours
 asks crt.sh (Certificate Transparency) for new certificates for your
 domain. It mails when a problem starts and when it ends, and every day at
 `filebunny_monitor_summary_hour` (default 6) a summary with trends: when
 the disk would be full at the growth of the last 14 days, the traffic
 forecast for the month against `filebunny_monitor_traffic_tb`, and the
-daily totals of uploads and downloads. If the summary does not arrive,
+daily totals of uploads and downloads, failed mail deliveries and what
+the contact cleanup deleted and blocked. If the summary does not arrive,
 the server cannot mail.
 
 Mail goes to `filebunny_monitor_mail_to` through the relays of

@@ -136,6 +136,35 @@ def check_logs(cfg, m, problems):
             problems[f"errors:{name}"] = f"{len(lines)} error(s) in the last hour in {name}:\n    {sample}"
 
 
+# Warnings of the backend's mail work, as it logs them (never addresses).
+CONTACT_WARNINGS = ("listing relay contacts failed", "contact cleanup stopped after failures",
+                    "relay rate limit, contact cleanup continues tomorrow")
+
+
+def backend_lines(since):
+    p = subprocess.run(["docker", "logs", "--since", since, "filebunny-backend-1"], capture_output=True, text=True, timeout=60)
+    return (p.stdout + p.stderr).splitlines()
+
+
+def check_mail_work(cfg, m, problems):
+    """The relay contact cleanup's warnings (hourly) and, for the summary,
+    its results and the failed deliveries of the last 24 hours."""
+    warned = [w for w in CONTACT_WARNINGS if any(w in line for line in backend_lines("1h"))]
+    if warned:
+        problems["contacts"] = "relay contact cleanup: " + "; ".join(warned)
+    day = backend_lines("24h")
+    totals = {"deleted": 0, "blocked": 0, "failed": 0}
+    runs = 0
+    for line in day:
+        if "relay contacts removed" in line:
+            runs += 1
+            for key in totals:
+                found = re.search(rf"\b{key}=(\d+)", line)
+                totals[key] += int(found.group(1)) if found else 0
+    m["contacts"] = totals | {"runs": runs, "warnings": sum(any(w in line for w in CONTACT_WARNINGS) for line in day)}
+    m["mail_failures"] = sum("mail relay failed" in line for line in day)
+
+
 def check_system(cfg, m, problems):
     failed = [line.split()[0] for line in run("systemctl", "--failed", "--plain", "--no-legend").splitlines() if line.strip()]
     if failed:
@@ -343,6 +372,11 @@ def summary(cfg, m, history, state, problems):
             lines.append("  none in the last 7 days")
         lines.append(f"  this month: {month[0]} / {month[1]} / {month[2]} / {month[3]}")
     lines.append("")
+    c = m.get("contacts")
+    if c:
+        lines.append(f"Mail (24 h): {m.get('mail_failures', 0)} failed delivery attempt(s); relay contacts: "
+                     f"{c['deleted']} deleted, {c['blocked']} blocked (unsubscribed or complained at the relay), "
+                     f"{c['failed']} failed, {c['warnings']} warning(s)")
     banned = re.search(r"Currently banned:\s*(\d+).*?Total banned:\s*(\d+)", run("fail2ban-client", "status", "sshd"), re.S)
     if banned:
         lines.append(f"fail2ban (SSH): {banned.group(1)} banned now, {banned.group(2)} since its start")
@@ -395,6 +429,7 @@ def main():
     check_site(cfg, m, problems)
     check_logs(cfg, m, problems)
     check_system(cfg, m, problems)
+    check_mail_work(cfg, m, problems)
     check_traffic(cfg, m, state, problems)
     pending = state.setdefault("pending", [])
     check_ct(cfg, m, state, pending)
