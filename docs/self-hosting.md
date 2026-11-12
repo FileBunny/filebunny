@@ -185,7 +185,7 @@ backend (and the two marked "Caddy only" to Caddy) with defaults.
 | `FILEBUNNY_INBOX_MAX_EXPIRY` | `720h` | Longest a link may stay open |
 | `FILEBUNNY_INBOX_MAX_UPLOADS` | `100` | Highest number of uploads a link may allow (default per link: 10) |
 | `FILEBUNNY_INBOX_MAX_SIZE` | `104857600` | Max combined size of the uploads to one link, in bytes (100 MiB) |
-| `FILEBUNNY_FILEBIN` | `false` | Offer Filebin (filebin.net) as external storage through this server; see [storage/filebin.md](storage/filebin.md) |
+| `FILEBUNNY_FILEBIN` | `false` | Offer this storage adapter through this server; see [storage/filebin.md](storage/filebin.md). Each adapter has its own switch and page in [storage/](storage/) |
 | `FILEBUNNY_PROXY_DAILY_BYTES` | `53687091200` (50 GiB) | Traffic to and from external storage per UTC day, per service; beyond it uploads and downloads there get `503` |
 | `FILEBUNNY_SMTP_FILE` | `/run/secrets/smtp` in Compose | JSON file with the sender address and the SMTP relays; see [E-mail](#e-mail). No file or no relays: no e-mail |
 | `FILEBUNNY_PUBLIC_URL` | `https://$FILEBUNNY_DOMAIN` in Compose | The site's address for links in mails; required when e-mail is on |
@@ -207,15 +207,15 @@ It only connects to public addresses (no private, loopback, link-local or
 metadata ranges), follows no redirects and logs no looked-up addresses.
 If your firewall restricts egress, either allow outgoing 443 for the
 backend or set `FILEBUNNY_WKD_PROXY=false`. Keyserver lookups
-(keys.openpgp.org) go directly from the browser and need nothing from
+go directly from the browser and need nothing from
 your server.
 
-External storage through the server (`FILEBUNNY_FILEBIN=true`) needs
-outgoing 443 to `filebin.net` and `storage.filebin.net`. The direct route
-to Filebin goes from the browser and needs nothing from your server
-except `connect-src` in the CSP, which `deploy/Caddyfile` already allows.
-Read the service's terms before you offer it. The adapter docs in
-[storage/](storage/) say what each service sees and how it is used.
+External storage through the server needs outgoing 443 to the hosts of
+each adapter you switch on. The direct route goes from the browser and
+needs nothing from your server except `connect-src` in the CSP, which
+`deploy/Caddyfile` already allows. Read the service's terms before you
+offer it. The adapter docs in [storage/](storage/) list the hosts and say
+what each service sees and how it is used.
 
 ## E-mail
 
@@ -245,16 +245,10 @@ sudo install -m 0400 -o 65532 smtp.json /etc/filebunny/smtp.json   # 65532: the 
 FILEBUNNY_SMTP=/etc/filebunny/smtp.json docker compose up -d
 ```
 
-- `type`: `smtp` (the default) or `mailjet-api`. Use `mailjet-api` when
-  your provider blocks outgoing SMTP (465/587): it sends through
-  Mailjet's Send API over HTTPS, so only port 443 is needed. It takes no
-  `host`, `port` or `implicit_tls`; `username` and `password` are the API
-  key and secret (the same as Mailjet's SMTP credentials):
-
-  ```json
-  {"name": "mailjet", "type": "mailjet-api",
-   "username": "<API key>", "password": "<secret key>", "daily_limit": 200}
-  ```
+- `type`: `smtp` (the default) or an HTTPS API relay, for when your
+  provider blocks outgoing SMTP (465/587): only port 443 is needed. Each
+  API type has its own page in [`mail/`](mail/), with its `type` value,
+  configuration and what it keeps.
 - `name`: shown in logs and used for counters (a-z, 0-9, `-`); never the
   account. `daily_limit`: the relay's own free-tier limit; FileBunny sends
   no more than that through it per UTC day.
@@ -271,21 +265,15 @@ FILEBUNNY_SMTP=/etc/filebunny/smtp.json docker compose up -d
 - Switch off open and click tracking at the relay: FileBunny sends plain
   text, but a relay that rewrites links would see every click. (An API
   relay switches tracking off in every message itself.)
-- A relay may keep every recipient in its own contact list; Mailjet does,
-  through SMTP and the API. For an API relay the backend removes them
-  once a day (`"delete_contacts": true`, the default; `false` keeps
-  them): every contact older than a day, through Mailjet's GDPR delete
-  (anonymized at once, gone after 30 days). Addresses that unsubscribed
-  through Mailjet's own link or reported spam go on FileBunny's block
-  list first (as an HMAC), since Mailjet replaces FileBunny's
-  unsubscribe header. **Use a Mailjet account for FileBunny only**: the
-  cleanup deletes every contact in it. At most 2000 deletions per relay
-  and day; a rate limit (429) ends the run until the next day. For an
-  SMTP relay, delete them in the relay's dashboard.
-- Some relays (Mailjet, for example) replace FileBunny's
-  `List-Unsubscribe` header with their own; addresses that unsubscribe
-  that way end up on the relay's suppression list instead of FileBunny's
-  block list. The block link in the mail text is not affected.
+- A relay may keep every recipient in its own contact list. For an API
+  relay the backend removes them once a day (`"delete_contacts": true`,
+  the default; `false` keeps them; see the relay type's page). **Use a
+  relay account for FileBunny only**: the cleanup deletes every contact
+  in it. For an SMTP relay, delete them in the relay's dashboard.
+- Some relays replace FileBunny's `List-Unsubscribe` header with their
+  own; addresses that unsubscribe that way end up on the relay's
+  suppression list instead of FileBunny's block list. The block link in
+  the mail text is not affected.
 
 **DNS** for the sender's domain, from each relay's instructions: one SPF
 record that includes every relay (at most 10 DNS lookups in total), a
