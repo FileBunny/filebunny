@@ -11,6 +11,8 @@
   import ErrorMessage from '../components/ErrorMessage.svelte';
   import Info from '../components/Info.svelte';
   import FingerprintQR from '../components/FingerprintQR.svelte';
+  import CameraCapture, { type Photo } from '../components/CameraCapture.svelte';
+  import { photoName } from '../lib/camera.ts';
 
   let { id, fingerprint }: { id: string; fingerprint: string } = $props();
 
@@ -18,9 +20,15 @@
   let key = $state.raw<KeyInfo | null>(null);
   let keyProblem = $state('');
 
-  let what = $state<'text' | 'file'>('text');
+  let what = $state<'text' | 'file' | 'photo'>('text');
   let text = $state('');
   let file = $state<File | null>(null);
+  // Raw: a Blob must not be wrapped in a proxy. Only in memory, see
+  // CameraCapture.
+  let photo = $state.raw<Photo | null>(null);
+  $effect(() => {
+    if (what !== 'photo') photo = null;
+  });
   let busy = $state(false);
   let sent = $state(0);
   let error = $state('');
@@ -53,14 +61,24 @@
     }
   }
 
-  const size = $derived(what === 'file' ? (file?.size ?? 0) : new TextEncoder().encode(text).length);
+  const size = $derived(
+    what === 'file' ? (file?.size ?? 0) : what === 'photo' ? (photo?.blob.size ?? 0) : new TextEncoder().encode(text).length,
+  );
   // OpenPGP adds a little; the server checks the exact ciphertext size.
   const tooLarge = $derived(info ? size > info.maxFileSize - 1024 : false);
-  const ready = $derived(key !== null && (what === 'text' ? text.length > 0 : file !== null) && !tooLarge);
+  const ready = $derived(
+    key !== null && (what === 'text' ? text.length > 0 : what === 'photo' ? photo !== null : file !== null) && !tooLarge,
+  );
   let tried = $state(false);
   // Too large is shown under the field already.
   const missing = $derived(
-    !tried || ready || tooLarge ? '' : what === 'text' ? 'Type a message first.' : 'Choose a file first.',
+    !tried || ready || tooLarge
+      ? ''
+      : what === 'text'
+        ? 'Type a message first.'
+        : what === 'photo'
+          ? 'Take a photo first.'
+          : 'Choose a file first.',
   );
 
   function pickFile(e: Event & { currentTarget: HTMLInputElement }) {
@@ -82,10 +100,16 @@
     controller = new AbortController();
     try {
       const plaintext =
-        what === 'text' ? { kind: 'text' as const, text } : { kind: 'file' as const, name: file!.name, data: file!.stream() };
+        what === 'text'
+          ? { kind: 'text' as const, text }
+          : what === 'photo'
+            ? { kind: 'file' as const, name: photoName, data: photo!.blob.stream() }
+            : { kind: 'file' as const, name: file!.name, data: file!.stream() };
       const ciphertext = await encrypt(plaintext, { publicKeys: [key.key] });
       const stored = await uploadToInbox(id, ciphertext, (n) => (sent = n), controller.signal);
-      done = { what: what === 'file' ? file!.name : 'Your message', size: stored };
+      done = { what: what === 'file' ? file!.name : what === 'photo' ? 'Your photo' : 'Your message', size: stored };
+      // Sent: the photo is not needed in this page any more.
+      photo = null;
     } catch (err) {
       if (controller.signal.aborted) error = 'Upload canceled.';
       else if (err instanceof ApiError && err.status === 409) error = 'This upload link is full.';
@@ -104,6 +128,7 @@
     tried = false;
     text = '';
     file = null;
+    photo = null;
     info = await inboxInfo(id).catch(() => info);
   }
 </script>
@@ -156,12 +181,15 @@
         <div class="choice">
           <label><input type="radio" bind:group={what} value="text" /> Text</label>
           <label><input type="radio" bind:group={what} value="file" /> File</label>
+          <label><input type="radio" bind:group={what} value="photo" /> Photo</label>
         </div>
         {#if what === 'text'}
           <label class="field">
             <span>Message</span>
             <textarea id="inbox-content" bind:value={text} rows="8" spellcheck="false"></textarea>
           </label>
+        {:else if what === 'photo'}
+          <CameraCapture id="inbox-content" bind:photo />
         {:else}
           <label class="field">
             <span>File (max {formatBytes(info.maxFileSize)})</span>
