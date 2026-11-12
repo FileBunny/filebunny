@@ -1,10 +1,12 @@
-// Package mail sends FileBunny's fixed notification mails through SMTP
-// relays the operator configures.
+// Package mail sends FileBunny's fixed notification mails through relays
+// the operator configures: SMTP relays, or a relay's HTTPS API (api.go)
+// where the server's provider blocks outgoing SMTP.
 //
-// Only TLS connections are used: implicit TLS on port 465, STARTTLS (which
-// must be offered) on any other port. Relay hosts come from the operator's
-// configuration file, never from a client. Errors never carry the relay's
-// reply text, which may echo the recipient address; see SendError.
+// Only TLS connections are used: for SMTP implicit TLS on port 465,
+// STARTTLS (which must be offered) on any other port. Relay hosts come from
+// the operator's configuration file, API addresses are fixed; neither ever
+// comes from a client. Errors never carry the relay's reply text, which may
+// echo the recipient address; see SendError.
 package mail
 
 import (
@@ -24,10 +26,12 @@ import (
 	"time"
 )
 
-// Relay is one SMTP relay from the configuration file.
+// Relay is one relay from the configuration file.
 type Relay struct {
 	// Name identifies the relay in logs and counters; never the account.
-	Name     string `json:"name"`
+	Name string `json:"name"`
+	// Type is TypeSMTP (or empty) or TypeMailjetAPI.
+	Type     string `json:"type"`
 	Host     string `json:"host"`
 	Port     int    `json:"port"`
 	Username string `json:"username"`
@@ -38,9 +42,24 @@ type Relay struct {
 	// ImplicitTLS connects with TLS right away, as on port 465 (always
 	// used there); otherwise STARTTLS is required.
 	ImplicitTLS bool `json:"implicit_tls"`
+	// DeleteContacts (API relays, default true) removes the contacts the
+	// relay keeps of every recipient, once a day; see server.cleanupContacts.
+	DeleteContacts *bool `json:"delete_contacts"`
+}
+
+// DeletesContacts reports whether the contact cleanup runs for r.
+func (r Relay) DeletesContacts() bool {
+	return r.kind() == TypeMailjetAPI && (r.DeleteContacts == nil || *r.DeleteContacts)
 }
 
 func (r Relay) implicitTLS() bool { return r.ImplicitTLS || r.Port == 465 }
+
+func (r Relay) kind() string {
+	if r.Type == "" {
+		return TypeSMTP
+	}
+	return r.Type
+}
 
 // String never shows the account.
 func (r Relay) String() string { return r.Name }
@@ -85,12 +104,29 @@ func LoadConfig(path string) (Config, error) {
 			return Config{}, fmt.Errorf("mail config: relay %d: name must be 1-32 of a-z, 0-9 and -", i+1)
 		case seen[r.Name]:
 			return Config{}, fmt.Errorf("mail config: relay %s: name used twice", r.Name)
-		case r.Host == "" || strings.ContainsAny(r.Host, "/: \r\n"):
-			return Config{}, fmt.Errorf("mail config: relay %s: host must be a host name", r.Name)
-		case r.Port < 1 || r.Port > 65535:
-			return Config{}, fmt.Errorf("mail config: relay %s: port out of range", r.Name)
 		case r.DailyLimit < 1:
 			return Config{}, fmt.Errorf("mail config: relay %s: daily_limit must be at least 1", r.Name)
+		}
+		switch r.kind() {
+		case TypeSMTP:
+			switch {
+			case r.Host == "" || strings.ContainsAny(r.Host, "/: \r\n"):
+				return Config{}, fmt.Errorf("mail config: relay %s: host must be a host name", r.Name)
+			case r.Port < 1 || r.Port > 65535:
+				return Config{}, fmt.Errorf("mail config: relay %s: port out of range", r.Name)
+			case r.DeleteContacts != nil:
+				return Config{}, fmt.Errorf("mail config: relay %s: delete_contacts is for API relays only", r.Name)
+			}
+		case TypeMailjetAPI:
+			// The API address is fixed: a host or port here would be ignored.
+			switch {
+			case r.Host != "" || r.Port != 0 || r.ImplicitTLS:
+				return Config{}, fmt.Errorf("mail config: relay %s: an API relay takes no host, port or implicit_tls", r.Name)
+			case r.Username == "" || r.Password == "":
+				return Config{}, fmt.Errorf("mail config: relay %s: an API relay needs username and password (the API key and secret)", r.Name)
+			}
+		default:
+			return Config{}, fmt.Errorf("mail config: relay %s: type must be %q or %q", r.Name, TypeSMTP, TypeMailjetAPI)
 		}
 		seen[r.Name] = true
 	}
@@ -160,23 +196,32 @@ func (m Message) Bytes() []byte {
 	return []byte(b.String())
 }
 
-// SendError is a failed send. It holds the SMTP reply code (0 for network
-// and TLS errors), never the reply text.
+// SendError is a failed send. It holds the SMTP reply code or, for an API
+// relay, the HTTP status (0 for network and TLS errors), never the reply
+// text.
 type SendError struct {
+	Via  string // TypeSMTP (or empty) or TypeMailjetAPI
 	Step string
 	Code int
 }
 
 func (e *SendError) Error() string {
-	if e.Code == 0 {
-		return "smtp " + e.Step + " failed"
+	via := e.Via
+	if via == "" {
+		via = TypeSMTP
 	}
-	return fmt.Sprintf("smtp %s failed with code %d", e.Step, e.Code)
+	if e.Code == 0 {
+		return via + " " + e.Step + " failed"
+	}
+	return fmt.Sprintf("%s %s failed with code %d", via, e.Step, e.Code)
 }
 
-// Permanent reports whether the relay refused for good (5xx), so trying
-// another relay will not help, for example for an unknown recipient.
-func (e *SendError) Permanent() bool { return e.Code >= 500 && e.Code < 600 && e.Step == "rcpt" }
+// Permanent reports whether an SMTP relay refused the recipient for good
+// (5xx), so trying another relay will not help. API errors never count as
+// permanent: their status does not say whether the recipient was the cause.
+func (e *SendError) Permanent() bool {
+	return (e.Via == "" || e.Via == TypeSMTP) && e.Code >= 500 && e.Code < 600 && e.Step == "rcpt"
+}
 
 func sendErr(step string, err error) error {
 	var te *textproto.Error
@@ -186,10 +231,12 @@ func sendErr(step string, err error) error {
 	return &SendError{Step: step}
 }
 
-// Sender delivers through one relay. TLS can be replaced in tests.
+// Sender delivers through one relay. TLS and APIBase can be replaced in
+// tests.
 type Sender struct {
 	Timeout time.Duration
 	TLS     *tls.Config
+	APIBase string
 }
 
 // DefaultTimeout bounds a whole delivery.

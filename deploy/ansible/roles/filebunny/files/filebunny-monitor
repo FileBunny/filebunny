@@ -272,7 +272,9 @@ def disk_full_in_days(history):
 
 def allow_relay(relay):
     """Lets filebunny-mail reach the relay for two minutes (nftables set)."""
-    for family, _, _, _, addr in socket.getaddrinfo(relay["host"], relay["port"], proto=socket.IPPROTO_TCP):
+    host, port = (("api.mailjet.com", 443) if relay.get("type") == "mailjet-api"
+                  else (relay["host"], relay["port"]))
+    for family, _, _, _, addr in socket.getaddrinfo(host, port, proto=socket.IPPROTO_TCP):
         setname = "mail_relay4" if family == socket.AF_INET else "mail_relay6"
         subprocess.run(["nft", "add", "element", "inet", "filebunny", setname, f"{{ {addr[0]} timeout 2m }}"],
                        capture_output=True, timeout=10)

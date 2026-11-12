@@ -60,6 +60,8 @@ type Server struct {
 
 	// mail is nil when e-mail notifications are off (EnableMail).
 	mail *mailer
+	// contactsPause spaces the contact cleanup's requests (contacts.go).
+	contactsPause time.Duration
 
 	// limiter hashes and counts visitors (always; limits apply only with
 	// cfg.RateLimits). pow is nil when proof of work is off.
@@ -69,7 +71,7 @@ type Server struct {
 
 // New returns a Server with all routes registered.
 func New(cfg config.Config, st *store.Store, log *slog.Logger) *Server {
-	s := &Server{cfg: cfg, store: st, log: log, now: time.Now, stall: stallTimeout, mux: http.NewServeMux(),
+	s := &Server{cfg: cfg, store: st, log: log, now: time.Now, stall: stallTimeout, contactsPause: contactsPause, mux: http.NewServeMux(),
 		uploads: make(map[string]*pendingUpload), wkdSlots: make(chan struct{}, maxWKDLookups)}
 	if cfg.WKDProxy {
 		s.wkd = wkd.NewClient()

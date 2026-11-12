@@ -114,7 +114,8 @@ daily totals of uploads and downloads. If the summary does not arrive,
 the server cannot mail.
 
 Mail goes to `filebunny_monitor_mail_to` through the relays of
-`filebunny_smtp_file`, sent by the user `filebunny-mail`: the firewall
+`filebunny_smtp_file` (with `filebunny_share_mail: false` only the
+monitoring uses them, and the site does not mail share links), sent by the user `filebunny-mail`: the firewall
 lets only that user reach the relay, and only for two minutes after the
 monitor has put the relay's addresses in a set; that user can do nothing
 else but DNS. Try it with `sudo filebunny-monitor --test-mail`;
@@ -237,6 +238,16 @@ sudo install -m 0400 -o 65532 smtp.json /etc/filebunny/smtp.json   # 65532: the 
 FILEBUNNY_SMTP=/etc/filebunny/smtp.json docker compose up -d
 ```
 
+- `type`: `smtp` (the default) or `mailjet-api`. Use `mailjet-api` when
+  your provider blocks outgoing SMTP (465/587): it sends through
+  Mailjet's Send API over HTTPS, so only port 443 is needed. It takes no
+  `host`, `port` or `implicit_tls`; `username` and `password` are the API
+  key and secret (the same as Mailjet's SMTP credentials):
+
+  ```json
+  {"name": "mailjet", "type": "mailjet-api",
+   "username": "<API key>", "password": "<secret key>", "daily_limit": 200}
+  ```
 - `name`: shown in logs and used for counters (a-z, 0-9, `-`); never the
   account. `daily_limit`: the relay's own free-tier limit; FileBunny sends
   no more than that through it per UTC day.
@@ -251,7 +262,19 @@ FILEBUNNY_SMTP=/etc/filebunny/smtp.json docker compose up -d
 - Prefer keys with sending rights only, for your sender address only,
   and, where the relay offers it, only from your server's IP address.
 - Switch off open and click tracking at the relay: FileBunny sends plain
-  text, but a relay that rewrites links would see every click.
+  text, but a relay that rewrites links would see every click. (An API
+  relay switches tracking off in every message itself.)
+- A relay may keep every recipient in its own contact list; Mailjet does,
+  through SMTP and the API. For an API relay the backend removes them
+  once a day (`"delete_contacts": true`, the default; `false` keeps
+  them): every contact older than a day, through Mailjet's GDPR delete
+  (anonymized at once, gone after 30 days). Addresses that unsubscribed
+  through Mailjet's own link or reported spam go on FileBunny's block
+  list first (as an HMAC), since Mailjet replaces FileBunny's
+  unsubscribe header. **Use a Mailjet account for FileBunny only**: the
+  cleanup deletes every contact in it. At most 2000 deletions per relay
+  and day; a rate limit (429) ends the run until the next day. For an
+  SMTP relay, delete them in the relay's dashboard.
 - Some relays (Mailjet, for example) replace FileBunny's
   `List-Unsubscribe` header with their own; addresses that unsubscribe
   that way end up on the relay's suppression list instead of FileBunny's
@@ -266,7 +289,8 @@ headers say `spf=pass`, `dkim=pass` and `dmarc=pass`.
 The backend keeps a secret key (`data/mail-pepper`) for the address
 hashes behind the limits and the block list. Losing it resets both.
 
-The backend needs outgoing access to the relays' SMTP ports.
+The backend needs outgoing access to the relays' SMTP ports, or to 443
+for an API relay.
 
 ## Releases
 

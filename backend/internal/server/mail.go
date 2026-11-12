@@ -35,14 +35,16 @@ const (
 
 // mailSender delivers one message; mail.Sender, or a test double.
 type mailSender interface {
-	Send(ctx context.Context, r mail.Relay, from, to string, msg []byte) error
+	Deliver(ctx context.Context, r mail.Relay, m mail.Message) error
 }
 
 type mailer struct {
 	from   string
 	relays []mail.Relay
 	sender mailSender
-	pepper []byte
+	// contacts removes the relays' contacts (contacts.go).
+	contacts contactsClient
+	pepper   []byte
 	// next is where the round-robin over the relays starts.
 	next  atomic.Uint32
 	slots chan struct{}
@@ -57,7 +59,7 @@ func (s *Server) EnableMail(c mail.Config, pepper []byte) error {
 	if s.cfg.PublicURL == "" {
 		return errors.New("FILEBUNNY_PUBLIC_URL is required when mail is on")
 	}
-	s.mail = &mailer{from: c.From, relays: c.Relays, sender: mail.Sender{}, pepper: pepper,
+	s.mail = &mailer{from: c.From, relays: c.Relays, sender: mail.Sender{}, contacts: mail.Sender{}, pepper: pepper,
 		slots: make(chan struct{}, maxMailSends)}
 	return nil
 }
@@ -152,7 +154,7 @@ func (s *Server) handleNotify(w http.ResponseWriter, r *http.Request) {
 	}
 
 	msg := s.notifyMessage(f, req.Email, hash, now)
-	switch err := s.deliver(r.Context(), req.Email, msg, now); {
+	switch err := s.deliver(r.Context(), msg, now); {
 	case err == nil:
 		w.WriteHeader(http.StatusNoContent)
 	case errors.Is(err, errRecipientRefused):
@@ -170,7 +172,7 @@ var (
 
 // deliver tries the relays round-robin, skipping those that reached their
 // daily limit, until one accepts the message.
-func (s *Server) deliver(ctx context.Context, to string, msg []byte, now time.Time) error {
+func (s *Server) deliver(ctx context.Context, msg mail.Message, now time.Time) error {
 	m := s.mail
 	start := int(m.next.Add(1) - 1)
 	for i := range m.relays {
@@ -182,12 +184,12 @@ func (s *Server) deliver(ctx context.Context, to string, msg []byte, now time.Ti
 		if !ok {
 			continue
 		}
-		err = m.sender.Send(ctx, relay, m.from, to, msg)
+		err = m.sender.Deliver(ctx, relay, msg)
 		if err == nil {
 			s.log.Debug("mail sent", "relay", relay.Name)
 			return nil
 		}
-		// mail.SendError holds only the step and the SMTP code.
+		// mail.SendError holds only the step and the SMTP or HTTP code.
 		s.log.Warn("mail relay failed", "relay", relay.Name, "err", err)
 		if se, ok := errors.AsType[*mail.SendError](err); ok && se.Permanent() {
 			return errRecipientRefused
@@ -201,7 +203,7 @@ func (s *Server) deliver(ctx context.Context, to string, msg []byte, now time.Ti
 
 // notifyMessage is the fixed mail. Nothing in it comes from the client:
 // the link is built from the file ID, the address only goes in To.
-func (s *Server) notifyMessage(f store.File, to string, hash []byte, now time.Time) []byte {
+func (s *Server) notifyMessage(f store.File, to string, hash []byte, now time.Time) mail.Message {
 	base := s.cfg.PublicURL
 	token := blockToken(hash)
 	var b strings.Builder
@@ -234,7 +236,7 @@ func (s *Server) notifyMessage(f store.File, to string, hash []byte, now time.Ti
 		Unsubscribe: base + "/api/v1/mail/block/" + token,
 		Date:        now,
 		MessageID:   hex.EncodeToString(id) + "@" + domain,
-	}.Bytes()
+	}
 }
 
 // handleBlockMail puts the address behind the token on the block list.
