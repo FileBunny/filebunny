@@ -4,6 +4,8 @@ import {
   cameraConstraints,
   cameraErrorText,
   cameraUnavailableText,
+  flipFacing,
+  flipTarget,
   mirrorPreview,
   nextCamera,
   photoName,
@@ -32,6 +34,26 @@ test('constraints: video only, back camera by default, chosen camera exact', () 
   const largest = cameraConstraints('largest', { facing: 'user' }).video as MediaTrackConstraints;
   assert.deepEqual(largest.width, { ideal: 4096 });
   assert.deepEqual(largest.facingMode, { ideal: 'user' });
+  // A flip asks for the other side exactly, so it cannot stay on this side.
+  const flipped = cameraConstraints('medium', { facing: 'user', exact: true }).video as MediaTrackConstraints;
+  assert.deepEqual(flipped.facingMode, { exact: 'user' });
+});
+
+test('flip: front and back on a phone, not every lens', () => {
+  assert.equal(flipFacing('environment'), 'user');
+  assert.equal(flipFacing('user'), 'environment');
+  assert.equal(flipFacing(undefined), undefined);
+  assert.equal(flipFacing(''), undefined);
+  // A phone with three back lenses and a front camera: flip goes to the
+  // other side, never to the next back lens.
+  const phone = ['back-wide', 'back-ultrawide', 'back-tele', 'front'];
+  assert.deepEqual(flipTarget('environment', phone, 'back-wide'), { facing: 'user', exact: true });
+  assert.deepEqual(flipTarget('user', phone, 'front'), { facing: 'environment', exact: true });
+  // Only one camera: nothing to flip to.
+  assert.equal(flipTarget('user', ['front'], 'front'), null);
+  // A laptop (no facing mode): the next webcam, or nothing.
+  assert.deepEqual(flipTarget(undefined, ['built-in', 'usb'], 'built-in'), { deviceId: 'usb' });
+  assert.equal(flipTarget(undefined, ['built-in'], 'built-in'), null);
 });
 
 test('next camera, round robin', () => {

@@ -89,10 +89,15 @@ script and one stylesheet, without lazy-loaded chunks or workers, so
   Enter means Next until the last step. Hidden steps keep their fields.
 - **Photos** (`CameraCapture.svelte`, `lib/camera.ts`): a third choice
   next to Text and File, on the send page and on upload links. The camera
-  starts only on a click (`getUserMedia`, video only), with three
-  resolutions (Small 1280×720, Medium 1920×1080, Largest: what the camera
-  gives), Switch camera when there is more than one, and Retake. Taking
-  the photo stops the camera. The frame is drawn on a `<canvas>` and
+  starts only on a click (`getUserMedia`, video only). While it is on:
+  three resolutions (Small 1280×720, Medium 1920×1080, Largest: what the
+  camera gives), Take photo, Flip and Stop on one line. Flip switches
+  between front and back on a phone (`facingMode` exact, so the browser
+  picks the main lens of that side instead of going through every lens);
+  on a computer, whose cameras report no side, it goes to the next webcam.
+  If there is no camera on the other side, the current one stays on and
+  Flip disappears. Taking the photo stops the camera; Retake starts it
+  again. The frame is drawn on a `<canvas>` and
   encoded as JPEG there, so the file has no EXIF (no location, device or
   time); it is encrypted as a file named `photo-<5 random digits>.jpg` (so a
   second photo does not overwrite the first in the recipient's downloads),

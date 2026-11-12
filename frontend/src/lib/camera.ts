@@ -35,16 +35,48 @@ export const resolutions: { value: Resolution; label: string; width: number; hei
 
 export type Facing = 'environment' | 'user';
 
+/** Which camera to start: one by ID, or by the side it faces. */
+export type Camera = { deviceId?: string; facing?: Facing; exact?: boolean };
+
 /**
  * The constraints for getUserMedia: a chosen camera by ID, or else a
- * facing mode (the back camera by default, on phones). Video only.
+ * facing mode (the back camera by default, on phones). A flip asks for
+ * the other side exactly, so it fails instead of staying on the same
+ * side. Video only.
  */
-export function cameraConstraints(resolution: Resolution, camera: { deviceId?: string; facing?: Facing }): MediaStreamConstraints {
+export function cameraConstraints(resolution: Resolution, camera: Camera): MediaStreamConstraints {
   const r = resolutions.find((o) => o.value === resolution) ?? resolutions[1]!;
   const video: MediaTrackConstraints = { width: { ideal: r.width }, height: { ideal: r.height } };
   if (camera.deviceId) video.deviceId = { exact: camera.deviceId };
-  else video.facingMode = { ideal: camera.facing ?? 'environment' };
+  else {
+    const facing = camera.facing ?? 'environment';
+    video.facingMode = camera.exact ? { exact: facing } : { ideal: facing };
+  }
   return { video, audio: false };
+}
+
+/**
+ * The side to flip to. Phones report the side a camera faces; flipping
+ * only switches between front and back, so the browser picks the main
+ * lens of that side instead of going through every lens. Undefined when
+ * the camera does not say (laptops).
+ */
+export function flipFacing(facingMode: string | undefined): Facing | undefined {
+  if (facingMode === 'environment') return 'user';
+  if (facingMode === 'user') return 'environment';
+  return undefined;
+}
+
+/**
+ * What Flip does: switch sides on a phone, or go to the next camera on a
+ * computer (built-in and external webcams). Null when there is nothing to
+ * switch to.
+ */
+export function flipTarget(facingMode: string | undefined, deviceIds: string[], current: string | undefined): Camera | null {
+  const side = flipFacing(facingMode);
+  if (side) return deviceIds.filter((id) => id !== '').length > 1 ? { facing: side, exact: true } : null;
+  const next = nextCamera(deviceIds, current);
+  return next ? { deviceId: next } : null;
 }
 
 /** The camera after the current one, round robin; undefined if there is no other. */

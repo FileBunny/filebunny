@@ -16,9 +16,10 @@
     cameraErrorText,
     cameraUnavailableText,
     jpegQuality,
+    flipTarget,
     mirrorPreview,
-    nextCamera,
     resolutions,
+    type Camera,
     type Resolution,
   } from '../lib/camera.ts';
   import { formatBytes } from '../lib/format.ts';
@@ -32,6 +33,10 @@
   let error = $state('');
   let deviceIds = $state<string[]>([]);
   let deviceId = $state<string | undefined>(undefined);
+  let facing = $state<string | undefined>(undefined);
+  // Set when a flip found no camera on the other side.
+  let cannotFlip = $state(false);
+  let notice = $state('');
   let mirror = $state(false);
   let live = $state({ width: 0, height: 0 });
   let video = $state<HTMLVideoElement>();
@@ -46,7 +51,7 @@
     typeof window !== 'undefined' && window.isSecureContext,
     typeof navigator !== 'undefined' && typeof navigator.mediaDevices?.getUserMedia === 'function',
   );
-  const other = $derived(nextCamera(deviceIds, deviceId));
+  const flipTo = $derived(cannotFlip ? null : flipTarget(facing, deviceIds, deviceId));
 
   function stop() {
     attempt++;
@@ -65,30 +70,47 @@
     photo = null;
   }
 
-  async function start(camera?: string) {
+  /** Starts a camera; returns the error name if it failed, else ''. */
+  async function start(camera: Camera = { deviceId }): Promise<string> {
     stop();
     const mine = ++attempt;
     starting = true;
     error = '';
+    notice = '';
     try {
-      const s = await navigator.mediaDevices.getUserMedia(cameraConstraints(resolution, { deviceId: camera }));
+      const s = await navigator.mediaDevices.getUserMedia(cameraConstraints(resolution, camera));
       if (mine !== attempt) {
         s.getTracks().forEach((t) => t.stop());
-        return;
+        return '';
       }
       const settings = s.getVideoTracks()[0]?.getSettings() ?? {};
       stream = s;
       deviceId = settings.deviceId;
+      facing = settings.facingMode;
       mirror = mirrorPreview(settings.facingMode);
       live = { width: settings.width ?? 0, height: settings.height ?? 0 };
       if (video) video.srcObject = s;
       // Labels and IDs are only complete once access was granted.
       const devices = await navigator.mediaDevices.enumerateDevices();
       if (mine === attempt) deviceIds = devices.filter((d) => d.kind === 'videoinput').map((d) => d.deviceId);
+      return '';
     } catch (err) {
-      if (mine === attempt) error = cameraErrorText(err instanceof DOMException ? err.name : undefined);
+      const name = err instanceof DOMException ? err.name : 'Error';
+      if (mine === attempt) error = cameraErrorText(name);
+      return name;
     } finally {
       if (mine === attempt) starting = false;
+    }
+  }
+
+  async function flip() {
+    if (!flipTo) return;
+    const back = deviceId;
+    const failed = await start(flipTo);
+    if (failed === 'OverconstrainedError' || failed === 'NotFoundError') {
+      // No camera on the other side after all: back to the one we had.
+      cannotFlip = true;
+      if ((await start({ deviceId: back })) === '') notice = 'There is no other camera to switch to.';
     }
   }
 
@@ -118,11 +140,11 @@
 
   function retake() {
     clearPhoto();
-    void start(deviceId);
+    void start();
   }
 
   function changeResolution() {
-    if (stream) void start(deviceId);
+    if (stream) void start();
   }
 
   // Cleared by the page (after sending, or "Send something else"): empty
@@ -163,7 +185,7 @@
       <p class="note" role="status">Camera on{live.width ? `, ${live.width}×${live.height}` : ''}.</p>
     {/if}
 
-    {#if !photo}
+    {#if stream}
       <div class="choice" role="radiogroup" aria-label="Resolution">
         {#each resolutions as r (r.value)}
           <label><input type="radio" bind:group={resolution} value={r.value} onchange={changeResolution} /> {r.label}</label>
@@ -175,15 +197,22 @@
       {#if photo}
         <button type="button" {id} onclick={retake}>Retake</button>
       {:else if stream}
+        <!-- Short labels, so the three fit on one line on a phone; the
+             accessible names contain the visible words. -->
         <button type="button" {id} class="primary" onclick={take}>Take photo</button>
-        {#if other}<button type="button" onclick={() => start(other)}>Switch camera</button>{/if}
-        <button type="button" onclick={stop}>Stop camera</button>
+        {#if flipTo}
+          <button type="button" onclick={flip} aria-label={flipTo.facing ? 'Flip camera (front and back)' : 'Flip to the next camera'}
+            >Flip</button
+          >
+        {/if}
+        <button type="button" onclick={stop} aria-label="Stop camera">Stop</button>
       {:else}
-        <button type="button" {id} onclick={() => start(deviceId)} disabled={starting}>
+        <button type="button" {id} onclick={() => start()} disabled={starting}>
           {starting ? 'Starting the camera…' : 'Start camera'}
         </button>
       {/if}
     </div>
+    {#if notice}<p class="note" role="status">{notice}</p>{/if}
     <ErrorMessage {error} />
     <p class="note">The photo stays in this browser until it is encrypted. It is a JPEG without location or device data.</p>
   {/if}
