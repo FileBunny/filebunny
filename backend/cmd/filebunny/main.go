@@ -23,6 +23,9 @@ import (
 )
 
 func main() {
+	if isAdmin(os.Args[1:]) {
+		os.Exit(admin(os.Args[1:], os.Stdout, os.Stderr, os.Getenv, time.Now()))
+	}
 	log := logging.New(os.Stderr, slog.LevelInfo)
 	if err := run(log); err != nil {
 		log.Error("fatal", "err", err)

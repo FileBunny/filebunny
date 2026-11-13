@@ -328,10 +328,13 @@ strictly (plain ASCII, no line breaks) and only used as the recipient.
   on the page.
 - Visitors behind one address (a company, mobile carrier, Tor exit)
   share limits; the limits are set for that.
-- There is no report button or takedown function: the operator cannot
-  judge encrypted content, and a report that removes a file would let
-  anyone break a one-time link. Reports go to the abuse address on the
-  contact page; files expire within 7 days.
+- There is no report button or takedown function for visitors: the
+  operator cannot judge encrypted content, and a report that removes a
+  file would let anyone break a one-time link. Reports go to the abuse
+  address on the contact page; files expire within 7 days. For a report
+  or order the operator acts on, `filebunny remove` removes one file or
+  upload link on the server itself, and `filebunny info` shows what is
+  stored about it (self-hosting.md, "Removing one file").
 
 ## Releases and verification
 
