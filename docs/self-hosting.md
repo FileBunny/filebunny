@@ -415,6 +415,34 @@ manager, not next to the backups of the server) and any local changes to
 the configuration. The `caddy_data` volume (certificates) is recreated
 automatically if lost.
 
+## Removing one file (takedown)
+
+There is no report button and no API for removing someone else's file
+(see [architecture.md](architecture.md#abuse-limits)). When a report or an
+order names a file, the operator removes it on the server with the
+backend binary:
+
+```sh
+docker exec filebunny-backend-1 /filebunny info   'https://filebunny.eu/#/d/<id>'
+docker exec filebunny-backend-1 /filebunny remove 'https://filebunny.eu/#/d/<id>'
+```
+
+Both take file ids, share links (`#/d/<id>`) and upload links
+(`#/u/<id>/<fingerprint>`); `remove` on an upload link removes the link
+with all its files. Links with a secret token (management and delete
+links) are refused, so the token stays out of the shell history: give
+only the id from them. `info` prints everything the server stores about
+it (size, times, download count, mails sent, where the ciphertext is);
+there is nothing else, such as addresses or names. A copy at an external
+service is deleted by the running server within a few minutes; files
+uploaded directly from the browser to such a service never reached this
+server, so a report about those (`#/x/…` links) goes to that service.
+The commands print to the terminal and log nothing.
+
+Never download or decrypt a reported file to look at it: you cannot
+without the key, and for some content keeping a copy is itself an
+offence.
+
 ## Removing all data
 
 ```sh
