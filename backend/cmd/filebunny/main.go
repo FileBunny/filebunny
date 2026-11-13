@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -34,6 +35,15 @@ func run(log *slog.Logger) error {
 	if err != nil {
 		return err
 	}
+
+	// Bind first: a second copy started by mistake next to a running
+	// server (docker exec without a command) stops here, before it
+	// removes the running server's uploads in progress as orphans.
+	ln, err := net.Listen("tcp", cfg.Listen)
+	if err != nil {
+		return err
+	}
+	defer ln.Close()
 
 	st, err := store.Open(cfg.DataDir)
 	if err != nil {
@@ -95,7 +105,7 @@ func run(log *slog.Logger) error {
 	errc := make(chan error, 1)
 	go func() {
 		log.Info("listening", "addr", cfg.Listen)
-		errc <- srv.ListenAndServe()
+		errc <- srv.Serve(ln)
 	}()
 
 	select {
