@@ -51,12 +51,12 @@ RUN mkdir -p /caddy/data/caddy /caddy/config/caddy
 # kernel refuses to exec it for a user without that capability. Removed on
 # the build platform (setcap only edits an attribute, it never runs the
 # binary), so the arm64 image needs no emulation.
-FROM caddy:2.11.7-alpine@sha256:e70b164da81ef698b3ad19af799ea6086ce6d9e48ed4079eb9fe26f6fbf14ee5 AS caddy-target
-FROM --platform=$BUILDPLATFORM caddy:2.11.7-alpine@sha256:e70b164da81ef698b3ad19af799ea6086ce6d9e48ed4079eb9fe26f6fbf14ee5 AS caddy-nocap
+FROM caddy:2.11.9-alpine@sha256:0bbb055bda6793c999bde78b1b5ce3e89f829fb031af2cf50056ea1246559fee AS caddy-target
+FROM --platform=$BUILDPLATFORM caddy:2.11.9-alpine@sha256:0bbb055bda6793c999bde78b1b5ce3e89f829fb031af2cf50056ea1246559fee AS caddy-nocap
 COPY --from=caddy-target /usr/bin/caddy /caddy
 RUN setcap -r /caddy 2>/dev/null; test -z "$(getcap /caddy)"
 
-FROM caddy:2.11.7-alpine@sha256:e70b164da81ef698b3ad19af799ea6086ce6d9e48ed4079eb9fe26f6fbf14ee5 AS web
+FROM caddy:2.11.9-alpine@sha256:0bbb055bda6793c999bde78b1b5ce3e89f829fb031af2cf50056ea1246559fee AS web
 # Fixed modes: COPY keeps the checkout's, which depend on the umask of
 # whoever cloned the repository.
 COPY --chmod=0644 deploy/Caddyfile /etc/caddy/Caddyfile

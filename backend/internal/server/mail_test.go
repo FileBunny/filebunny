@@ -30,10 +30,10 @@ func withMail(t *testing.T, e *testEnv, relays ...*mailtest.Server) {
 
 type fakeTrust []*mailtest.Server
 
-func (f fakeTrust) Send(ctx context.Context, r mail.Relay, from, to string, msg []byte) error {
+func (f fakeTrust) Deliver(ctx context.Context, r mail.Relay, m mail.Message) error {
 	for _, s := range f {
 		if s.Relay.Name == r.Name {
-			return mail.Sender{TLS: s.ClientTLS}.Send(ctx, r, from, to, msg)
+			return mail.Sender{TLS: s.ClientTLS}.Deliver(ctx, r, m)
 		}
 	}
 	panic("unknown relay " + r.Name)

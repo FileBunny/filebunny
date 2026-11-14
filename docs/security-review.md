@@ -194,7 +194,7 @@ IDs, tokens or addresses.
 | | |
 |---|---|
 | Date | 2026-10-29 |
-| Scope | Branch `phase-3`: key lookup on keys.openpgp.org from the browser, WKD proxy (`POST /api/v1/wkd`, `GET /api/v1/features`), local key upload, optional WKD check |
+| Scope | Branch `phase-3`: key lookup on a public keyserver from the browser, WKD proxy (`POST /api/v1/wkd`, `GET /api/v1/features`), local key upload, optional WKD check |
 | Reviewer | Claude Code (AI-assisted), during development |
 
 ### Requirement from phase 1: SSRF in the WKD proxy
@@ -237,10 +237,10 @@ The only outgoing requests the backend makes. `internal/wkd`:
 | Server as anonymous lookup relay | 8 lookups at a time, 10 s each; switch off with `FILEBUNNY_WKD_PROXY=false` | `TestWKDConcurrencyCap`, `TestWKDSwitchedOff` |
 | Privacy of looked-up addresses | POST body, not URL; never logged; error responses do not echo input | `TestNoClientAddressInLogs` (address, domain, hash), `TestWKDErrors`, smoke test |
 | Untrusted keys from keyservers or domains | Parsed in the browser only; keys need a valid user ID for exactly the address and must be able to encrypt; all armored blocks are read, so a second key cannot hide; conflicts are shown, never resolved automatically; user IDs rendered as text | `keylookup.test.ts`, `crypto.test.ts` |
-| Browser requests to a keyserver | Only on click; `connect-src` adds exactly `https://keys.openpgp.org`; no cookies, referrer, cache or redirects; 10 s, 1 MiB read from the stream | `keylookup.test.ts`, smoke test (CSP), build (single HTML CSP) |
+| Browser requests to a keyserver | Only on click; `connect-src` adds exactly the keyserver's host; no cookies, referrer, cache or redirects; 10 s, 1 MiB read from the stream | `keylookup.test.ts`, smoke test (CSP), build (single HTML CSP) |
 
-keyserver.ubuntu.com was left out: it sends no CORS headers on a 404
-(checked 2026-10-29), so a browser cannot distinguish "not found" from a
+Keyservers without CORS headers on a 404 were left out (checked
+2026-10-29): a browser cannot distinguish "not found" from a
 failure, and proxying it would show the server every looked-up address.
 
 ### Residual risks
@@ -253,7 +253,7 @@ failure, and proxying it would show the server every looked-up address.
 - **The server sees looked-up addresses** when the user turns WKD on or
   runs a WKD check. They are not logged or stored, but a compromised
   server could record them. The UI says so; the option is off by default.
-- **keys.openpgp.org sees the visitor's IP and the address** looked up.
+- **The keyserver sees the visitor's IP and the address** looked up.
   The UI says so before the lookup.
 - **No IDNA:** internationalized domains must be entered in punycode. *Phase 9:* the browser converts the domain to
   punycode for WKD and matches user IDs in either form.
@@ -268,7 +268,7 @@ failure, and proxying it would show the server every looked-up address.
 | | |
 |---|---|
 | Date | 2026-10-29 |
-| Scope | Branch `phase-4`: upload links (`/api/v1/inboxes…`, chunked uploads with `?inbox=`), key pair generation, publishing on keys.openpgp.org, Receive / upload / management pages |
+| Scope | Branch `phase-4`: upload links (`/api/v1/inboxes…`, chunked uploads with `?inbox=`), key pair generation, publishing on the keyserver, Receive / upload / management pages |
 | Reviewer | Claude Code (AI-assisted), during development |
 
 ### Requirement from phase 1: the management link
@@ -290,7 +290,7 @@ so does the smoke test).
 | Free storage through "public keys" | Key body ≤ 64 KiB, printable ASCII between public key armor lines, served only as JSON; at most 1000 open links server-wide (one atomic `INSERT … WHERE count <`) | `TestCreateInbox`, `TestInboxCap` |
 | Content of keys and received files | Never rendered as HTML: user IDs and decrypted text as text, files as `blob:` downloads of type `application/octet-stream` | `grep` for `{@html}`/`innerHTML`, Chromium walk-through |
 | Weak or unusable generated keys | v4 Curve25519 legacy (gpg 2.4 compatible), passphrase of at least 8 characters required, private key must be saved before use | `crypto.test.ts`, `gpg.test.ts` |
-| Publishing on keys.openpgp.org | Directly from the browser (CORS allowed), only on click, only with an address in the key; keys.openpgp.org verifies the address by mail | `keylookup.test.ts` |
+| Publishing on the keyserver | Directly from the browser (CORS allowed), only on click, only with an address in the key; the keyserver verifies the address by mail | `keylookup.test.ts` |
 
 ### Residual risks
 
@@ -320,19 +320,19 @@ so does the smoke test).
 | | |
 |---|---|
 | Date | 2026-10-31 |
-| Scope | Branch `phase-5`: `internal/storage` (Filebin adapter), `?storage=` on uploads, remote downloads, `remote_trash`, health checks, `GET /api/v1/storage`, `?storage=` on upload links (through FileBunny only); frontend storage choice, direct route to Filebin, `#/x/filebin/…`, `#/status` |
+| Scope | Branch `phase-5`: `internal/storage` (first adapter), `?storage=` on uploads, remote downloads, `remote_trash`, health checks, `GET /api/v1/storage`, `?storage=` on upload links (through FileBunny only); frontend storage choice, direct route to the service, `#/x/…`, `#/status` |
 | Reviewer | Claude Code (AI-assisted), during development |
 
 ### Requirement from phase 1: SSRF in outgoing requests
 
-The Filebin client has its own `http.Client`: only `filebin.net` and
-`storage.filebin.net` (fixed, not from the client or the service), HTTPS
+Each storage client has its own `http.Client`: only the adapter's own
+hosts (fixed in the code, not from the client or the service), HTTPS
 on port 443, no proxy from the environment, every resolved address and
 the connected address checked with `wkd.Allowed`, at most one redirect and
 only to those hosts, time limits on dial, TLS and headers, limited header
 size. Blob references are generated by the server; nothing from the
-client goes into a URL. The verification cookie is kept for
-`filebin.net` only.
+client goes into a URL. A verification cookie is kept for the
+service's main host only.
 
 ### New attack surface
 
@@ -345,7 +345,7 @@ client goes into a URL. The verification cookie is kept for
 | Exhausting the server through proxied traffic | 8 transfers per service, 15 minutes each, daily traffic cap; claimed before sending on and before a download is counted. An unavailable service is refused before any data is accepted | `TestRemoteDailyCap`, `TestRemoteRefusedBeforeData` |
 | Blobs left at the service | Removal moves the reference to `remote_trash` in the same transaction; background deletion retries until the service confirms | `TestRemoteDeleteAndExpiry`, `TestRemoteDeleteAndExpiryAreDueAtOnce`, `TestRemoteLastDownloadWaitsForGrace` |
 | Local quota bypass | Remote files do not count against the local quota; each upload still passes through a temp file under the same size limit and stall timeouts, removed after it was sent on | `TestTotalSizeCountsOnlyLocal`, `TestRemoteUploadDownload` |
-| Direct route from the browser | Only on submit or click; `connect-src` adds exactly the two Filebin hosts; no cookies, no referrer; the bin name only in the fragment and checked against a strict pattern; a download larger than 100 MiB is refused | `filebin.test.ts`, `route.test.ts`, smoke test (CSP), build (single HTML CSP) |
+| Direct route from the browser | Only on submit or click; `connect-src` adds exactly the adapter's hosts; no cookies, no referrer; the reference only in the fragment and checked against a strict pattern; a download larger than 100 MiB is refused | `filebin.test.ts`, `route.test.ts`, smoke test (CSP), build (single HTML CSP) |
 
 ### Residual risks
 
@@ -359,7 +359,7 @@ client goes into a URL. The verification cookie is kept for
   visitors' addresses. Anyone who knows a bin name can delete it.
 - **The direct route has no download limit, expiry or delete link**; the
   page says so before upload.
-- **Dependence on the service's behavior:** if Filebin changes its API or
+- **Dependence on the service's behavior:** if a service changes its API or
   verification, the health check takes it out of use; the direct route
   falls back to opening the file in a tab.
 - **No per-client limit on proxied traffic** yet (phase 7); one client
@@ -406,9 +406,9 @@ clear. Each delivery is bounded by a 30 s deadline.
   address still gets at most 3 mails a day. *Phase 7:* 30 mails per
   visitor per day, each with proof of work.
 - **A failed delivery still uses up its claim** against the limits.
-- **A relay can replace the unsubscribe header** with its own (Mailjet
-  does). An address that unsubscribes that way lands on the relay's
-  suppression list, not on FileBunny's: the relay then accepts and drops
+- **A relay can replace the unsubscribe header** with its own (see
+  [mail/](mail/)). An address that unsubscribes that way lands on the
+  relay's suppression list, not on FileBunny's: the relay then accepts and drops
   further mail to it, and the sender still sees "Sent". The block link in
   the mail text keeps working.
 - **New domains land in spam** at first (seen at Outlook with SPF, DKIM
@@ -457,7 +457,8 @@ in memory only. Nothing about addresses is written to disk or logs.
   one-time link. Reports reach the abuse address on the contact page;
   files expire within 7 days. Whether this meets the DSA's
   notice-and-action duty for hosting services, and what the hosting
-  provider expects, is for the operator to check.
+  provider expects, is for the operator to check. (Phase 10: the operator
+  can remove a reported file on the server, `filebunny remove`.)
 - **The pages are not reviewed by a lawyer**, and the operator is not
   named.
 
@@ -568,6 +569,8 @@ Frontend only: no backend, API, CSP or deploy changes.
 | Deploy access | The server needs no GitHub token; whoever deploys is in the `docker` group (root in practice) | release.md |
 | Rollback | The backend refuses a database schema newer than it knows, instead of writing rows without the newer columns | `TestNewerSchemaRefused` |
 | Container logs | Capped at 3 × 10 MB per container, so they cannot fill the disk | `compose.yaml` |
+| API relay (`mailjet-api`) | For providers that block outgoing SMTP. One fixed URL (in the code), no client input in the request but the checked recipient; no redirects, no proxy from the environment, TLS 1.2+ with a verified certificate, the response capped and only its status kept (it may quote the recipient); tracking off in every message; an API error never counts as a refused recipient. The monitor sends the same way, and the firewall lets its mail user reach 443 only for the relay's addresses | `TestMailjetAPIRequest`, `TestMailjetAPIErrors`, `TestMailjetAPINoRedirect`, `TestLoadConfigRelayTypes`; a fake key against the real API gives 401 |
+| Relay contact cleanup | Once a day for API relays (`delete_contacts`, default on): lists the contacts (paged, response capped) and deletes those older than a day through `DELETE /v4/contacts/{id}`, at most 2000 per relay and day, a pause between requests, stop at 429 or after 5 failures; addresses that unsubscribed or complained at the relay go on the block list (HMAC) first. Same fixed host and client settings as the Send API; only counts are logged | `TestCleanupContacts*`, `TestMailjetContacts`, `TestDeleteContactsOnlyForAPIRelays` |
 | Monitoring (`filebunny-monitor`) | Runs as root, reads only the server's own state and logs (which hold no visitor addresses), the daily totals (read-only) and crt.sh; mails through the relay as `filebunny-mail`, which the firewall lets reach only the relay's addresses for two minutes (an nftables set with timeout, `meta skuid`) and nothing else but DNS; TLS with certificate checks, never plain SMTP; the relay password goes to the sender on stdin, never on a command line | test VM: login reached the relay; other hosts, other users and HTTPS for that user blocked; alert, recovery and summary mails (dry run) |
 | Go 1.27.4 | **Finding:** GO-2026-6859, a crash of the HTTP/1 server through a header race in `MaxBytesReader` (used on every upload), in Go 1.27.3, so also in v0.10.0-rc.1. Fixed by Go 1.27.4 (`go.mod` and the `golang` image together) | `make vuln` |
 | Daily totals (`daily_counts`) | Counts per UTC day only (uploads, upload-link uploads, downloads, owner fetches); no file ID, visitor, hash or time of day, so they reveal nothing about one transfer. One row per day; after 400 days added up per month (`monthly_counts`, twelve rows a year). No API: only the operator's monitoring reads them. Counting is best effort and never fails a transfer; the column names are constants, never input | `TestDailyCounts` |
@@ -575,15 +578,37 @@ Frontend only: no backend, API, CSP or deploy changes.
 | TLS (testssl 3.2.1 against filebunny.eu, 2026-11-08) | Grade A+; TLS 1.2 and 1.3, forward secrecy, AEAD ciphers only (AES-GCM, ChaCha20), ECDSA P-256 certificate. No OCSP stapling: Let's Encrypt no longer runs OCSP. Two low findings: no CAA record yet (requested from the DNS provider), and a session ticket lifetime hint of 7 days. Afterwards **TLS 1.3 only** (Mozilla's modern profile): no downgrade to 1.2, and resumed sessions keep forward secrecy, which settles the ticket finding. Clients without TLS 1.3 (old Android, iOS before 12.2, Windows 7/8.1, some inspecting proxies) cannot connect | `testssl https://filebunny.eu` |
 | HSTS | `max-age=31536000; includeSubDomains`: no subdomain of filebunny.eu serves HTTP (the mail records are DNS only). `preload` waits until some weeks after the public launch, since leaving the preload list takes months | `curl -I` |
 | Certificate source | `FILEBUNNY_TLS` picks a Caddyfile snippet; an unknown value stops Caddy instead of falling back | `caddy validate` |
+| Operator removal (`filebunny info`/`remove`) | Subcommands of the backend binary, run on the server with `docker exec`; no API, route or button, so a visitor cannot reach them. They take only an id, a share link or an upload link; links with a token are refused and errors name the argument by position, never by value, so no token reaches the terminal or the shell history. They print to the terminal and log nothing. `remove` works whatever the file's state and deletes an external copy at once (through `remote_trash`) | `TestAdminRefusesTokensAndJunk`, `TestRemove*`, `TestOperatorRejectsBadIDs`; tried in the container next to a running backend |
+| A second copy of the server | **Finding:** `docker exec filebunny-backend-1 /filebunny` without a command started a second server, which emptied `tmp/` (the running server's uploads in progress) before failing to bind the port. The server now binds first and touches the data only after that | `TestSecondCopyLeavesUploadsInProgress` |
 
 | IPv6 visitors | **Finding:** on an IPv4-only Compose network Docker passes IPv6 visitors through its userland proxy, so Caddy saw the proxy's address and all IPv6 visitors shared one rate limit (v0.9.0 and older). The network now has IPv6 and Docker forwards them with their own address; with the proxy off (deploy/ansible) they would otherwise not arrive at all | tested on the test VM: IPv6 to the site 200 |
 | Server setup (`deploy/ansible`) | SSH key only, ed25519 only, no root, `AllowUsers`, fail2ban; firewall with policy drop on input, forward and output and egress filtering (host: DNS to one provider, NTP, HTTPS, ICMP; containers: HTTPS, DNS to that provider, SMTP relay ports), no `flush ruleset`, only outgoing drops logged; one DNS provider, systemd-resolved and cloud-init off; connection tracking starts before the firewall loads, so the first run keeps its SSH session; firewall and SSH settings re-applied on every run; Docker key checked by fingerprint; apt over HTTPS | fresh test VM, one complete first run: root, the initial user, passwords and non-ed25519 host keys refused; outgoing 80, 22 and DNS to another provider dropped, 443 and 587 (containers) open; allow list closes and opens the site; nothing listens but SSH; survives a reboot; a second run changes nothing |
+
+### Automated checks (2026-11-12, against `v0.10.0-rc.3`)
+
+| Check | Result | Done |
+|---|---|---|
+| Trivy and `govulncheck -mode=binary` on the release images | Backend: nothing. **Finding:** the web image had Caddy 2.11.7, built with Go 1.26.8: 18 Go advisories in the binary: four in the HTTP/2 server (a crash, double flow control refunds, CPU, memory through trailers), HTTP/1 desynchronization after CONNECT, unlimited `Range` headers, a MIME header memory limit bypass, ECH, html/template, the distrust of compromised intermediates and the `MaxBytesReader` race (GO-2026-6859); in Alpine a critical brotli flaw and curl. Caddy 2.11.9 fixes 13 of the 18 and the Alpine ones. Left in 2.11.9: GO-2026-6859 (Go 1.27.3), a panic in klauspost/compress, two x/net/html flaws (only Caddy's templates and markdown parse HTML; the Caddyfile uses neither) | Caddy 2.11.9 (Dependabot); the rest accepted until 2026-12-15 in `.trivyignore`, so the weekly scan fails again if no Caddy release fixes them |
+| Weekly scan | CI only ran govulncheck on a push, so a new advisory for a released image went unnoticed until the next change | `.github/workflows/scan.yml` (release.md) |
+| Trivy on the repository (secrets, misconfiguration) | No secrets. Only "no `HEALTHCHECK`" (distroless has no shell; Compose restarts). **Finding:** a compiled `.pyc` of the monitor was committed | removed, `__pycache__/` ignored |
+| OWASP ZAP baseline (passive) on the release images, served locally | 0 failures, 7 warnings, all informational or low: no `Cross-Origin-Embedder-Policy`/`-Resource-Policy` (the page loads nothing cross-origin and the static files are public, so they would add nothing), "timestamps" and "Base64" in OpenPGP.js, `Sec-Fetch-*` (sent by browsers, not ZAP), cacheable static files | none needed |
+| ssh-audit | ed25519 only, AEAD ciphers, ETM MACs, strict key exchange (Terrapin). `curve25519-sha256` was still allowed as a non-post-quantum fallback. The host key is offered twice on the VPS: the provider's image uncommented `HostKey` in `sshd_config`, which the drop-in repeats (harmless). OpenSSH 10's `PerSourcePenalties` briefly refused the scanner after its unauthenticated connections | only post-quantum hybrid key exchange (client OpenSSH 9.0+) |
+| Lynis 3.1.4 on the VPS (installed for the run, then purged with its logs) | Hardening index 73, no warnings, 38 suggestions. Most are a generic checklist without a threat here (GRUB password, password ageing, separate partitions, file integrity and malware scanners, a login banner, another SSH port, remote logging, which would tie the server to other infrastructure). Not taken: `rp_filter` and `forwarding` (Docker needs them), `log_martians` (would log visitors' addresses), `modules_disabled` (breaks Docker and nftables), needrestart (restarts services by itself and had a privilege escalation of its own, CVE-2024-48990) | `kernel.yama.ptrace_scope=1`, `dev.tty.ldisc_autoload=0`, `fs.protected_fifos=2`: only of use after a first break-in as an ordinary user |
+| Open ports | nmap from the operator's laptop measured nothing: the VPN on the way accepts every TCP connection itself (even to 9.9.9.9:31337), so every port looks open; only SSH answered with its own banner. Checked on the server instead (configuration, not a measurement from outside): only sshd listens; Docker publishes only 80 and 443 (TCP and UDP for HTTP/3), not the backend's 8080 or Caddy's admin port 2019; nftables accepts new connections on input only for 22, and forwards DNATed traffic only to 80/443 and only from the allow list, for IPv4 and IPv6 | none needed; scan from outside without such a VPN once the site is public |
 
 ### Residual risks
 
 - **The compose files come from the operator's checkout** (at the tag's
   commit, which the attestation binds to); a compromised laptop can
   deploy anything regardless.
+- **An API relay may keep every recipient as a contact**, through SMTP
+  and the API alike. The server deletes them after a day (below); the
+  relay may keep them anonymized for a while (see its page in
+  [mail/](mail/)). For SMTP relays they stay.
+- **The contact cleanup deletes every contact in the relay account**, so
+  that account must serve FileBunny only (self-hosting.md says so).
+  FileBunny blocks unsubscribed and complaining addresses itself before
+  deleting them.
 - **The monitoring reports from the server itself**: a compromised
   server can stop or fake it. Only a missing summary shows that; the
   external watcher covers the site once it is public.
@@ -595,13 +620,49 @@ Frontend only: no backend, API, CSP or deploy changes.
   browser has it, and it removes the downgrade to 1.2 and the TLS 1.2
   session ticket window.
 - **Egress filtering does not stop exfiltration over HTTPS**: port 443
-  must stay open to any address (WKD domains, Filebin, certificates,
+  must stay open to any address (WKD domains, external storage, certificates,
   updates). It blocks other ports and makes unexpected connections
   visible in the log.
+- **Caddy 2.11.9 still has known flaws** (above): a visitor may crash
+  it over HTTP/1 until a Caddy release is built with Go 1.27.4; Docker
+  restarts it. Accepted until 2026-12-15 in `.trivyignore`.
+- **deepmerge 4.3.1** (GHSA-gcqx-w48m-w2h4, low, no fix yet): prototype
+  poisoning, pulled in by `@sveltejs/vite-plugin-svelte`. Only a build
+  dependency that merges the plugin's own options; it is not in the site.
 - **The admin user is root in practice** (sudo without a password, and
   the `docker` group). Protect its SSH key.
 - **Debian's cloud image sums** (used only by `scripts/test-vm.sh`) come
   over HTTPS without a signature.
+
+## Photos from the camera (2026-11-12)
+
+| | |
+|---|---|
+| Date | 2026-11-12 |
+| Scope | Branch `photo-capture`: taking a photo in the browser on the send page and on upload links |
+| Reviewer | Claude Code (AI-assisted), during development |
+
+### New attack surface
+
+| Area | Measure | Test |
+|---|---|---|
+| Camera permission | `Permissions-Policy: camera=(self)` (was `camera=()`): only this site's own pages, no frames (`frame-ancestors 'none'`); microphone and location stay off. The camera starts only on a click, never on page load | `camera.test.ts` (video only, no audio); headless Chromium with a fake camera |
+| Metadata in the photo | Encoded from a canvas: no EXIF, so no location, device or time; neutral name `photo-<5 random digits>.jpg`; literal date 0 as for every file | Decrypted with `gpg`: JFIF without an Exif segment |
+| Plaintext in the browser | No object URL, no `localStorage`/IndexedDB/Cache API; the camera stream is never fetched, so the HTTP cache is not involved. Camera off and canvas emptied (`width = 0`) and the Blob dropped after sending, on Retake, on another choice, on leaving the page and on `pagehide` | Headless Chromium: canvas 0 after `pagehide`, no stream after taking the photo |
+| CSP | Unchanged: the still is a canvas, so no `img-src blob:` | Build |
+
+### Residual risks
+
+- **When the browser frees the memory** is up to the browser: the page
+  only drops every reference. The operating system can still write it to
+  swap or a crash dump, and a browser may move very large Blobs to disk
+  (a photo of a few MB normally stays in memory).
+- **Code from the server sees the camera image.** As with typed text: a
+  compromised server could serve code that sends the photo elsewhere. The
+  same mitigations apply (signed releases, the watcher, the single HTML
+  file).
+- **What is in the picture** (faces, screens, documents, a window with a
+  view) is up to the person taking it; removing EXIF does not remove that.
 
 ## How to re-run the checks
 
@@ -611,3 +672,24 @@ make vuln     # govulncheck
 cd frontend && npm audit
 docker compose up -d --build && scripts/smoke-test.sh   # end to end
 ```
+
+Against a release (also weekly in `.github/workflows/scan.yml`):
+
+```sh
+img=ghcr.io/filebunny/filebunny-web:v0.10.0
+docker run --rm -v /var/run/docker.sock:/var/run/docker.sock:ro \
+  -v "$PWD/.trivyignore:/.trivyignore:ro" aquasec/trivy:0.76.2 image \
+  --ignorefile /.trivyignore --severity UNKNOWN,HIGH,CRITICAL --ignore-unfixed "$img"
+id=$(docker create "$img") && docker cp "$id:/usr/bin/caddy" /tmp/caddy && docker rm "$id"
+(cd backend && go run golang.org/x/vuln/cmd/govulncheck@v1.9.0 -mode=binary /tmp/caddy)
+```
+
+ZAP needs a host name with a dot (Java sends no SNI for `localhost`), so
+serve the release images as `filebunny.test` with `FILEBUNNY_TLS=internal`
+(`compose.release.yaml`) and run
+`docker run --rm --net=host --add-host filebunny.test:127.0.0.1 ghcr.io/zaproxy/zaproxy:stable zap-baseline.py -t https://filebunny.test/`.
+Port scans (nmap) only from a network that does not answer for the
+target (check that a closed port of another host is refused). On the
+server: `ssh-audit <host>` from outside, and Lynis only
+temporarily (`apt install lynis`, `lynis audit system`, then
+`apt purge lynis` and remove `/var/log/lynis*`).

@@ -1,0 +1,22 @@
+# Findings that .github/workflows/scan.yml accepts, each with a reason and
+# an expiry date: after it the finding fails the scan again, so an accepted
+# risk is looked at again instead of staying forever.
+
+# golang.org/x/net/html in Caddy (2.11.9): denial of service through
+# crafted HTML. Caddy parses HTML only in its templates and markdown
+# handlers, which deploy/Caddyfile does not use. Fixed in x/net 0.62.0;
+# remove once a Caddy release has it.
+CVE-2026-78661 exp:2026-12-15
+
+# Go 1.27.3 in Caddy (2.11.9), GO-2026-6859: an HTTP/1 server crash
+# through a header race in MaxBytesReader, which Caddy's request_body
+# limit uses. Caddy restarts (restart: unless-stopped), but a visitor can
+# crash it again. Fixed in Go 1.27.4; wait for the Caddy release built
+# with it. Building Caddy ourselves would change the build more than this
+# is worth for a few weeks.
+CVE-2026-97054 exp:2026-12-15
+
+# golang.org/x/crypto/openpgp in Caddy (2.11.9): a notice that the
+# package is unmaintained, not a specific flaw. Caddy's own dependency;
+# goes away with its update of x/crypto.
+GO-2026-5932 exp:2026-12-15

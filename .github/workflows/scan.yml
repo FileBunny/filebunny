@@ -1,0 +1,89 @@
+name: Scan
+
+# Weekly check for known vulnerabilities in what runs on a server (the
+# images of the newest release, pre-releases included) and in the source
+# on main. CI only runs govulncheck on a push, so a new Go advisory would
+# otherwise wait for the next change. A failed scheduled run mails the
+# repository's owner: that is the reminder to update and release.
+on:
+  schedule:
+    - cron: '23 5 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  GOTOOLCHAIN: local
+  # Trivy by digest (the image of tag 0.76.2); its vulnerability database
+  # is downloaded fresh on every run. Update both by hand.
+  TRIVY_IMAGE: aquasec/trivy:0.76.2@sha256:8f6bb947dbc528902e11f2f5be52f7b519f6a39d5d148f41166f2040499768fb
+
+jobs:
+  source:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: backend/go.mod
+          cache-dependency-path: backend/go.sum
+      - name: govulncheck (backend source)
+        run: make vuln
+
+  release:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: backend/go.mod
+          cache-dependency-path: backend/go.sum
+      - name: Newest release
+        id: release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag=$(gh release list --repo "$GITHUB_REPOSITORY" --limit 1 --json tagName --jq '.[0].tagName')
+          [[ $tag =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$ ]] || { echo "unexpected tag: $tag" >&2; exit 1; }
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "Scanning release $tag" >> "$GITHUB_STEP_SUMMARY"
+      - name: Pull the images
+        env:
+          TAG: ${{ steps.release.outputs.tag }}
+        run: |
+          for name in backend web; do
+            docker pull -q "ghcr.io/filebunny/filebunny-$name:$TAG"
+          done
+          docker pull -q "$TRIVY_IMAGE"
+      # Fails on HIGH, CRITICAL and not yet rated (UNKNOWN: often new Go
+      # advisories) findings that have a fix. Accepted ones are in
+      # .trivyignore, each with a reason and an expiry date.
+      - name: Trivy (images)
+        env:
+          TAG: ${{ steps.release.outputs.tag }}
+        run: |
+          status=0
+          for name in backend web; do
+            docker run --rm -v /var/run/docker.sock:/var/run/docker.sock:ro \
+              -v "$PWD/.trivyignore:/.trivyignore:ro" "$TRIVY_IMAGE" image \
+              --quiet --scanners vuln --ignorefile /.trivyignore \
+              --severity UNKNOWN,HIGH,CRITICAL --ignore-unfixed --exit-code 1 \
+              "ghcr.io/filebunny/filebunny-$name:$TAG" || status=1
+          done
+          exit $status
+      # Reports only vulnerable symbols that are in the binary, so it is
+      # more precise than Trivy for our own code.
+      - name: govulncheck (backend binary)
+        if: ${{ !cancelled() }}
+        env:
+          TAG: ${{ steps.release.outputs.tag }}
+        run: |
+          id=$(docker create "ghcr.io/filebunny/filebunny-backend:$TAG")
+          docker cp "$id:/filebunny" "$RUNNER_TEMP/filebunny"
+          docker rm "$id"
+          cd backend && GOTOOLCHAIN=$(go env GOVERSION) go run golang.org/x/vuln/cmd/govulncheck@v1.9.0 -mode=binary "$RUNNER_TEMP/filebunny"

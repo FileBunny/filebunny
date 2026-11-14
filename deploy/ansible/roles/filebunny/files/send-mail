@@ -2,16 +2,23 @@
 """Sends one mail for filebunny-monitor; runs as the user filebunny-mail.
 
 Reads {"relay": {...}, "message": {...}} on stdin (the relay as in the
-backend's SMTP file). TLS always, certificates verified: port 465 (or
-"implicit_tls") TLS from the start, otherwise STARTTLS. No plain SMTP.
+backend's SMTP file). TLS always, certificates verified. SMTP relays: port
+465 (or "implicit_tls") TLS from the start, otherwise STARTTLS; no plain
+SMTP. "type": "mailjet-api": Mailjet's Send API over HTTPS, with tracking
+off, as the backend sends.
 """
 
+import base64
 import email.message
 import email.utils
 import json
 import smtplib
 import ssl
 import sys
+import urllib.error
+import urllib.request
+
+MAILJET_URL = "https://api.mailjet.com/v3.1/send"
 
 data = json.load(sys.stdin)
 relay, msg_in = data["relay"], data["message"]
@@ -26,6 +33,40 @@ msg.set_content(msg_in["body"])
 
 ctx = ssl.create_default_context()
 ctx.minimum_version = ssl.TLSVersion.TLSv1_2  # some relays have no TLS 1.3 yet
+
+
+class NoRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, *args, **kwargs):
+        return None
+
+
+if relay.get("type") == "mailjet-api":
+    payload = {"Messages": [{
+        "From": {"Email": msg_in["from"], "Name": "FileBunny"},
+        "To": [{"Email": msg_in["to"]}],
+        "Subject": msg_in["subject"],
+        "TextPart": msg_in["body"],
+        "Headers": {"Auto-Submitted": "auto-generated"},
+        "TrackOpens": "disabled",
+        "TrackClicks": "disabled",
+    }]}
+    auth = base64.b64encode(f"{relay['username']}:{relay['password']}".encode()).decode()
+    req = urllib.request.Request(MAILJET_URL, data=json.dumps(payload).encode(), method="POST",
+                                 headers={"Content-Type": "application/json", "Authorization": "Basic " + auth})
+    opener = urllib.request.build_opener(urllib.request.HTTPSHandler(context=ctx), NoRedirect,
+                                         urllib.request.ProxyHandler({}))
+    try:
+        with opener.open(req, timeout=60) as r:
+            result = json.load(r)
+        if result.get("Messages", [{}])[0].get("Status") != "success":
+            sys.exit("mailjet-api: not accepted")
+    except urllib.error.HTTPError as e:
+        # The status only: the answer may quote the recipient.
+        sys.exit(f"mailjet-api: HTTP {e.code}")
+    except (OSError, ValueError, IndexError) as e:
+        sys.exit(f"mailjet-api: {type(e).__name__}")
+    sys.exit(0)
+
 port = int(relay.get("port", 587))
 try:
     if port == 465 or relay.get("implicit_tls"):

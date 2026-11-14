@@ -8,8 +8,11 @@
       - filebunny_domain is match('^[a-z0-9.-]+$')
       - filebunny_dns | length > 0
       - filebunny_admin not in filebunny_remove_users
+      - filebunny_reviewer is match('^[a-z][a-z0-9-]{0,30}$')
+      - filebunny_reviewer != filebunny_admin and filebunny_reviewer not in filebunny_remove_users
+      - filebunny_reviewer_keys | length == 0 or (filebunny_reviewer_expires is match('^\\d{4}-\\d{2}-\\d{2}$') and filebunny_reviewer_expires > ansible_facts.date_time.date)
       - not filebunny_monitor or filebunny_smtp_file | length == 0 or filebunny_monitor_mail_to | length > 0
-    fail_msg: Debian 13 only; set filebunny_admin_keys and filebunny_dns; filebunny_tls is auto or internal.
+    fail_msg: Debian 13 only; set filebunny_admin_keys and filebunny_dns; filebunny_tls is auto or internal; reviewer keys need a future filebunny_reviewer_expires.
 
 - name: Is cloud-init installed?
   ansible.builtin.stat: {path: /etc/cloud}
@@ -113,6 +116,47 @@
     content: "{{ filebunny_admin }} ALL=(ALL) NOPASSWD:ALL\n"
     mode: "0440"
     validate: visudo -cf %s
+
+# Read-only reviewer: no groups (no docker, no journal: it holds the
+# addresses of SSH clients and of banned scanners), keys owned by root so
+# the reviewer cannot add any, "restrict" (no forwarding of any kind).
+# sudo only for these exact commands, without other arguments; none shows
+# secrets or third parties' addresses (fail2ban's table is left out of
+# nft, the ban list out of fail2ban-client). env_reset makes HOME /root,
+# so the reviewer's files cannot steer the docker client.
+- name: Reviewer account
+  ansible.builtin.user:
+    name: "{{ filebunny_reviewer }}"
+    shell: /bin/bash
+    password: "!"
+    expires: "{{ ((filebunny_reviewer_expires | to_datetime('%Y-%m-%d')) - ('1970-01-01' | to_datetime('%Y-%m-%d'))).total_seconds() }}"
+  when: filebunny_reviewer_keys | length > 0
+- name: Reviewer's .ssh directory
+  ansible.builtin.file: {path: "/home/{{ filebunny_reviewer }}/.ssh", state: directory, owner: root, group: root, mode: "0755"}
+  when: filebunny_reviewer_keys | length > 0
+- name: Reviewer SSH keys
+  ansible.builtin.copy:
+    dest: "/home/{{ filebunny_reviewer }}/.ssh/authorized_keys"
+    content: "{% for k in filebunny_reviewer_keys %}restrict,pty {{ k }}\n{% endfor %}"
+    owner: root
+    group: root
+    mode: "0644"
+  when: filebunny_reviewer_keys | length > 0
+- name: Reviewer's listing commands
+  ansible.builtin.copy:
+    dest: /etc/sudoers.d/filebunny-reviewer
+    content: |
+      Defaults:{{ filebunny_reviewer }} env_reset
+      {{ filebunny_reviewer }} ALL=(root) NOPASSWD: /usr/sbin/nft list table inet filebunny, /usr/sbin/sshd -T, /usr/bin/fail2ban-client status, /usr/bin/docker ps, /usr/bin/ss -tulpn
+    mode: "0440"
+    validate: visudo -cf %s
+  when: filebunny_reviewer_keys | length > 0
+- name: No reviewer's sudo rules without reviewer keys
+  ansible.builtin.file: {path: /etc/sudoers.d/filebunny-reviewer, state: absent}
+  when: filebunny_reviewer_keys | length == 0
+- name: No reviewer account without reviewer keys
+  ansible.builtin.user: {name: "{{ filebunny_reviewer }}", state: absent, remove: true}
+  when: filebunny_reviewer_keys | length == 0
 
 # From here on as the admin: the initial user may be removed, and after
 # this run only the admin can log in anyway.
@@ -309,6 +353,6 @@
 - name: Apply the firewall
   ansible.builtin.systemd_service: {name: nftables, state: reloaded}
   changed_when: false
-- name: Apply the SSH settings (from now on only the admin user can log in)
+- name: Apply the SSH settings (from now on only the admin user, and the reviewer, can log in)
   ansible.builtin.systemd_service: {name: ssh, state: reloaded}
   changed_when: false
