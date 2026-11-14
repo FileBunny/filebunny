@@ -8,7 +8,7 @@ PasswordAuthentication no
 KbdInteractiveAuthentication no
 PubkeyAuthentication yes
 AuthenticationMethods publickey
-AllowUsers {{ filebunny_admin }}
+AllowUsers {{ filebunny_admin }}{% if filebunny_reviewer_keys | length > 0 %} {{ filebunny_reviewer }}{% endif %}
 
 # Only ed25519 (also on a FIDO2 key: sk-ssh-ed25519), for the host and
 # for logins; key exchange only post-quantum hybrid (OpenSSH 9.0+ on the
