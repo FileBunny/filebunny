@@ -154,6 +154,31 @@ it (`docker compose --project-name filebunny logs web`), and run again
 with the list. Caddy renews about a month before expiry; repeat that if
 the test lasts that long.
 
+A read-only account for an outside security review:
+`filebunny_reviewer_keys` (their SSH public keys) and
+`filebunny_reviewer_expires` (`YYYY-MM-DD`, required; no login from that
+day on, UTC) create the user `filebunny_reviewer` (default `reviewer`)
+and add it to `AllowUsers`. It has no groups (not `docker`, not the
+journal), its keys belong to root and carry `restrict` (no forwarding),
+and sudo allows only these exact commands:
+
+```sh
+sudo nft list table inet filebunny   # the firewall, without fail2ban's bans
+sudo sshd -T                         # the SSH settings in effect
+sudo fail2ban-client status          # which jails, not who is banned
+sudo docker ps                       # containers, images, ports
+sudo ss -tulpn                       # listening sockets and their processes
+```
+
+It cannot read `.env`, the relay file, the data, the containers' settings
+or the logs. It can read what any local user can: the packages, most of
+`/etc`, the process list, and the login records (`who`, `/var/log/wtmp`,
+`/var/log/lastlog`), which show the **address the admin logs in from**:
+log in through a VPN while the account exists if that matters. Its own
+logins are logged like the admin's. When the review is done, empty
+`filebunny_reviewer_keys` and run the playbook again: that removes the
+account, its home directory and its sudo rules.
+
 What the host logs: SSH logins and failures (with the address that
 tried), fail2ban bans and dropped outgoing connections (the server's own
 destinations). Never visitors' web traffic: the firewall does not log it
