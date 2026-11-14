@@ -43,6 +43,11 @@
   </li>
   <li>File names, file types and content: these are inside the encryption.</li>
   <li>Passwords, private keys and passphrases: they never leave your browser.</li>
+  <li>
+    <strong>Photos you take:</strong> the camera only starts when you click "Start camera" and stops when the photo is
+    taken. The photo stays in your browser's memory until it is encrypted, and is dropped after sending or when you
+    leave the page. It is made without location, device or time data. What is in the picture itself is up to you.
+  </li>
 </ul>
 
 <h2>Other services, only when you use them</h2>

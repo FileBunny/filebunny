@@ -87,6 +87,28 @@ script and one stylesheet, without lazy-loaded chunks or workers, so
   and Change; later steps are not shown. Step 3 (storage, expiry,
   downloads) has defaults and the submit button, so everyone sees them.
   Enter means Next until the last step. Hidden steps keep their fields.
+- **Photos** (`CameraCapture.svelte`, `lib/camera.ts`): a third choice
+  next to Text and File, on the send page and on upload links. The camera
+  starts only on a click (`getUserMedia`, video only). While it is on:
+  three resolutions (Small 1280×720, Medium 1920×1080, Largest: what the
+  camera gives), Take photo, Flip and Stop on one line. Flip switches
+  between front and back on a phone (`facingMode` exact, so the browser
+  picks the main lens of that side instead of going through every lens);
+  on a computer, whose cameras report no side, it goes to the next webcam.
+  If there is no camera on the other side, the current one stays on and
+  Flip disappears. Taking the photo stops the camera; Retake starts it
+  again. The frame is drawn on a `<canvas>` and
+  encoded as JPEG there, so the file has no EXIF (no location, device or
+  time); it is encrypted as a file named `photo-<5 random digits>.jpg` (so a
+  second photo does not overwrite the first in the recipient's downloads),
+  like any other file.
+  The photo is only kept in memory: no object URL, no browser storage. The
+  camera stops and the canvas and Blob are dropped after sending, on
+  Retake, when another choice is picked, when the page is left and on
+  `pagehide` (also when the page goes into the back/forward cache). Caddy
+  sends `Permissions-Policy: camera=(self)`; microphone and location stay
+  off. In the single HTML file the camera works where the browser treats
+  `file://` as a secure context.
 - **Fingerprints as QR codes** (`OPENPGP4FPR:<fingerprint>`, readable by
   OpenPGP apps such as OpenKeychain), drawn as one SVG path from
   `qrcode-generator` (MIT, no dependencies, pinned): no HTML strings,
@@ -306,10 +328,13 @@ strictly (plain ASCII, no line breaks) and only used as the recipient.
   on the page.
 - Visitors behind one address (a company, mobile carrier, Tor exit)
   share limits; the limits are set for that.
-- There is no report button or takedown function: the operator cannot
-  judge encrypted content, and a report that removes a file would let
-  anyone break a one-time link. Reports go to the abuse address on the
-  contact page; files expire within 7 days.
+- There is no report button or takedown function for visitors: the
+  operator cannot judge encrypted content, and a report that removes a
+  file would let anyone break a one-time link. Reports go to the abuse
+  address on the contact page; files expire within 7 days. For a report
+  or order the operator acts on, `filebunny remove` removes one file or
+  upload link on the server itself, and `filebunny info` shows what is
+  stored about it (self-hosting.md, "Removing one file").
 
 ## Releases and verification
 
@@ -387,6 +412,7 @@ after a crash).
 | Key for the address HMAC | `data/mail-pepper` | Permanent |
 | Totals per UTC day: uploads, uploads to upload links, downloads, fetches by link owners | SQLite (`daily_counts`): one row per day, nothing per file, visitor or time of day; read by the operator's monitoring (`deploy/ansible`) | 400 days, then added up per month in `monthly_counts` (kept) |
 | File name, content type, plaintext | Nowhere (encrypted inside the ciphertext from phase 2) | — |
+| Photos taken with the camera | Nowhere before encryption: in the page's memory only, dropped after sending or when the page is left | — |
 | Logs | Container stdout | No IPs, no IDs, no tokens; see below |
 
 ### Logs

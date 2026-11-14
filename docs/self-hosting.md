@@ -154,6 +154,31 @@ it (`docker compose --project-name filebunny logs web`), and run again
 with the list. Caddy renews about a month before expiry; repeat that if
 the test lasts that long.
 
+A read-only account for an outside security review:
+`filebunny_reviewer_keys` (their SSH public keys) and
+`filebunny_reviewer_expires` (`YYYY-MM-DD`, required; no login from that
+day on, UTC) create the user `filebunny_reviewer` (default `reviewer`)
+and add it to `AllowUsers`. It has no groups (not `docker`, not the
+journal), its keys belong to root and carry `restrict` (no forwarding),
+and sudo allows only these exact commands:
+
+```sh
+sudo nft list table inet filebunny   # the firewall, without fail2ban's bans
+sudo sshd -T                         # the SSH settings in effect
+sudo fail2ban-client status          # which jails, not who is banned
+sudo docker ps                       # containers, images, ports
+sudo ss -tulpn                       # listening sockets and their processes
+```
+
+It cannot read `.env`, the relay file, the data, the containers' settings
+or the logs. It can read what any local user can: the packages, most of
+`/etc`, the process list, and the login records (`who`, `/var/log/wtmp`,
+`/var/log/lastlog`), which show the **address the admin logs in from**:
+log in through a VPN while the account exists if that matters. Its own
+logins are logged like the admin's. When the review is done, empty
+`filebunny_reviewer_keys` and run the playbook again: that removes the
+account, its home directory and its sudo rules.
+
 What the host logs: SSH logins and failures (with the address that
 tried), fail2ban bans and dropped outgoing connections (the server's own
 destinations). Never visitors' web traffic: the firewall does not log it
@@ -414,6 +439,34 @@ within 7 days. Back up only your `.env`, the SMTP file (in your password
 manager, not next to the backups of the server) and any local changes to
 the configuration. The `caddy_data` volume (certificates) is recreated
 automatically if lost.
+
+## Removing one file (takedown)
+
+There is no report button and no API for removing someone else's file
+(see [architecture.md](architecture.md#abuse-limits)). When a report or an
+order names a file, the operator removes it on the server with the
+backend binary:
+
+```sh
+docker exec filebunny-backend-1 /filebunny info   'https://filebunny.eu/#/d/<id>'
+docker exec filebunny-backend-1 /filebunny remove 'https://filebunny.eu/#/d/<id>'
+```
+
+Both take file ids, share links (`#/d/<id>`) and upload links
+(`#/u/<id>/<fingerprint>`); `remove` on an upload link removes the link
+with all its files. Links with a secret token (management and delete
+links) are refused, so the token stays out of the shell history: give
+only the id from them. `info` prints everything the server stores about
+it (size, times, download count, mails sent, where the ciphertext is);
+there is nothing else, such as addresses or names. A copy at an external
+service is deleted by the running server within a few minutes; files
+uploaded directly from the browser to such a service never reached this
+server, so a report about those (`#/x/…` links) goes to that service.
+The commands print to the terminal and log nothing.
+
+Never download or decrypt a reported file to look at it: you cannot
+without the key, and for some content keeping a copy is itself an
+offence.
 
 ## Removing all data
 
