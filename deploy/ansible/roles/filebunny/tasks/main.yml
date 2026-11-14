@@ -8,7 +8,11 @@
       - filebunny_domain is match('^[a-z0-9.-]+$')
       - filebunny_dns | length > 0
       - filebunny_admin not in filebunny_remove_users
-    fail_msg: Debian 13 only; set filebunny_admin_keys and filebunny_dns; filebunny_tls is auto or internal.
+      - filebunny_reviewer is match('^[a-z][a-z0-9-]{0,30}$')
+      - filebunny_reviewer != filebunny_admin and filebunny_reviewer not in filebunny_remove_users
+      - filebunny_reviewer_keys | length == 0 or (filebunny_reviewer_expires is match('^\\d{4}-\\d{2}-\\d{2}$') and filebunny_reviewer_expires > ansible_facts.date_time.date)
+      - not filebunny_monitor or filebunny_smtp_file | length == 0 or filebunny_monitor_mail_to | length > 0
+    fail_msg: Debian 13 only; set filebunny_admin_keys and filebunny_dns; filebunny_tls is auto or internal; reviewer keys need a future filebunny_reviewer_expires.
 
 - name: Is cloud-init installed?
   ansible.builtin.stat: {path: /etc/cloud}
@@ -113,6 +117,47 @@
     mode: "0440"
     validate: visudo -cf %s
 
+# Read-only reviewer: no groups (no docker, no journal: it holds the
+# addresses of SSH clients and of banned scanners), keys owned by root so
+# the reviewer cannot add any, "restrict" (no forwarding of any kind).
+# sudo only for these exact commands, without other arguments; none shows
+# secrets or third parties' addresses (fail2ban's table is left out of
+# nft, the ban list out of fail2ban-client). env_reset makes HOME /root,
+# so the reviewer's files cannot steer the docker client.
+- name: Reviewer account
+  ansible.builtin.user:
+    name: "{{ filebunny_reviewer }}"
+    shell: /bin/bash
+    password: "!"
+    expires: "{{ ((filebunny_reviewer_expires | to_datetime('%Y-%m-%d')) - ('1970-01-01' | to_datetime('%Y-%m-%d'))).total_seconds() }}"
+  when: filebunny_reviewer_keys | length > 0
+- name: Reviewer's .ssh directory
+  ansible.builtin.file: {path: "/home/{{ filebunny_reviewer }}/.ssh", state: directory, owner: root, group: root, mode: "0755"}
+  when: filebunny_reviewer_keys | length > 0
+- name: Reviewer SSH keys
+  ansible.builtin.copy:
+    dest: "/home/{{ filebunny_reviewer }}/.ssh/authorized_keys"
+    content: "{% for k in filebunny_reviewer_keys %}restrict,pty {{ k }}\n{% endfor %}"
+    owner: root
+    group: root
+    mode: "0644"
+  when: filebunny_reviewer_keys | length > 0
+- name: Reviewer's listing commands
+  ansible.builtin.copy:
+    dest: /etc/sudoers.d/filebunny-reviewer
+    content: |
+      Defaults:{{ filebunny_reviewer }} env_reset
+      {{ filebunny_reviewer }} ALL=(root) NOPASSWD: /usr/sbin/nft list table inet filebunny, /usr/sbin/sshd -T, /usr/bin/fail2ban-client status, /usr/bin/docker ps, /usr/bin/ss -tulpn
+    mode: "0440"
+    validate: visudo -cf %s
+  when: filebunny_reviewer_keys | length > 0
+- name: No reviewer's sudo rules without reviewer keys
+  ansible.builtin.file: {path: /etc/sudoers.d/filebunny-reviewer, state: absent}
+  when: filebunny_reviewer_keys | length == 0
+- name: No reviewer account without reviewer keys
+  ansible.builtin.user: {name: "{{ filebunny_reviewer }}", state: absent, remove: true}
+  when: filebunny_reviewer_keys | length == 0
+
 # From here on as the admin: the initial user may be removed, and after
 # this run only the admin can log in anyway.
 - name: Continue as the admin
@@ -164,6 +209,11 @@
   ansible.builtin.command: swapon --all
   changed_when: false
   when: filebunny_swap_mb | int > 0 and (ansible_facts.swaptotal_mb == 0 or swapfile.stat.exists)
+
+# Sends the monitoring mails; the firewall lets only this user reach the
+# relay (meta skuid), so the user must exist before the rules load.
+- name: Mail user for the monitoring
+  ansible.builtin.user: {name: filebunny-mail, system: true, shell: /usr/sbin/nologin, create_home: false}
 
 - name: Firewall (nftables, own table; Docker's tables stay)
   ansible.builtin.template: {src: nftables.conf.j2, dest: /etc/nftables.conf, mode: "0755", validate: nft -c -f %s}
@@ -232,12 +282,77 @@
   when: filebunny_smtp_file | length > 0
   no_log: true
 
+- name: Monitoring scripts directory
+  ansible.builtin.file: {path: /usr/local/lib/filebunny-monitor, state: directory, mode: "0755"}
+  when: filebunny_monitor
+- name: Monitoring scripts
+  ansible.builtin.copy: {src: "{{ item.src }}", dest: "{{ item.dest }}", mode: "{{ item.mode }}"}
+  loop:
+    - {src: filebunny-monitor, dest: /usr/local/sbin/filebunny-monitor, mode: "0700"}
+    - {src: send-mail, dest: /usr/local/lib/filebunny-monitor/send-mail, mode: "0755"}
+  loop_control: {label: "{{ item.dest }}"}
+  when: filebunny_monitor
+- name: Monitoring settings directory
+  ansible.builtin.file: {path: /etc/filebunny, state: directory, mode: "0755"}
+  when: filebunny_monitor
+- name: Monitoring settings
+  ansible.builtin.template: {src: monitor.json.j2, dest: /etc/filebunny/monitor.json, mode: "0600"}
+  when: filebunny_monitor
+- name: Monitoring service and timer (hourly)
+  ansible.builtin.copy:
+    dest: "/etc/systemd/system/{{ item.name }}"
+    content: "{{ item.content }}"
+    mode: "0644"
+  loop:
+    - name: filebunny-monitor.service
+      content: |
+        # Managed by deploy/ansible.
+        [Unit]
+        Description=FileBunny monitoring (checks, alerts, daily summary)
+        After=docker.service network-online.target
+        Wants=network-online.target
+
+        [Service]
+        Type=oneshot
+        ExecStart=/usr/local/sbin/filebunny-monitor
+        PrivateTmp=true
+        ProtectSystem=full
+        ReadWritePaths=/var/lib/filebunny-monitor
+        StateDirectory=filebunny-monitor
+        StateDirectoryMode=0700
+    - name: filebunny-monitor.timer
+      content: |
+        # Managed by deploy/ansible.
+        [Unit]
+        Description=FileBunny monitoring, every hour
+
+        [Timer]
+        OnCalendar=hourly
+        RandomizedDelaySec=120
+        Persistent=true
+
+        [Install]
+        WantedBy=timers.target
+  loop_control: {label: "{{ item.name }}"}
+  register: monitor_units
+  when: filebunny_monitor
+- name: Monitoring timer on
+  ansible.builtin.systemd_service: {name: filebunny-monitor.timer, enabled: true, state: started, daemon_reload: "{{ monitor_units is changed }}"}
+  when: filebunny_monitor
+- name: Is there a monitoring timer?
+  ansible.builtin.stat: {path: /etc/systemd/system/filebunny-monitor.timer}
+  register: monitor_timer
+  when: not filebunny_monitor
+- name: Monitoring timer off
+  ansible.builtin.systemd_service: {name: filebunny-monitor.timer, enabled: false, state: stopped}
+  when: not filebunny_monitor and monitor_timer.stat.exists
+
 # Always, not as a handler: a run that was interrupted after changing these
 # files would otherwise leave the old rules active, and the next run would
 # see nothing to change. Reloading keeps open sessions.
 - name: Apply the firewall
   ansible.builtin.systemd_service: {name: nftables, state: reloaded}
   changed_when: false
-- name: Apply the SSH settings (from now on only the admin user can log in)
+- name: Apply the SSH settings (from now on only the admin user, and the reviewer, can log in)
   ansible.builtin.systemd_service: {name: ssh, state: reloaded}
   changed_when: false

@@ -713,3 +713,34 @@ details.qr svg {
 .card > :last-child {
   margin-bottom: 0;
 }
+
+/* Taking a photo (CameraCapture.svelte). */
+.camera-view {
+  margin: 0.5rem 0;
+}
+
+.camera-view video,
+.camera-view canvas {
+  display: block;
+  max-width: 100%;
+  max-height: 70vh;
+  height: auto;
+  border-radius: 1rem;
+  background: var(--soft);
+}
+
+.camera-view [hidden] {
+  display: none;
+}
+
+/* Only the preview of a camera that faces you; the photo is not mirrored. */
+.camera-view video.mirror {
+  transform: scaleX(-1);
+}
+
+.camera-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin: 0.5rem 0;
+}

@@ -71,7 +71,18 @@ c=(docker compose --project-name filebunny --project-directory "$dir/current"
 	-f "$dir/current/compose.yaml" -f "$dir/current/compose.release.yaml"
 	--env-file "$dir/.env" --env-file "$dir/current/release.env")
 "${c[@]}" pull --quiet
-"${c[@]}" up -d --remove-orphans
+# The Caddy files belong to the user the web image runs as (65532 from
+# v0.10.0-rc.2 on, root before): set that before every start, so both an
+# update and a rollback across that change find files they can read.
+web_image=$(sed -n "s/^FILEBUNNY_WEB_IMAGE=//p" "$dir/current/release.env")
+owner=$(docker image inspect -f "{{.Config.User}}" "$web_image")
+owner=${owner:-0:0}
+# Without stdin: it would read the rest of this script (bash -s).
+"${c[@]}" run --rm -T --no-deps --user 0:0 --cap-add CHOWN --cap-add DAC_READ_SEARCH --entrypoint sh web \
+	-c "for d in /data/caddy /config/caddy; do [ ! -e \$d ] || chown -R \$0 \$d; done" "$owner" </dev/null
+# Recreated even when unchanged: a container waiting in the Docker restart
+# backoff would otherwise keep waiting.
+"${c[@]}" up -d --remove-orphans --force-recreate
 domain=$(grep -E "^FILEBUNNY_DOMAIN=" .env | tail -n 1 | cut -d= -f2- | tr -d "\"\047[:space:]")
 domain=${domain:-localhost}
 got=""

@@ -6,6 +6,7 @@ sees ciphertext: no accounts, no trackers, no IP logging.
 - Standard OpenPGP (OpenPGP.js), decryptable with `gpg`
 - Password mode and public-key mode
 - Expiring share links, upload links for receiving encrypted files
+- Share text, a file or a photo taken with the camera in the browser
 - Self-hostable with Docker Compose and Caddy
 - Reproducible builds
 

@@ -65,7 +65,8 @@ What it does:
   user can be removed (`filebunny_remove_users`), root's SSH keys are
   removed. SSH by key only, no
   root, `AllowUsers` the admin, only ed25519 (host key, logins, also on a
-  FIDO2 key) with post-quantum hybrid key exchange, `MaxAuthTries 3`,
+  FIDO2 key) with only post-quantum hybrid key exchange (the client
+  needs OpenSSH 9.0 or newer), `MaxAuthTries 3`,
   `MaxSessions 2`, `LogLevel VERBOSE` (key fingerprints in the log),
   fail2ban on SSH. The settings are a drop-in that sshd reads first;
   check the result with `sudo sshd -T`;
@@ -93,10 +94,42 @@ What it does:
   fingerprint), with log caps, `no-new-privileges`, `live-restore` and
   without the userland proxy, so visitors reach Caddy with their own
   address over IPv4 and IPv6;
-- time sync, a swap file if the server has no swap, a few kernel
-  settings, a capped persistent journal;
+- time sync, a swap file if the server has no swap, a capped persistent
+  journal, and kernel settings: SYN cookies, no ICMP redirects or source
+  routing, kernel addresses, the kernel log and BPF for root only,
+  `ptrace` only of a process's own children, no tty line disciplines
+  loaded by ordinary users, protected FIFOs in sticky directories. They
+  only help after a first break-in as an ordinary user;
 - `/opt/filebunny/.env` from your variables for `scripts/deploy.sh`, and
   the SMTP file (`filebunny_smtp_file`, kept outside the repository).
+
+### Monitoring
+
+With `filebunny_monitor` (on by default) the playbook installs
+`filebunny-monitor`, which a systemd timer runs every hour. It checks the
+disk, the containers (also restarts), the version and certificate the
+site serves, errors in the container logs, problems of the relay contact
+cleanup, failed systemd units, a reboot
+that is not happening, time sync and outgoing traffic, and every 6 hours
+asks crt.sh (Certificate Transparency) for new certificates for your
+domain. It mails when a problem starts and when it ends, and every day at
+`filebunny_monitor_summary_hour` (default 6) a summary with trends: when
+the disk would be full at the growth of the last 14 days, the traffic
+forecast for the month against `filebunny_monitor_traffic_tb`, and the
+daily totals of uploads and downloads, failed mail deliveries and what
+the contact cleanup deleted and blocked. If the summary does not arrive,
+the server cannot mail.
+
+Mail goes to `filebunny_monitor_mail_to` through the relays of
+`filebunny_smtp_file` (with `filebunny_share_mail: false` only the
+monitoring uses them, and the site does not mail share links), sent by the user `filebunny-mail`: the firewall
+lets only that user reach the relay, and only for two minutes after the
+monitor has put the relay's addresses in a set; that user can do nothing
+else but DNS. Try it with `sudo filebunny-monitor --test-mail`;
+`--summary` sends the summary now, `--dry-run` prints instead of
+sending. Without an SMTP file it only writes to the journal
+(`journalctl -u filebunny-monitor`). The mails count against the relay's
+own limits, not FileBunny's.
 
 DHCP is only allowed through the firewall with `filebunny_dhcp: true`;
 leave it off when the provider configures the network statically.
@@ -120,6 +153,31 @@ the first certificate run once with the list empty, wait until Caddy has
 it (`docker compose --project-name filebunny logs web`), and run again
 with the list. Caddy renews about a month before expiry; repeat that if
 the test lasts that long.
+
+A read-only account for an outside security review:
+`filebunny_reviewer_keys` (their SSH public keys) and
+`filebunny_reviewer_expires` (`YYYY-MM-DD`, required; no login from that
+day on, UTC) create the user `filebunny_reviewer` (default `reviewer`)
+and add it to `AllowUsers`. It has no groups (not `docker`, not the
+journal), its keys belong to root and carry `restrict` (no forwarding),
+and sudo allows only these exact commands:
+
+```sh
+sudo nft list table inet filebunny   # the firewall, without fail2ban's bans
+sudo sshd -T                         # the SSH settings in effect
+sudo fail2ban-client status          # which jails, not who is banned
+sudo docker ps                       # containers, images, ports
+sudo ss -tulpn                       # listening sockets and their processes
+```
+
+It cannot read `.env`, the relay file, the data, the containers' settings
+or the logs. It can read what any local user can: the packages, most of
+`/etc`, the process list, and the login records (`who`, `/var/log/wtmp`,
+`/var/log/lastlog`), which show the **address the admin logs in from**:
+log in through a VPN while the account exists if that matters. Its own
+logins are logged like the admin's. When the review is done, empty
+`filebunny_reviewer_keys` and run the playbook again: that removes the
+account, its home directory and its sudo rules.
 
 What the host logs: SSH logins and failures (with the address that
 tried), fail2ban bans and dropped outgoing connections (the server's own
@@ -152,7 +210,7 @@ backend (and the two marked "Caddy only" to Caddy) with defaults.
 | `FILEBUNNY_INBOX_MAX_EXPIRY` | `720h` | Longest a link may stay open |
 | `FILEBUNNY_INBOX_MAX_UPLOADS` | `100` | Highest number of uploads a link may allow (default per link: 10) |
 | `FILEBUNNY_INBOX_MAX_SIZE` | `104857600` | Max combined size of the uploads to one link, in bytes (100 MiB) |
-| `FILEBUNNY_FILEBIN` | `false` | Offer Filebin (filebin.net) as external storage through this server; see [storage/filebin.md](storage/filebin.md) |
+| `FILEBUNNY_FILEBIN` | `false` | Offer this storage adapter through this server; see [storage/filebin.md](storage/filebin.md). Each adapter has its own switch and page in [storage/](storage/) |
 | `FILEBUNNY_PROXY_DAILY_BYTES` | `53687091200` (50 GiB) | Traffic to and from external storage per UTC day, per service; beyond it uploads and downloads there get `503` |
 | `FILEBUNNY_SMTP_FILE` | `/run/secrets/smtp` in Compose | JSON file with the sender address and the SMTP relays; see [E-mail](#e-mail). No file or no relays: no e-mail |
 | `FILEBUNNY_PUBLIC_URL` | `https://$FILEBUNNY_DOMAIN` in Compose | The site's address for links in mails; required when e-mail is on |
@@ -174,15 +232,15 @@ It only connects to public addresses (no private, loopback, link-local or
 metadata ranges), follows no redirects and logs no looked-up addresses.
 If your firewall restricts egress, either allow outgoing 443 for the
 backend or set `FILEBUNNY_WKD_PROXY=false`. Keyserver lookups
-(keys.openpgp.org) go directly from the browser and need nothing from
+go directly from the browser and need nothing from
 your server.
 
-External storage through the server (`FILEBUNNY_FILEBIN=true`) needs
-outgoing 443 to `filebin.net` and `storage.filebin.net`. The direct route
-to Filebin goes from the browser and needs nothing from your server
-except `connect-src` in the CSP, which `deploy/Caddyfile` already allows.
-Read the service's terms before you offer it. The adapter docs in
-[storage/](storage/) say what each service sees and how it is used.
+External storage through the server needs outgoing 443 to the hosts of
+each adapter you switch on. The direct route goes from the browser and
+needs nothing from your server except `connect-src` in the CSP, which
+`deploy/Caddyfile` already allows. Read the service's terms before you
+offer it. The adapter docs in [storage/](storage/) list the hosts and say
+what each service sees and how it is used.
 
 ## E-mail
 
@@ -212,6 +270,10 @@ sudo install -m 0400 -o 65532 smtp.json /etc/filebunny/smtp.json   # 65532: the 
 FILEBUNNY_SMTP=/etc/filebunny/smtp.json docker compose up -d
 ```
 
+- `type`: `smtp` (the default) or an HTTPS API relay, for when your
+  provider blocks outgoing SMTP (465/587): only port 443 is needed. Each
+  API type has its own page in [`mail/`](mail/), with its `type` value,
+  configuration and what it keeps.
 - `name`: shown in logs and used for counters (a-z, 0-9, `-`); never the
   account. `daily_limit`: the relay's own free-tier limit; FileBunny sends
   no more than that through it per UTC day.
@@ -226,11 +288,17 @@ FILEBUNNY_SMTP=/etc/filebunny/smtp.json docker compose up -d
 - Prefer keys with sending rights only, for your sender address only,
   and, where the relay offers it, only from your server's IP address.
 - Switch off open and click tracking at the relay: FileBunny sends plain
-  text, but a relay that rewrites links would see every click.
-- Some relays (Mailjet, for example) replace FileBunny's
-  `List-Unsubscribe` header with their own; addresses that unsubscribe
-  that way end up on the relay's suppression list instead of FileBunny's
-  block list. The block link in the mail text is not affected.
+  text, but a relay that rewrites links would see every click. (An API
+  relay switches tracking off in every message itself.)
+- A relay may keep every recipient in its own contact list. For an API
+  relay the backend removes them once a day (`"delete_contacts": true`,
+  the default; `false` keeps them; see the relay type's page). **Use a
+  relay account for FileBunny only**: the cleanup deletes every contact
+  in it. For an SMTP relay, delete them in the relay's dashboard.
+- Some relays replace FileBunny's `List-Unsubscribe` header with their
+  own; addresses that unsubscribe that way end up on the relay's
+  suppression list instead of FileBunny's block list. The block link in
+  the mail text is not affected.
 
 **DNS** for the sender's domain, from each relay's instructions: one SPF
 record that includes every relay (at most 10 DNS lookups in total), a
@@ -241,7 +309,8 @@ headers say `spf=pass`, `dkim=pass` and `dmarc=pass`.
 The backend keeps a secret key (`data/mail-pepper`) for the address
 hashes behind the limits and the block list. Losing it resets both.
 
-The backend needs outgoing access to the relays' SMTP ports.
+The backend needs outgoing access to the relays' SMTP ports, or to 443
+for an API relay.
 
 ## Releases
 
@@ -289,6 +358,20 @@ cd frontend && VITE_FILEBUNNY_API=https://files.example.org npm run build:single
 The backend allows CORS for `Origin: null` only, which is what such a page
 sends. Share and delete links made from the file point to that origin.
 
+## TLS and HSTS
+
+Caddy speaks **TLS 1.3 only** (`protocols tls1.3` in `deploy/Caddyfile`).
+Clients without it, such as old Android or iOS versions, Windows 7/8.1 or
+some TLS-inspecting proxies, cannot connect; add `tls1.2` to the
+`protocols` lines if you must support them.
+
+
+Caddy sends `Strict-Transport-Security: max-age=31536000;
+includeSubDomains`: for a year, browsers that visited the site use only
+HTTPS for your domain **and all its subdomains**. If a subdomain of your
+FileBunny domain must stay reachable over plain HTTP, remove
+`includeSubDomains` in `deploy/Caddyfile`.
+
 ## Privacy checklist
 
 FileBunny stores no IP addresses. Keep it that way on your server:
@@ -333,6 +416,17 @@ With the release images: `scripts/deploy.sh vX.Y.Z` (see
 Updating from v0.9.0 or older: the network now has IPv6, so run
 `docker compose down` once before `up` (data volumes stay).
 
+Updating from v0.10.0-rc.1 or older: Caddy now runs as UID 65532 without
+capabilities, so its existing volumes must belong to that user once
+(`scripts/deploy.sh` does this before every start, also for a rollback to
+an older release, where root must own them again). After building the new
+images and before `up`:
+
+```sh
+docker compose run --rm --no-deps --user 0:0 --cap-add CHOWN --cap-add DAC_READ_SEARCH \
+  --entrypoint chown web -R 65532:65532 /data/caddy /config/caddy
+```
+
 Uploaded files and certificates live in Docker volumes (`data`,
 `caddy_data`) and survive updates. Database migrations run automatically
 at startup. The backend refuses to start on a database that a newer
@@ -345,6 +439,34 @@ within 7 days. Back up only your `.env`, the SMTP file (in your password
 manager, not next to the backups of the server) and any local changes to
 the configuration. The `caddy_data` volume (certificates) is recreated
 automatically if lost.
+
+## Removing one file (takedown)
+
+There is no report button and no API for removing someone else's file
+(see [architecture.md](architecture.md#abuse-limits)). When a report or an
+order names a file, the operator removes it on the server with the
+backend binary:
+
+```sh
+docker exec filebunny-backend-1 /filebunny info   'https://filebunny.eu/#/d/<id>'
+docker exec filebunny-backend-1 /filebunny remove 'https://filebunny.eu/#/d/<id>'
+```
+
+Both take file ids, share links (`#/d/<id>`) and upload links
+(`#/u/<id>/<fingerprint>`); `remove` on an upload link removes the link
+with all its files. Links with a secret token (management and delete
+links) are refused, so the token stays out of the shell history: give
+only the id from them. `info` prints everything the server stores about
+it (size, times, download count, mails sent, where the ciphertext is);
+there is nothing else, such as addresses or names. A copy at an external
+service is deleted by the running server within a few minutes; files
+uploaded directly from the browser to such a service never reached this
+server, so a report about those (`#/x/…` links) goes to that service.
+The commands print to the terminal and log nothing.
+
+Never download or decrypt a reported file to look at it: you cannot
+without the key, and for some content keeping a copy is itself an
+offence.
 
 ## Removing all data
 

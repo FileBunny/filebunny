@@ -46,6 +46,25 @@ Variables), so set it once the site runs a release. GitHub pauses
 scheduled workflows in repositories without activity for 60 days; a push
 or a manual run starts them again.
 
+## Keeping up with updates
+
+| What | How updates arrive |
+|---|---|
+| Go modules, npm packages, GitHub Actions, base image digests | Dependabot opens a pull request every week |
+| Caddy (new release tag) | Dependabot, once the tag is out |
+| Go itself (`backend/go.mod` with the `golang` image) and Node majors | By hand (Dependabot ignores them on purpose) |
+| Debian and Docker on the server | unattended-upgrades, with a reboot at `filebunny_reboot_time` |
+| Everything in the images | Only through a new release and `scripts/deploy.sh` |
+
+`.github/workflows/scan.yml` runs every Monday (and by hand): govulncheck
+on the source of `main`, and Trivy plus `govulncheck -mode=binary` on the
+images of the newest release, pre-releases included, so on what a server
+runs. It fails on HIGH, CRITICAL and not yet rated findings that have a
+fix; GitHub mails the owner of the repository about a failed scheduled
+run. That is the cue to update and release. A finding that is accepted for
+now goes in `.trivyignore` with its reason and an expiry date (`exp:`);
+after that date it fails the scan again.
+
 ## Deploying a release
 
 `scripts/deploy.sh` deploys a release by digest; the server never builds.
@@ -64,8 +83,9 @@ It looks up both images' digests and checks each with
 so a moved tag or an older signed image is refused. It then copies the
 compose files of that commit and a `release.env` with the images by
 digest to `/opt/filebunny/releases/<tag>/` (`--dir` for another place),
-points `current` at it, starts it and waits until the site reports the
-version. The server needs Docker and curl, and `/opt/filebunny/.env` with
+points `current` at it, gives Caddy's files to the user the web image
+runs as, starts it (containers always recreated) and waits until the site
+reports the version. The server needs Docker and curl, and `/opt/filebunny/.env` with
 the operator's settings; it holds no GitHub token.
 
 To go back to the release before:

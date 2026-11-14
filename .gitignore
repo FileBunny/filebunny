@@ -27,3 +27,6 @@ CLAUDE.local.md
 *inventory.yml
 *inventory.yaml
 !deploy/ansible/inventory.example.yml
+
+# Python
+__pycache__/

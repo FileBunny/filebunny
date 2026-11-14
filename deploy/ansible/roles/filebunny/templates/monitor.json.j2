@@ -1,0 +1,13 @@
+{{ {
+  "domain": filebunny_domain,
+  "tls": filebunny_tls,
+  "deploy_dir": filebunny_dir,
+  "volumes": "/var/lib/docker/volumes",
+  "smtp_file": "/etc/filebunny/smtp.json",
+  "mail_to": filebunny_monitor_mail_to,
+  "summary_hour": filebunny_monitor_summary_hour | int,
+  "disk_alert_percent": filebunny_monitor_disk_percent | int,
+  "disk_alert_days": filebunny_monitor_disk_days | int,
+  "cert_alert_days": filebunny_monitor_cert_days | int,
+  "traffic_limit_tb": filebunny_monitor_traffic_tb | float
+} | to_nice_json }}
