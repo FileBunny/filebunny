@@ -30,6 +30,8 @@ grep -qi "^content-security-policy: default-src 'none'; script-src 'self'" <<<"$
 grep -qi "^content-security-policy: .*connect-src 'self' https://keys.openpgp.org https://filebin.net https://storage.filebin.net;" <<<"$headers" || fail "connect-src not exactly self + keys.openpgp.org + filebin"
 grep -qi '^strict-transport-security: max-age=31536000; includeSubDomains' <<<"$headers" || fail "HSTS missing or without includeSubDomains"
 grep -qi '^server:' <<<"$headers" && fail "Server header present"
+# No HTTP/3: a proof of work must come from the same address as its challenge.
+grep -qi '^alt-svc:.*h3' <<<"$headers" && fail "HTTP/3 offered (Alt-Svc h3)"
 # Camera and microphone for this site only (photos, audio); location stays off.
 grep -qi '^permissions-policy: camera=(self), microphone=(self), geolocation=()' <<<"$headers" || fail "Permissions-Policy not camera=(self), microphone=(self) with geolocation off"
 

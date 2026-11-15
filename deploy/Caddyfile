@@ -11,6 +11,13 @@
 	# The local CA (localhost, FILEBUNNY_TLS=internal) cannot and need not
 	# install its root in the read-only container.
 	skip_install_trust
+	# No HTTP/3. A proof of work is bound to the visitor's address, and
+	# browsers on QUIC (UDP) can reach the server from another address than
+	# the request before it (seen with Chrome behind a VPN and a phone
+	# hotspot), so uploads failed with "proof of work not valid".
+	servers {
+		protocols h1 h2
+	}
 	log {
 		level WARN
 		format filter {
