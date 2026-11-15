@@ -16,6 +16,8 @@
   import Step from '../components/Step.svelte';
   import CameraCapture, { type Photo } from '../components/CameraCapture.svelte';
   import { photoName, photoSummary } from '../lib/camera.ts';
+  import AudioCapture, { type Recording } from '../components/AudioCapture.svelte';
+  import { audioName, audioSummary } from '../lib/audio.ts';
   import { tick } from 'svelte';
 
   // The server limit is 100 MiB of ciphertext; OpenPGP adds a little.
@@ -37,7 +39,7 @@
     { value: 0, label: 'Unlimited' },
   ];
 
-  let what = $state<'text' | 'file' | 'photo'>('text');
+  let what = $state<'text' | 'file' | 'photo' | 'audio'>('text');
   let text = $state('');
   let file = $state<File | null>(null);
   // Raw: a Blob must not be wrapped in a proxy. Only in memory, see
@@ -45,6 +47,13 @@
   let photo = $state.raw<Photo | null>(null);
   $effect(() => {
     if (what !== 'photo') photo = null;
+  });
+  // The same for a recording, see AudioCapture; recordingNow while the
+  // microphone is on.
+  let recording = $state.raw<Recording | null>(null);
+  let recordingNow = $state(false);
+  $effect(() => {
+    if (what !== 'audio') recording = null;
   });
 
   let mode = $state<'password' | 'key'>('password');
@@ -76,10 +85,10 @@
   let controller: AbortController | null = null;
 
   const total = $derived(
-    what === 'file' ? (file?.size ?? 0) : what === 'photo' ? (photo?.blob.size ?? 0) : new TextEncoder().encode(text).length,
+    what === 'file' ? (file?.size ?? 0) : what === 'photo' ? (photo?.blob.size ?? 0) : what === 'audio' ? (recording?.blob.size ?? 0) : new TextEncoder().encode(text).length,
   );
   const contentReady = $derived(
-    what === 'text' ? text.length > 0 : what === 'photo' ? photo !== null : file !== null && file.size <= maxFileSize,
+    what === 'text' ? text.length > 0 : what === 'photo' ? photo !== null : what === 'audio' ? recording !== null && !recordingNow : file !== null && file.size <= maxFileSize,
   );
   const recipientsReady = $derived(
     mode === 'password' ? password.length > 0 : recipients.length > 0 && recipients.every((r) => r.info.canEncrypt),
@@ -96,6 +105,8 @@
     if (!contentReady) {
       if (what === 'text') return { step: 1, message: 'Type a message first.', focus: '#send-content' };
       if (what === 'photo') return { step: 1, message: 'Take a photo first.', focus: '#send-content' };
+      if (what === 'audio')
+        return { step: 1, message: recordingNow ? 'Stop the recording first.' : 'Record something first.', focus: '#send-content' };
       if (!file) return { step: 1, message: 'Choose a file first.', focus: '#send-content' };
       return { step: 1, message: `This file is ${formatBytes(file.size)}; the limit is 100 MB.`, focus: '#send-content' };
     }
@@ -126,6 +137,12 @@
         ? photo
           ? photoSummary(photo.width, photo.height, formatBytes(photo.blob.size))
           : 'No photo yet'
+        : what === 'audio'
+          ? recording
+            ? audioSummary(recording.seconds, formatBytes(recording.blob.size))
+            : recordingNow
+              ? 'Recording…'
+              : 'No recording yet'
         : file
         ? `${file.name}, ${formatBytes(file.size)}`
         : 'No file yet',
@@ -199,6 +216,8 @@
           ? { kind: 'text' as const, text }
           : what === 'photo'
             ? { kind: 'file' as const, name: photoName(), data: photo!.blob.stream() }
+            : what === 'audio'
+              ? { kind: 'file' as const, name: audioName(recording!.ext), data: recording!.blob.stream() }
             : { kind: 'file' as const, name: file!.name, data: file!.stream() };
       const to = mode === 'password' ? { password } : { publicKeys: recipients.map((r) => r.info.key) };
       const ciphertext = await encrypt(plaintext, to);
@@ -214,8 +233,10 @@
         const storage = chosen.name === 'local' ? undefined : chosen.name;
         result = await upload(ciphertext, { expires, maxDownloads, storage }, (n) => (sent = n), controller.signal);
       }
-      // Sent: the photo is not needed in this page any more.
+      // Sent: the photo or recording is not needed in this page any more.
       photo = null;
+    recording = null;
+      recording = null;
     } catch (err) {
       if (controller.signal.aborted) error = 'Upload canceled.';
       else if (err instanceof TooLarge) error = 'The encrypted file is larger than 100 MB.';
@@ -237,6 +258,7 @@
     text = '';
     file = null;
     photo = null;
+    recording = null;
     password = '';
     sent = 0;
     openStep = 1;
@@ -293,6 +315,7 @@
         <label><input type="radio" bind:group={what} value="text" /> Text</label>
         <label><input type="radio" bind:group={what} value="file" /> File</label>
         <label><input type="radio" bind:group={what} value="photo" /> Photo</label>
+        <label><input type="radio" bind:group={what} value="audio" /> Audio</label>
       </div>
       {#if what === 'text'}
         <label class="field">
@@ -301,6 +324,8 @@
         </label>
       {:else if what === 'photo'}
         <CameraCapture id="send-content" bind:photo />
+      {:else if what === 'audio'}
+        <AudioCapture id="send-content" bind:recording bind:active={recordingNow} />
       {:else}
         <label class="field">
           <span>File (max 100 MB)</span>

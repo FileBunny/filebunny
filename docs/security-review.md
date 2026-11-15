@@ -664,6 +664,36 @@ Frontend only: no backend, API, CSP or deploy changes.
 - **What is in the picture** (faces, screens, documents, a window with a
   view) is up to the person taking it; removing EXIF does not remove that.
 
+## Audio from the microphone (2026-11-15)
+
+| | |
+|---|---|
+| Date | 2026-11-15 |
+| Scope | Branch `audio-capture`: recording audio in the browser on the send page and on upload links |
+| Reviewer | Claude Code (AI-assisted), during development |
+
+### New attack surface
+
+| Area | Measure | Test |
+|---|---|---|
+| Microphone permission | `Permissions-Policy: microphone=(self)` (was `microphone=()`): only this site's own pages, no frames (`frame-ancestors 'none'`); location stays off. The microphone starts only on a click, never on page load, and stops on Stop, at the limit, on another choice, when the page is left and on `pagehide` | `audio.test.ts` (audio only, no video); headless Chromium and Firefox with a fake microphone; smoke test checks the header |
+| Length and size | At most 3 minutes at 48 kbit/s (about 1 MB); stops by itself at the limit. The server limits are unchanged | Headless Chromium: stopped at 3:00, 1.0 MiB |
+| Metadata in the recording | Neutral name `audio-<5 random digits>.<ext>`, literal date 0. The container holds the recorder's name: `Chrome` (WebM muxing/writing app) or `ENCODER=Mozilla<version>` (Ogg tags); no date, device or location found. Safari's MP4 not checked | Decrypted with `gpg`, inspected with `file` and `strings` |
+| Plaintext in the browser | No object URL (counted: 0), no `localStorage`/IndexedDB/Cache API. Playback decodes into an `AudioBuffer` that is dropped (context closed) when playing ends or stops | Headless Chromium: `URL.createObjectURL` never called; recorder empty after sending and after `pagehide` |
+| CSP | Unchanged: playback through the Web Audio API, so no `media-src blob:` | Build |
+
+### Residual risks
+
+- **The same as for photos**: when the browser frees the memory, swap
+  and crash dumps, and code from a compromised server, see above.
+- **The recorder names the browser** (and in Firefox its version) inside
+  the file. Only the recipient sees it, after decrypting; removing it
+  would mean rewriting the container in the browser (extra code or a
+  dependency), which is not worth it for that.
+- **What is recorded** (voices, background sounds) is up to the person
+  recording.
+- **Safari** (MP4/AAC) is not tested yet.
+
 ## How to re-run the checks
 
 ```sh

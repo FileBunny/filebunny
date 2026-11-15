@@ -48,6 +48,12 @@
     taken. The photo stays in your browser's memory until it is encrypted, and is dropped after sending or when you
     leave the page. It is made without location, device or time data. What is in the picture itself is up to you.
   </li>
+  <li>
+    <strong>Audio you record:</strong> the microphone only starts when you click "Start recording" and stops when you
+    stop, or after 3 minutes. The recording stays in your browser's memory until it is encrypted, and is dropped after
+    sending or when you leave the page. The file names the browser that recorded it (for example Chrome or Firefox), as
+    recording apps do; that is inside the encryption.
+  </li>
 </ul>
 
 <h2>Other services, only when you use them</h2>
