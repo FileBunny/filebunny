@@ -694,6 +694,33 @@ Frontend only: no backend, API, CSP or deploy changes.
   recording.
 - **Safari** (MP4/AAC) is not tested yet.
 
+## HTTP/3 off (2026-11-15)
+
+| | |
+|---|---|
+| Date | 2026-11-15 |
+| Scope | Branch `no-http3`: Caddy without HTTP/3 |
+| Reviewer | Claude Code (AI-assisted), after a failed test of `v0.11.0-rc.1` |
+
+**Finding.** On filebunny.eu, every upload from Chrome (laptop behind a
+VPN, and a phone on a mobile hotspot) failed with 403 "proof of work
+missing or not valid", for text, files, photos and audio alike. The
+proof itself was right (enough zero bits, not expired), but its HMAC did
+not match: the backend saw another visitor than for the challenge. With
+`--disable-quic` (HTTP/2) the same upload worked at once; curl and
+Firefox worked too. HTTP/3 was on by Caddy's default, so this most
+likely affected earlier releases as well. The exact mechanism (another
+outgoing address for the browser's QUIC traffic, or another connection)
+is not proven; QUIC as the trigger is.
+
+**Fix.** `servers { protocols h1 h2 }` in `deploy/Caddyfile` and no
+`443/udp` in `compose.yaml`. The smoke test fails when `Alt-Svc`
+offers `h3`.
+
+**Residual risk.** A visitor whose address changes between challenge and
+upload (mobile networks, IPv6 privacy addresses outside one /64) still
+gets a 403 and has to try again; the frontend does not retry yet.
+
 ## How to re-run the checks
 
 ```sh

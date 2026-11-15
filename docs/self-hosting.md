@@ -365,6 +365,12 @@ Clients without it, such as old Android or iOS versions, Windows 7/8.1 or
 some TLS-inspecting proxies, cannot connect; add `tls1.2` to the
 `protocols` lines if you must support them.
 
+HTTP/3 (QUIC) is **off** (`servers { protocols h1 h2 }`, and only TCP
+port 443 is published). A proof of work is bound to the visitor's
+address; over QUIC, Chrome reached the server from another address than
+for the challenge before it (behind a VPN and a phone hotspot), so every
+upload failed. Don't switch it back on without solving that.
+
 
 Caddy sends `Strict-Transport-Security: max-age=31536000;
 includeSubDomains`: for a year, browsers that visited the site use only
