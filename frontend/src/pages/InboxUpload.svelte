@@ -13,6 +13,8 @@
   import FingerprintQR from '../components/FingerprintQR.svelte';
   import CameraCapture, { type Photo } from '../components/CameraCapture.svelte';
   import { photoName } from '../lib/camera.ts';
+  import AudioCapture, { type Recording } from '../components/AudioCapture.svelte';
+  import { audioName } from '../lib/audio.ts';
 
   let { id, fingerprint }: { id: string; fingerprint: string } = $props();
 
@@ -20,7 +22,7 @@
   let key = $state.raw<KeyInfo | null>(null);
   let keyProblem = $state('');
 
-  let what = $state<'text' | 'file' | 'photo'>('text');
+  let what = $state<'text' | 'file' | 'photo' | 'audio'>('text');
   let text = $state('');
   let file = $state<File | null>(null);
   // Raw: a Blob must not be wrapped in a proxy. Only in memory, see
@@ -28,6 +30,13 @@
   let photo = $state.raw<Photo | null>(null);
   $effect(() => {
     if (what !== 'photo') photo = null;
+  });
+  // The same for a recording, see AudioCapture; recordingNow while the
+  // microphone is on.
+  let recording = $state.raw<Recording | null>(null);
+  let recordingNow = $state(false);
+  $effect(() => {
+    if (what !== 'audio') recording = null;
   });
   let busy = $state(false);
   let sent = $state(0);
@@ -62,12 +71,12 @@
   }
 
   const size = $derived(
-    what === 'file' ? (file?.size ?? 0) : what === 'photo' ? (photo?.blob.size ?? 0) : new TextEncoder().encode(text).length,
+    what === 'file' ? (file?.size ?? 0) : what === 'photo' ? (photo?.blob.size ?? 0) : what === 'audio' ? (recording?.blob.size ?? 0) : new TextEncoder().encode(text).length,
   );
   // OpenPGP adds a little; the server checks the exact ciphertext size.
   const tooLarge = $derived(info ? size > info.maxFileSize - 1024 : false);
   const ready = $derived(
-    key !== null && (what === 'text' ? text.length > 0 : what === 'photo' ? photo !== null : file !== null) && !tooLarge,
+    key !== null && (what === 'text' ? text.length > 0 : what === 'photo' ? photo !== null : what === 'audio' ? recording !== null && !recordingNow : file !== null) && !tooLarge,
   );
   let tried = $state(false);
   // Too large is shown under the field already.
@@ -78,6 +87,10 @@
         ? 'Type a message first.'
         : what === 'photo'
           ? 'Take a photo first.'
+          : what === 'audio'
+            ? recordingNow
+              ? 'Stop the recording first.'
+              : 'Record something first.'
           : 'Choose a file first.',
   );
 
@@ -104,12 +117,16 @@
           ? { kind: 'text' as const, text }
           : what === 'photo'
             ? { kind: 'file' as const, name: photoName(), data: photo!.blob.stream() }
+            : what === 'audio'
+              ? { kind: 'file' as const, name: audioName(recording!.ext), data: recording!.blob.stream() }
             : { kind: 'file' as const, name: file!.name, data: file!.stream() };
       const ciphertext = await encrypt(plaintext, { publicKeys: [key.key] });
       const stored = await uploadToInbox(id, ciphertext, (n) => (sent = n), controller.signal);
-      done = { what: what === 'file' ? file!.name : what === 'photo' ? 'Your photo' : 'Your message', size: stored };
-      // Sent: the photo is not needed in this page any more.
+      done = { what: what === 'file' ? file!.name : what === 'photo' ? 'Your photo' : what === 'audio' ? 'Your recording' : 'Your message', size: stored };
+      // Sent: the photo or recording is not needed in this page any more.
       photo = null;
+    recording = null;
+      recording = null;
     } catch (err) {
       if (controller.signal.aborted) error = 'Upload canceled.';
       else if (err instanceof ApiError && err.status === 409) error = 'This upload link is full.';
@@ -129,6 +146,7 @@
     text = '';
     file = null;
     photo = null;
+    recording = null;
     info = await inboxInfo(id).catch(() => info);
   }
 </script>
@@ -182,6 +200,7 @@
           <label><input type="radio" bind:group={what} value="text" /> Text</label>
           <label><input type="radio" bind:group={what} value="file" /> File</label>
           <label><input type="radio" bind:group={what} value="photo" /> Photo</label>
+          <label><input type="radio" bind:group={what} value="audio" /> Audio</label>
         </div>
         {#if what === 'text'}
           <label class="field">
@@ -190,6 +209,8 @@
           </label>
         {:else if what === 'photo'}
           <CameraCapture id="inbox-content" bind:photo />
+        {:else if what === 'audio'}
+          <AudioCapture id="inbox-content" bind:recording bind:active={recordingNow} />
         {:else}
           <label class="field">
             <span>File (max {formatBytes(info.maxFileSize)})</span>
