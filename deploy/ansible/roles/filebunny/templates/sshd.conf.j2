@@ -12,8 +12,14 @@ AllowUsers {{ filebunny_admin }}{% if filebunny_reviewer_keys | length > 0 %} {{
 
 # Only ed25519 (also on a FIDO2 key: sk-ssh-ed25519), for the host and
 # for logins; key exchange only post-quantum hybrid (OpenSSH 9.0+ on the
-# client; mlkem768x25519 since 9.9).
+# client; mlkem768x25519 since 9.9). HostKey adds up instead of "first
+# value wins": it is left out here when the main sshd_config already
+# enables the ed25519 key (some provider images do), so it is loaded once.
+# It stays explicit otherwise, so an openssh upgrade does not create RSA
+# and ECDSA keys again.
+{% if filebunny_main_hostkeys | default([]) | length == 0 %}
 HostKey /etc/ssh/ssh_host_ed25519_key
+{% endif %}
 HostKeyAlgorithms ssh-ed25519
 PubkeyAcceptedAlgorithms ssh-ed25519,sk-ssh-ed25519@openssh.com
 KexAlgorithms mlkem768x25519-sha256,sntrup761x25519-sha512,sntrup761x25519-sha512@openssh.com

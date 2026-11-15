@@ -177,6 +177,19 @@
   ansible.builtin.file: {path: "/etc/ssh/ssh_host_{{ item }}", state: absent}
   loop: [rsa_key, rsa_key.pub, ecdsa_key, ecdsa_key.pub]
 
+# HostKey adds up instead of "first value wins": a provider image that
+# already enables the ed25519 key in sshd_config would load it twice, and
+# clients warn "received duplicated ssh-ed25519 host key".
+- name: Read the main sshd_config
+  ansible.builtin.slurp: {src: /etc/ssh/sshd_config}
+  register: filebunny_sshd_main
+- name: Host keys the main sshd_config already enables
+  ansible.builtin.set_fact:
+    filebunny_main_hostkeys: "{{ filebunny_sshd_main.content | b64decode | regex_findall('(?mi)^[ \\t]*HostKey[ \\t]+(\\S+)') }}"
+- name: The main sshd_config enables no host key other than ed25519
+  ansible.builtin.assert:
+    that: filebunny_main_hostkeys | reject('equalto', '/etc/ssh/ssh_host_ed25519_key') | list | length == 0
+    fail_msg: "/etc/ssh/sshd_config enables {{ filebunny_main_hostkeys }}; comment out every HostKey line but ed25519"
 - name: SSH hardening
   ansible.builtin.template: {src: sshd.conf.j2, dest: /etc/ssh/sshd_config.d/10-filebunny.conf, mode: "0644", validate: sshd -t -f %s}
 
