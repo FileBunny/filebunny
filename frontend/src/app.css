@@ -744,3 +744,25 @@ details.qr svg {
   gap: 0.5rem;
   margin: 0.5rem 0;
 }
+
+/* Recording audio (AudioCapture.svelte). */
+.recorder .recording {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.recorder .dot {
+  width: 0.75rem;
+  height: 0.75rem;
+  border-radius: 50%;
+  background: var(--danger);
+}
+
+.recorder meter.level {
+  display: block;
+  width: 100%;
+  max-width: 20rem;
+  height: 0.75rem;
+}
