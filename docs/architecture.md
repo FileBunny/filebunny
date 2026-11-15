@@ -106,9 +106,29 @@ script and one stylesheet, without lazy-loaded chunks or workers, so
   camera stops and the canvas and Blob are dropped after sending, on
   Retake, when another choice is picked, when the page is left and on
   `pagehide` (also when the page goes into the back/forward cache). Caddy
-  sends `Permissions-Policy: camera=(self)`; microphone and location stay
-  off. In the single HTML file the camera works where the browser treats
-  `file://` as a secure context.
+  sends `Permissions-Policy: camera=(self)` (and `microphone=(self)` for
+  audio, below); location stays off. In the single HTML file the camera
+  works where the browser treats `file://` as a secure context.
+- **Audio** (`AudioCapture.svelte`, `lib/audio.ts`): a fourth choice,
+  on the send page and on upload links. The microphone starts only on a
+  click (`getUserMedia`, audio only, one channel) and records with
+  `MediaRecorder` at 48 kbit/s, at most 3 minutes (about 1 MB); at the
+  limit it stops by itself. The format is the first the browser can
+  record: Ogg/Opus (Firefox), WebM/Opus (Chrome) or MP4/AAC (Safari),
+  encrypted as `audio-<5 random digits>.ogg|webm|m4a`. A timer and a
+  level meter (Web Audio `AnalyserNode`) show that it records; while it
+  records, sending asks to stop first. Play decodes the recording with
+  the Web Audio API (`decodeAudioData`), so there is no object URL and no
+  `media-src` in the CSP; the decoded sound (about 35 MB for 3 minutes)
+  is dropped when playing ends. Chunks come every second, so a microphone
+  that goes away keeps what was recorded. As for photos: only in memory,
+  dropped after sending, on Record again, on another choice, when the
+  page is left and on `pagehide`. Caddy sends
+  `Permissions-Policy: microphone=(self)`. WebM from Chrome has no
+  duration in its header (VLC and mpv play it; some players cannot seek),
+  and the recorder writes its name in the file (`Chrome`, or
+  `ENCODER=Mozilla<version>` in Firefox's Ogg tags), inside the
+  encryption.
 - **Fingerprints as QR codes** (`OPENPGP4FPR:<fingerprint>`, readable by
   OpenPGP apps such as OpenKeychain), drawn as one SVG path from
   `qrcode-generator` (MIT, no dependencies, pinned): no HTML strings,
@@ -413,6 +433,7 @@ after a crash).
 | Totals per UTC day: uploads, uploads to upload links, downloads, fetches by link owners | SQLite (`daily_counts`): one row per day, nothing per file, visitor or time of day; read by the operator's monitoring (`deploy/ansible`) | 400 days, then added up per month in `monthly_counts` (kept) |
 | File name, content type, plaintext | Nowhere (encrypted inside the ciphertext from phase 2) | — |
 | Photos taken with the camera | Nowhere before encryption: in the page's memory only, dropped after sending or when the page is left | — |
+| Audio recorded with the microphone | The same as photos | — |
 | Logs | Container stdout | No IPs, no IDs, no tokens; see below |
 
 ### Logs
