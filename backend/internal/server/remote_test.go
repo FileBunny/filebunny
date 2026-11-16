@@ -144,8 +144,13 @@ func TestRemoteChunkedUpload(t *testing.T) {
 
 func TestRemoteRefusedBeforeData(t *testing.T) {
 	e := newTestEnv(t)
-	if rec := e.do("POST", "/api/v1/files?storage=filebin", strings.NewReader("x")); rec.Code != http.StatusBadRequest {
-		t.Errorf("not offered: %d, want 400", rec.Code)
+	// Not offered (adapter off): 400 with a message that says so, for
+	// share links and upload links alike.
+	for _, target := range []string{"/api/v1/files?storage=filebin", "/api/v1/inboxes?storage=filebin"} {
+		rec := e.do("POST", target, strings.NewReader("x"))
+		if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "does not offer that storage") {
+			t.Errorf("%s not offered: %d %s, want 400", target, rec.Code, rec.Body)
+		}
 	}
 	fake := withRemote(t, e)
 	if rec := e.do("POST", "/api/v1/files?storage=filebin&expires=168h", strings.NewReader("x")); rec.Code != http.StatusBadRequest {

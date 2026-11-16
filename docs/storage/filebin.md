@@ -20,6 +20,8 @@ The sender chooses in step 3 of Send.
 | Upload | browser → FileBunny → Filebin | browser → filebin.net |
 | Download | Filebin → FileBunny → browser | browser ← Filebin |
 | Download limit, expiry, delete link | yes, enforced by FileBunny | no: FileBunny does not know about the file |
+| E-mail the link | yes, if the server mails | no: the server only mails its own share links |
+| Recipient | downloads and decrypts in one step | may have to save the file at Filebin first (data.bin, encrypted) and load it in FileBunny (Filebin's browser check) |
 | Kept for | as chosen, at most 6 days | about 7 days (Filebin's own limit) |
 | Link | `#/d/<id>` | `#/x/filebin/<bin>` (the bin name only in the fragment) |
 | Traffic on this server | twice the file size | none |
@@ -116,7 +118,9 @@ name, can delete the file at any time.
 Off by default. Set `FILEBUNNY_FILEBIN=true` (with `deploy/ansible`:
 `filebunny_filebin: true`) to offer the route through your server, and allow `https://filebin.net https://storage.filebin.net` in
 `connect-src` (already in `deploy/Caddyfile`). The direct route works without
-the server setting. Read Filebin's [terms](https://filebin.net/terms) before
+the server setting. The pages ask `GET /api/v1/storage` when a visitor opens
+the storage choice and offer "Through FileBunny" (and Filebin for upload
+links) only when it is listed; without it a request gets `400`. Read Filebin's [terms](https://filebin.net/terms) before
 you offer it.
 
 ## If Filebin changes

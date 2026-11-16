@@ -150,6 +150,11 @@ func newUploadResponse(f store.File, token string) uploadResponse {
 	}
 }
 
+// msgStorageNotOffered answers a "storage" this server does not offer
+// (unknown, or its adapter is off). Pages ask GET /api/v1/storage first;
+// this reaches an old page or a curl user.
+const msgStorageNotOffered = "this server does not offer that storage; see GET /api/v1/storage"
+
 // limits are the sharing options of an upload.
 type limits struct {
 	expiry       time.Duration
@@ -171,7 +176,7 @@ func (s *Server) parseLimits(w http.ResponseWriter, r *http.Request) (limits, bo
 	if v := q.Get("storage"); v != "" && v != "local" {
 		l.remote = s.remotes[v]
 		if l.remote == nil {
-			writeError(w, http.StatusBadRequest, "unknown storage")
+			writeError(w, http.StatusBadRequest, msgStorageNotOffered)
 			return limits{}, false
 		}
 		// Refuse before the data is sent, not after.
