@@ -149,8 +149,9 @@ Then deploy a release with `scripts/deploy.sh --host admin@server vX.Y.Z`.
 The playbook writes `/opt/filebunny/.env` from the inventory. Its own
 variables are lowercase (`filebunny_max_total_size`, `filebunny_filebin`,
 ...); any other `FILEBUNNY_*` setting goes under `filebunny_env` with its
-name as in the table below. A `FILEBUNNY_*` name directly in the inventory
-is ignored. After a change: run the playbook, then `scripts/deploy.sh`
+name as in the table below; the playbook refuses other names there, and
+the settings that have their own variable. A `FILEBUNNY_*` name directly
+in the inventory is ignored. After a change: run the playbook, then `scripts/deploy.sh`
 again, which recreates the containers.
 
 A closed test: `filebunny_web_allow` (addresses and networks, IPv4 and
