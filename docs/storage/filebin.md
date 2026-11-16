@@ -20,6 +20,7 @@ The sender chooses in step 3 of Send.
 | Upload | browser → FileBunny → Filebin | browser → filebin.net |
 | Download | Filebin → FileBunny → browser | browser ← Filebin |
 | Download limit, expiry, delete link | yes, enforced by FileBunny | no: FileBunny does not know about the file |
+| E-mail the link | yes, if the server mails | no: the server only mails its own share links |
 | Kept for | as chosen, at most 6 days | about 7 days (Filebin's own limit) |
 | Link | `#/d/<id>` | `#/x/filebin/<bin>` (the bin name only in the fragment) |
 | Traffic on this server | twice the file size | none |

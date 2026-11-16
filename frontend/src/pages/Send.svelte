@@ -281,6 +281,10 @@
       {chosen.short} keeps it for about {chosen.keepsDays} days. Anyone with the link can download it as often as they
       like, and delete it. FileBunny does not know about this file.
     </p>
+    <p class="note">
+      FileBunny cannot e-mail this link, as it does not know about the file: send it yourself. Uploads through FileBunny
+      can be e-mailed from this page.
+    </p>
     <button type="button" onclick={startOver}>Share something else</button>
   </section>
 {:else if result}
@@ -383,7 +387,8 @@
       {#if direct}
         <p class="note">
           {chosen.short} sees your IP address and keeps the file for about {chosen.keepsDays} days. There is no download
-          limit and no delete link: anyone with the link can download it, and delete it.
+          limit and no delete link: anyone with the link can download it, and delete it. FileBunny cannot e-mail the
+          link either; you send it yourself.
         </p>
       {:else}
         <div class="row">
