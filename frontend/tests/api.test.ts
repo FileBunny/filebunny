@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { afterEach, test } from 'node:test';
-import { ApiError, chunkSize, inboxInfo, inboxStatus, upload, uploadToInbox } from '../src/lib/api.ts';
+import { ApiError, chunkSize, inboxInfo, inboxStatus, offeredStorage, upload, uploadToInbox } from '../src/lib/api.ts';
 import { leadingZeroBits } from '../src/lib/sha256.ts';
 import { randomBytes, streamOf } from './helpers.ts';
 
@@ -199,4 +199,20 @@ test('upload link info and status', async () => {
   assert.equal(st.files[0]!.receivedAt.toISOString(), '2026-10-29T12:00:00.000Z');
   assert.deepEqual(seen.at(-1)!.headers, { Authorization: 'Bearer manage-token' });
   assert.equal(seen.at(-1)!.credentials, 'omit');
+});
+
+test('offered storage: asked once, asked again after a failure', async () => {
+  let calls = 0;
+  let down = true;
+  globalThis.fetch = async (input: string | URL | Request) => {
+    assert.equal(String(input), '/api/v1/storage');
+    calls++;
+    if (down) throw new TypeError('network error');
+    return new Response(JSON.stringify({ storage: [{ name: 'filebin', available: false, max_expiry_seconds: 1 }] }));
+  };
+  assert.equal(await offeredStorage(), null);
+  down = false;
+  assert.deepEqual([...((await offeredStorage()) ?? [])], ['filebin']);
+  await offeredStorage();
+  assert.equal(calls, 2);
 });

@@ -1,9 +1,9 @@
 <script lang="ts">
   import { encrypt, unusableText } from '../lib/crypto.ts';
   import type { Recipient } from '../lib/keylookup.ts';
-  import { ApiError, maxCiphertext, siteBase, upload, type Uploaded } from '../lib/api.ts';
+  import { ApiError, maxCiphertext, offeredStorage, siteBase, upload, type Uploaded } from '../lib/api.ts';
   import { filebinUpload, newBin } from '../lib/filebin.ts';
-  import { storageByName, storages } from '../lib/storage.ts';
+  import { storageByName, storageChoices, throughServer } from '../lib/storage.ts';
   import { deleteLink, filebinLink, shareLink } from '../lib/route.ts';
   import { formatBytes, formatDate } from '../lib/format.ts';
   import CopyField from '../components/CopyField.svelte';
@@ -24,9 +24,10 @@
   const maxFileSize = 100_000_000;
 
   // Where the ciphertext is kept (docs/storage/), and whether it goes
-  // there through FileBunny or straight from this browser. Only the choice
-  // is sent; whether a service works is up to the server, which refuses
-  // with 503 before any data is sent.
+  // there through FileBunny or straight from this browser. Which services
+  // the server offers is asked when the choice is first used, not on load;
+  // whether one works right now is up to the server, which refuses with
+  // 503 before any data is sent.
   const shortExpiry = [
     { value: '1h', label: '1 hour' },
     { value: '24h', label: '1 day' },
@@ -65,6 +66,22 @@
   let via = $state<'server' | 'direct'>('server');
   let statusOpen = $state(false);
   const chosen = $derived(storageByName(storageName)!);
+  // Names the server stores at itself; null until asked (or if it did not say).
+  let offered = $state.raw<ReadonlySet<string> | null>(null);
+  function askOffered() {
+    offeredStorage().then((o) => (offered = o));
+  }
+  $effect(() => {
+    if (storageName !== 'local') askOffered();
+  });
+  const viaServer = $derived(throughServer(chosen.name, offered));
+  // Not offered through this server: direct where the service allows it,
+  // otherwise back to this server.
+  $effect(() => {
+    if (viaServer) return;
+    if (chosen.direct) via = 'direct';
+    else storageName = 'local';
+  });
   const direct = $derived(chosen.direct && via === 'direct');
   let expires = $state('24h');
   let maxDownloads = $state(0);
@@ -363,13 +380,13 @@
       disabled={busy} submitLabel="Encrypt and upload" onchange={() => show(3)} onback={() => back(3)} onnext={() => goOn(3)}>
       <label class="field">
         <span>Stored at</span>
-        <select bind:value={storageName}>
-          {#each storages as o (o.name)}<option value={o.name}>{o.label}</option>{/each}
+        <select bind:value={storageName} onfocus={askOffered}>
+          {#each storageChoices(offered, true) as o (o.name)}<option value={o.name}>{o.label}</option>{/each}
         </select>
       </label>
       {#if chosen.direct}
         <div class="choice">
-          <label><input type="radio" bind:group={via} value="server" /> Through FileBunny</label>
+          <label><input type="radio" bind:group={via} value="server" disabled={!viaServer} /> Through FileBunny</label>
           <label><input type="radio" bind:group={via} value="direct" /> Directly from your browser</label>
           <Info label="About the two ways">
             <strong>Through FileBunny:</strong> this server passes the file on, so {chosen.short} sees this server
@@ -377,6 +394,9 @@
             {chosen.short} itself, so {chosen.short} sees your IP address and FileBunny does not know about the file.
           </Info>
         </div>
+        {#if !viaServer}
+          <p class="note">This server does not offer {chosen.short} through FileBunny, only directly from your browser.</p>
+        {/if}
       {:else if chosen.name !== 'local'}
         <p class="note">Sent through FileBunny: {chosen.short} sees this server instead of you.</p>
       {/if}

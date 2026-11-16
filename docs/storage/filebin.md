@@ -118,7 +118,9 @@ name, can delete the file at any time.
 Off by default. Set `FILEBUNNY_FILEBIN=true` to offer the route through
 your server, and allow `https://filebin.net https://storage.filebin.net` in
 `connect-src` (already in `deploy/Caddyfile`). The direct route works without
-the server setting. Read Filebin's [terms](https://filebin.net/terms) before
+the server setting. The pages ask `GET /api/v1/storage` when a visitor opens
+the storage choice and offer "Through FileBunny" (and Filebin for upload
+links) only when it is listed; without it a request gets `400`. Read Filebin's [terms](https://filebin.net/terms) before
 you offer it.
 
 ## If Filebin changes
