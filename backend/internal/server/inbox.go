@@ -85,7 +85,7 @@ func (s *Server) handleCreateInbox(w http.ResponseWriter, r *http.Request) {
 	var rem *remote
 	if v := q.Get("storage"); v != "" && v != "local" {
 		if rem = s.remotes[v]; rem == nil {
-			writeError(w, http.StatusBadRequest, "unknown storage")
+			writeError(w, http.StatusBadRequest, msgStorageNotOffered)
 			return
 		}
 		if healthy, _ := rem.status(); !healthy {
