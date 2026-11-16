@@ -146,6 +146,13 @@ continues as the admin once that exists. After it, only the admin user
 can log in: set `ansible_user` to it.
 Then deploy a release with `scripts/deploy.sh --host admin@server vX.Y.Z`.
 
+The playbook writes `/opt/filebunny/.env` from the inventory. Its own
+variables are lowercase (`filebunny_max_total_size`, `filebunny_filebin`,
+...); any other `FILEBUNNY_*` setting goes under `filebunny_env` with its
+name as in the table below. A `FILEBUNNY_*` name directly in the inventory
+is ignored. After a change: run the playbook, then `scripts/deploy.sh`
+again, which recreates the containers.
+
 A closed test: `filebunny_web_allow` (addresses and networks, IPv4 and
 IPv6) lets only those reach ports 80 and 443; SSH stays open. Let's
 Encrypt checks the domain from addresses nobody knows in advance, so for
