@@ -40,7 +40,7 @@
       ciphertext = data;
     } catch {
       step = back;
-      error = 'This is not an OpenPGP message. Load the file you saved from Filebin (data.bin).';
+      error = 'This is not an OpenPGP message. Load the file you saved from Filebin (data.bin, still encrypted).';
     }
   }
 
@@ -82,13 +82,13 @@
     <progress></progress>
     <p class="note">{formatBytes(received)} received</p>
   {:else}
-    <p>Filebin wants to check your browser first, which only works on its own page.</p>
+    <p>Filebin wants to check your browser first, which only works on its own page. Keep this tab open.</p>
     <ol>
       <li>
-        <a href={url} target="_blank" rel="noopener noreferrer">Open the file at Filebin</a> in a new tab and save it
-        (data.bin).
+        <a href={url} target="_blank" rel="noopener noreferrer">Open the file at Filebin</a> in a new tab and save it.
+        It is called data.bin and is still encrypted: it only opens here.
       </li>
-      <li>Load the saved file here:</li>
+      <li>Come back to this tab and load the saved file (on a phone, choose it from Downloads):</li>
     </ol>
     <div
       class="dropzone"
