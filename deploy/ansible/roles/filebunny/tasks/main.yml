@@ -6,8 +6,12 @@
       - filebunny_admin is match('^[a-z][a-z0-9-]{0,30}$')
       - filebunny_tls in ['auto', 'internal']
       - filebunny_filebin | string | lower in ['true', 'false']
-      # Settings with their own variable, not through filebunny_env.
-      - "'FILEBUNNY_FILEBIN' not in filebunny_env"
+      # filebunny_env: only FILEBUNNY_* names, one-line values, and not the
+      # settings that have their own variable (they would be in .env twice).
+      - filebunny_env is mapping
+      - filebunny_env.keys() | reject('match', '^FILEBUNNY_[A-Z0-9_]+$') | list | length == 0
+      - filebunny_env.values() | map('string') | select('search', '[\\r\\n]') | list | length == 0
+      - filebunny_env.keys() | intersect(['FILEBUNNY_DOMAIN', 'FILEBUNNY_TLS', 'FILEBUNNY_WWW_REDIRECT', 'FILEBUNNY_MAX_TOTAL_SIZE', 'FILEBUNNY_SMTP', 'FILEBUNNY_FILEBIN']) | length == 0
       - filebunny_domain is match('^[a-z0-9.-]+$')
       - filebunny_dns | length > 0
       - filebunny_admin not in filebunny_remove_users
@@ -15,7 +19,7 @@
       - filebunny_reviewer != filebunny_admin and filebunny_reviewer not in filebunny_remove_users
       - filebunny_reviewer_keys | length == 0 or (filebunny_reviewer_expires is match('^\\d{4}-\\d{2}-\\d{2}$') and filebunny_reviewer_expires > ansible_facts.date_time.date)
       - not filebunny_monitor or filebunny_smtp_file | length == 0 or filebunny_monitor_mail_to | length > 0
-    fail_msg: Debian 13 only; set filebunny_admin_keys and filebunny_dns; filebunny_tls is auto or internal; filebunny_filebin is true or false (not FILEBUNNY_FILEBIN in filebunny_env); reviewer keys need a future filebunny_reviewer_expires.
+    fail_msg: Debian 13 only; set filebunny_admin_keys and filebunny_dns; filebunny_tls is auto or internal; filebunny_filebin is true or false; filebunny_env only has FILEBUNNY_* names (uppercase) with one-line values, and none that have their own variable (filebunny_domain, filebunny_tls, filebunny_www_redirect, filebunny_max_total_size, filebunny_smtp_file, filebunny_filebin); reviewer keys need a future filebunny_reviewer_expires.
 
 - name: Is cloud-init installed?
   ansible.builtin.stat: {path: /etc/cloud}
