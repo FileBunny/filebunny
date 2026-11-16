@@ -113,8 +113,8 @@ name, can delete the file at any time.
 
 ## Self-hosting
 
-Off by default. Set `FILEBUNNY_FILEBIN=true` to offer the route through
-your server, and allow `https://filebin.net https://storage.filebin.net` in
+Off by default. Set `FILEBUNNY_FILEBIN=true` (with `deploy/ansible`:
+`filebunny_filebin: true`) to offer the route through your server, and allow `https://filebin.net https://storage.filebin.net` in
 `connect-src` (already in `deploy/Caddyfile`). The direct route works without
 the server setting. Read Filebin's [terms](https://filebin.net/terms) before
 you offer it.
