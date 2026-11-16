@@ -388,7 +388,8 @@
         <p class="note">
           {chosen.short} sees your IP address and keeps the file for about {chosen.keepsDays} days. There is no download
           limit and no delete link: anyone with the link can download it, and delete it. FileBunny cannot e-mail the
-          link either; you send it yourself.
+          link either; you send it yourself. The recipient may have to save the file at Filebin first and then load it
+          in FileBunny; through FileBunny they need no such step.
         </p>
       {:else}
         <div class="row">
