@@ -334,6 +334,25 @@ export async function storageStatus(): Promise<StorageStatus[]> {
   }));
 }
 
+let offered: Promise<ReadonlySet<string> | null> | null = null;
+
+/**
+ * The names of the services this server stores at through itself, asked
+ * once a page shows the choice (never on load), then kept: they only
+ * change with the server's configuration. null if the server did not say
+ * (offline, or older than GET /api/v1/storage); asked again next time.
+ */
+export function offeredStorage(): Promise<ReadonlySet<string> | null> {
+  offered ??= storageStatus().then(
+    (list) => new Set(list.map((s) => s.name)),
+    () => {
+      offered = null;
+      return null;
+    },
+  );
+  return offered;
+}
+
 /** The command-line equivalent of a download, for the gpg instructions. */
 export function fileUrl(id: string): string {
   return siteBase() + filePath(id);

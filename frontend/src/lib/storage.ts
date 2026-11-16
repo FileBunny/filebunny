@@ -32,3 +32,21 @@ export function storageByName(name: string | undefined): Storage | undefined {
 export function storageLabel(name: string): string {
   return storageByName(name)?.short ?? name;
 }
+
+/**
+ * Whether the server stores at name itself: always for 'local', for a
+ * service only when GET /api/v1/storage lists it (its adapter is on).
+ * offered is null while that is not known; the choice stays open then,
+ * and the server refuses with 400 if it does not offer it.
+ */
+export function throughServer(name: string, offered: ReadonlySet<string> | null): boolean {
+  return name === 'local' || offered === null || offered.has(name);
+}
+
+/**
+ * The choices of a page: what the server stores at, and with withDirect
+ * also the services the browser can upload to itself.
+ */
+export function storageChoices(offered: ReadonlySet<string> | null, withDirect: boolean): Storage[] {
+  return storages.filter((s) => throughServer(s.name, offered) || (withDirect && s.direct));
+}

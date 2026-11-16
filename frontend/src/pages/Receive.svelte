@@ -2,13 +2,13 @@
   // Creating an upload link: the owner's public key, then the limits. The
   // public key (with its user IDs) is stored on the server; the private
   // key never leaves this browser.
-  import { createInbox, ApiError, siteBase, type InboxCreated } from '../lib/api.ts';
+  import { createInbox, ApiError, offeredStorage, siteBase, type InboxCreated } from '../lib/api.ts';
   import { tick } from 'svelte';
   import { readPublicKeys, type KeyInfo, type NewKeyPair } from '../lib/crypto.ts';
   import type { Recipient } from '../lib/keylookup.ts';
   import { manageLink, uploadLink } from '../lib/route.ts';
   import { formatBytes, formatDate } from '../lib/format.ts';
-  import { storageLabel, storages } from '../lib/storage.ts';
+  import { storageChoices, storageLabel, throughServer } from '../lib/storage.ts';
   import CopyField from '../components/CopyField.svelte';
   import ErrorMessage from '../components/ErrorMessage.svelte';
   import Info from '../components/Info.svelte';
@@ -35,6 +35,20 @@
   // Where uploads to the link are kept; always through FileBunny, so the
   // limits of the link work and the service sees neither side.
   let storageName = $state('local');
+  // Names the server stores at itself, asked when the choice is first
+  // used; null until then. A service it does not offer goes back to this
+  // server.
+  let offered = $state.raw<ReadonlySet<string> | null>(null);
+  function askOffered() {
+    offeredStorage().then((o) => (offered = o));
+  }
+  $effect(() => {
+    if (storageName !== 'local') askOffered();
+  });
+  $effect(() => {
+    if (!throughServer(storageName, offered)) storageName = 'local';
+  });
+  const choices = $derived(storageChoices(offered, false));
   let statusOpen = $state(false);
   let busy = $state(false);
   let error = $state('');
@@ -203,10 +217,13 @@
     <legend>3. Where are uploads kept?</legend>
     <label class="field">
       <span>Stored at</span>
-      <select bind:value={storageName}>
-        {#each storages as o (o.name)}<option value={o.name}>{o.label}</option>{/each}
+      <select bind:value={storageName} onfocus={askOffered}>
+        {#each choices as o (o.name)}<option value={o.name}>{o.label}</option>{/each}
       </select>
     </label>
+    {#if choices.length === 1}
+      <p class="note">This server keeps uploads itself; it offers no external storage.</p>
+    {/if}
     {#if storageName !== 'local'}
       <p class="note">
         Sent through FileBunny: {storageLabel(storageName)} sees this server, not the senders or you, and only gets
