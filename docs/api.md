@@ -61,8 +61,11 @@ IPv6 per /64; see [architecture.md](architecture.md#abuse-limits)):
 
 Over a limit: **429** with `Retry-After` (seconds until the hour ends).
 **503** with `Retry-After: 60` when the server tracks too many visitors
-or remembers too many used proofs. Bytes are checked before and counted
-after an upload or chunk, so the last upload of an hour may go over.
+or remembers too many used proofs. An upload or chunk reserves its bytes
+before the body is read: its `Content-Length`, or the largest size
+allowed when it has none. It gets **429** if they do not fit, also while
+other uploads of the same visitor are still in progress. Afterwards only
+the bytes stored count; a failed upload counts none.
 
 ## Upload
 

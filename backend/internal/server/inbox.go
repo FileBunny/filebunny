@@ -240,16 +240,25 @@ func (s *Server) handleInboxUpload(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	if !s.proven(w, r, "upload") || !s.allow(w, r, ratelimit.UploadBytes, 0) || !s.allow(w, r, ratelimit.Upload, 1) {
-		return
-	}
 	if r.ContentLength > limit {
 		writeError(w, http.StatusRequestEntityTooLarge, "file exceeds "+strconv.FormatInt(limit, 10)+" bytes")
+		return
+	}
+	if !s.proven(w, r, "upload") {
 		return
 	}
 	need := limit
 	if r.ContentLength >= 0 {
 		need = r.ContentLength
+	}
+	settle, ok := s.reserveBytes(w, r, need)
+	if !ok {
+		return
+	}
+	var stored int64
+	defer func() { settle(stored) }()
+	if !s.allow(w, r, ratelimit.Upload, 1) {
+		return
 	}
 	release, err := s.reserve(r.Context(), need)
 	if errors.Is(err, errStorageFull) {
@@ -290,7 +299,9 @@ func (s *Server) handleInboxUpload(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "upload is empty")
 		return
 	}
-	s.counted(r, ratelimit.UploadBytes, p.Size())
+	// Counted once the body is in, as before: a commit that fails after
+	// this still used the visitor's bandwidth.
+	stored = p.Size()
 	s.commitToInbox(w, r, p, in, rem)
 }
 

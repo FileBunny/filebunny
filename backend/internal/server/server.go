@@ -217,14 +217,22 @@ func (s *Server) handleUpload(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusRequestEntityTooLarge, "file exceeds "+strconv.FormatInt(s.cfg.MaxSize, 10)+" bytes")
 		return
 	}
-	if !s.proven(w, r, "upload") || !s.allow(w, r, ratelimit.UploadBytes, 0) || !s.allow(w, r, ratelimit.Upload, 1) {
+	if !s.proven(w, r, "upload") {
 		return
 	}
-
 	// Without Content-Length, reserve the maximum the body may grow to.
 	need := s.cfg.MaxSize
 	if r.ContentLength >= 0 {
 		need = r.ContentLength
+	}
+	settle, ok := s.reserveBytes(w, r, need)
+	if !ok {
+		return
+	}
+	var stored int64
+	defer func() { settle(stored) }()
+	if !s.allow(w, r, ratelimit.Upload, 1) {
+		return
 	}
 	release, err := s.reserve(r.Context(), need)
 	if errors.Is(err, errStorageFull) {
@@ -268,7 +276,7 @@ func (s *Server) handleUpload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	s.counted(r, ratelimit.UploadBytes, f.Size)
+	stored = f.Size
 	writeJSON(w, http.StatusCreated, newUploadResponse(f, token))
 }
 
