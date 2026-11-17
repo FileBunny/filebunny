@@ -759,7 +759,7 @@ audio, Filebin through the server, HTTP/3 off) were not in scope.
 ```sh
 make test     # unit and security regression tests (incl. log privacy)
 make vuln     # govulncheck
-cd frontend && npm audit
+cd frontend && node ../scripts/npm-audit.mjs   # npm audit minus .npmauditignore
 docker compose up -d --build && scripts/smoke-test.sh   # end to end
 ```
 

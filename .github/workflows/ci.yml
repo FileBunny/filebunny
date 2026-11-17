@@ -52,7 +52,9 @@ jobs:
         env:
           FILEBUNNY_REQUIRE_GPG: "1"
       - name: Audit
-        run: cd frontend && npm audit --audit-level=moderate
+        # npm audit from moderate up; accepted advisories are in
+        # .npmauditignore, each with a reason and an expiry date.
+        run: cd frontend && node ../scripts/npm-audit.mjs
       - name: Build
         run: make frontend single
 
