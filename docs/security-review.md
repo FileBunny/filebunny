@@ -726,7 +726,7 @@ gets a 403 and has to try again; the frontend does not retry yet.
 ```sh
 make test     # unit and security regression tests (incl. log privacy)
 make vuln     # govulncheck
-cd frontend && npm audit
+cd frontend && node ../scripts/npm-audit.mjs   # npm audit minus .npmauditignore
 docker compose up -d --build && scripts/smoke-test.sh   # end to end
 ```
 
