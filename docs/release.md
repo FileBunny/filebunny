@@ -65,6 +65,11 @@ run. That is the cue to update and release. A finding that is accepted for
 now goes in `.trivyignore` with its reason and an expiry date (`exp:`);
 after that date it fails the scan again.
 
+The frontend's dependencies are audited on every CI run
+(`scripts/npm-audit.mjs`: `npm audit` from moderate up, build tools
+included). An accepted advisory goes in `.npmauditignore` the same way:
+its GHSA ID, the reason and `exp:`.
+
 ## Deploying a release
 
 `scripts/deploy.sh` deploys a release by digest; the server never builds.

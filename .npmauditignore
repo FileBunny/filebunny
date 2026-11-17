@@ -1,0 +1,10 @@
+# Advisories that scripts/npm-audit.mjs (CI) accepts, each with a reason
+# and an expiry date: after it the advisory fails the audit again, so an
+# accepted risk is looked at again instead of staying forever.
+
+# picomatch <= 4.0.7: ReDoS through repeated extglobs in a pattern. Build
+# time only (vite, tinyglobby, svelte-check): it matches the globs of this
+# repository's own config, never input from visitors, and is not in the
+# built page (`npm audit --omit=dev`: nothing). No fixed release yet;
+# remove once there is one.
+GHSA-fc5q-39xc-vjpf exp:2026-12-15

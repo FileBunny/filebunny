@@ -78,6 +78,7 @@ deploy/ansible            server setup: SSH, firewall with egress filtering, fai
 scripts/repro-check.sh    builds twice, compares hashes
 scripts/smoke-test.sh     end-to-end test of the Compose stack, incl. log privacy
 scripts/pow.py            solves a proof-of-work challenge (curl users, smoke test)
+scripts/npm-audit.mjs     npm audit minus .npmauditignore (accepted, with expiry; CI)
 scripts/release-files.sh  release files from the image build stages (reproducible)
 scripts/release-repro.sh  builds them twice from differently set up copies, compares (CI, release)
 scripts/verify-site.sh    does a site serve exactly its release? (also the hourly watcher)
