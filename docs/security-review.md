@@ -724,6 +724,36 @@ offers `h3`.
 upload (mobile networks, IPv6 privacy addresses outside one /64) still
 gets a 403 and has to try again; the frontend does not retry yet.
 
+## External review (2026-11-14)
+
+| | |
+|---|---|
+| Date | 2026-11-14 (review), 2026-11-17 (follow-up) |
+| Scope | Repository at `v0.10.0` (`972a3e6`): backend, frontend crypto and authorization flows, workflows, deployment; the production host, Docker and Caddy, read-only, partly through output the operator ran for the reviewer |
+| Reviewer | An independent reviewer with a restricted account on the server; follow-up by Claude Code (AI-assisted) |
+
+No critical or medium findings; no authentication bypass, IDOR, SSRF or
+cryptographic flaw found in the reviewed code. Later changes (photo,
+audio, Filebin through the server, HTTP/3 off) were not in scope.
+
+| ID | Finding | Disposition |
+|---|---|---|
+| V-01 | Caddy 2.11.9 is built with Go 1.27.3: GO-2026-6859, an HTTP/1 crash through a header race in `MaxBytesReader`, which `request_body` uses. Rated high; not reproduced | **Accepted until 2026-12-15** (`.trivyignore`), waiting for a Caddy release built with Go 1.27.4 or later. Availability only: Caddy exits and Docker restarts it, no data is exposed; a visitor can repeat it. Not worked around: building Caddy ourselves would change the build for a few weeks, and dropping `request_body` would remove a layer. Caddy had no newer release on 2026-11-17; the refreshed `2.11.9-alpine` image still has Go 1.27.3 |
+| L-01 | The per-visitor byte limit was checked before and counted after an upload, so concurrent uploads could exceed it | **Fixed:** uploads and chunks reserve their bytes atomically and settle to what was stored; negative counts are refused. `TestConcurrentUploadsShareByteLimit`, `TestReserve` |
+| L-02 | fail2ban's nftables set for SSH is IPv4 only | **Not a gap:** fail2ban creates the IPv6 set (`addr6-set-sshd`) on the first IPv6 ban. Tested on the server: a ban of `2001:db8::dead` landed in that set, with its own reject rule for `ip6 saddr` |
+| M-01 | A kernel update waited for a reboot | **Done:** the automatic reboot (04:30) ran; 6.12.117 runs, no reboot pending. The monitor mails when one waits more than 36 hours |
+| H-01 | `nft` shows "XT target DNAT not found" in Docker's IPv6 NAT table | **No problem:** `nft` cannot print the xtables targets Docker's iptables-nft uses. `ip6tables -t nat -L DOCKER -v` shows the DNAT rules for 80 and 443 with packet counts, so IPv6 visitors arrive |
+| H-02 | No memory limits on the containers | **Fixed:** 256 MiB each (`mem_limit`). Measured with 8 parallel 100 MB uploads and 16 downloads: heap under 10 MiB (backend) and 30 MiB (Caddy), the rest page cache; with the caps the load and the smoke test pass without OOM kills |
+| H-03 | Compare the SSRF blocklist with IANA's registries | **Fixed:** three IPv6 ranges added (see the WKD section above); to be repeated yearly |
+| H-04 | The scan workflow mounts the Docker socket into Trivy; `:ro` does not make the API read-only | **Fixed:** Trivy reads `docker save` archives. The runner is ephemeral, so the risk was small |
+| H-05 | The HTTP redirect sends `Server: Caddy` | **Accepted:** the repository and the Caddyfile are public, so hiding it protects nothing |
+| H-06 | HSTS has `includeSubDomains` | **Intended** (phase 10): no subdomain serves HTTP; the mail records are DNS only |
+| – | Verify the live image digests against their attestations | **Done:** both digests verify as built by `release.yml` from tag `v0.10.0` at `972a3e6` on a GitHub-hosted runner, as `scripts/deploy.sh` checks on every deploy |
+| – | Certificate renewal before 2027-02-06 | Caddy renews by itself; the monitor mails before expiry and on unknown certificates (crt.sh) |
+| – | A database row can remain when a blob rename and its cleanup both fail | **Accepted:** it gives no access to anything and expires like any file |
+| – | The challenge endpoint has no own rate limit | **Accepted:** challenges are stateless (HMAC); only used proofs are remembered, capped (503 beyond) |
+| – | SEIPDv1 instead of AEAD; keys not wiped from JavaScript memory | **Accepted:** SEIPDv1 for gpg compatibility (architecture.md, Algorithms); JavaScript gives no reliable way to wipe memory |
+
 ## How to re-run the checks
 
 ```sh

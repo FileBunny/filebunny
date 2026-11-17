@@ -13,7 +13,8 @@ CVE-2026-78661 exp:2026-12-15
 # limit uses. Caddy restarts (restart: unless-stopped), but a visitor can
 # crash it again. Fixed in Go 1.27.4; wait for the Caddy release built
 # with it. Building Caddy ourselves would change the build more than this
-# is worth for a few weeks.
+# is worth for a few weeks. The external review rated it high (V-01); the
+# acceptance and its reasons are in docs/security-review.md.
 CVE-2026-97054 exp:2026-12-15
 
 # golang.org/x/crypto/openpgp in Caddy (2.11.9): a notice that the
