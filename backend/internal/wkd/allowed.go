@@ -5,7 +5,8 @@ import "net/netip"
 // blocked lists the ranges a lookup must never connect to, on top of what
 // Allowed rejects with netip's own checks. IPv6 ranges that embed or
 // tunnel to IPv4 are blocked whole, since they could reach a private IPv4
-// address behind a translator.
+// address behind a translator. Compared with IANA's special-purpose
+// registries (IPv4 and IPv6, both updated 2025-10-09) on 2026-11-17.
 var blocked = mustPrefixes(
 	"0.0.0.0/8",          // "this network"
 	"100.64.0.0/10",      // CGNAT
@@ -21,11 +22,12 @@ var blocked = mustPrefixes(
 	"64:ff9b::/96",       // NAT64
 	"64:ff9b:1::/48",     // local-use NAT64
 	"100::/64",           // discard
-	"2001::/32",          // Teredo
-	"2001:2::/48",        // benchmarking
+	"100:0:0:1::/64",     // dummy prefix (RFC 9780)
+	"2001::/23",          // IETF protocol assignments: Teredo, benchmarking, ORCHID, anycast; no web servers
 	"2001:db8::/32",      // documentation
 	"2002::/16",          // 6to4
 	"3fff::/20",          // documentation
+	"5f00::/16",          // SRv6 segment identifiers (RFC 9602)
 	"fec0::/10",          // site-local (deprecated)
 	"169.254.169.254/32", // cloud metadata (also link-local; listed to be explicit)
 )

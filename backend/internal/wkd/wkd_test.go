@@ -92,7 +92,7 @@ func TestURLs(t *testing.T) {
 }
 
 func TestAllowed(t *testing.T) {
-	for _, s := range []string{"93.184.215.14", "1.1.1.1", "2a00:1450:4001:80b::200e", "2606:4700::1111"} {
+	for _, s := range []string{"93.184.215.14", "1.1.1.1", "2a00:1450:4001:80b::200e", "2606:4700::1111", "2001:200::1"} {
 		if !Allowed(netip.MustParseAddr(s)) {
 			t.Errorf("%s blocked", s)
 		}
@@ -111,8 +111,10 @@ func TestAllowed(t *testing.T) {
 		"::ffff:127.0.0.1", "::ffff:8.8.8.8", "::127.0.0.1", // IPv4-mapped/compatible
 		"64:ff9b::a00:1", "64:ff9b:1::1", // NAT64
 		"2002:a00:1::1", "2002:808:808::1", // 6to4
-		"2001:0:4136:e378::1", // Teredo
-		"fec0::1", "100::1",   // site-local, discard
+		"2001:0:4136:e378::1",                         // Teredo
+		"2001:20::1", "2001:1::1", "2001:1ff:ffff::1", // rest of IETF protocol assignments
+		"100:0:0:1::1", "5f00::1", // dummy prefix, SRv6 SIDs
+		"fec0::1", "100::1", // site-local, discard
 	} {
 		if Allowed(netip.MustParseAddr(s)) {
 			t.Errorf("%s allowed", s)

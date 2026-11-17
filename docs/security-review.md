@@ -218,8 +218,11 @@ The only outgoing requests the backend makes. `internal/wkd`:
   169.254.169.254, multicast, unspecified, broadcast), private (RFC 1918,
   fc00::/7), CGNAT 100.64/10, 0/8, 192.0.0/24, documentation and
   benchmark ranges, 240/4, 6to4 relay, IPv4-mapped and -compatible IPv6,
-  NAT64 (64:ff9b::/96, 64:ff9b:1::/48), 6to4 2002::/16, Teredo 2001::/32,
-  site-local and discard.
+  NAT64 (64:ff9b::/96, 64:ff9b:1::/48), 6to4 2002::/16, the IETF
+  protocol assignments 2001::/23 (incl. Teredo), site-local, discard, the
+  dummy prefix 100:0:0:1::/64 and SRv6 SIDs 5f00::/16. Compared with
+  IANA's special-purpose registries on 2026-11-17 (external review,
+  H-03); to be repeated yearly.
 - **Limits:** 5 s dial, 5 s TLS, 5 s to headers, 10 s per lookup in
   total, 1 MiB response, 16 KiB headers, request body 1 KiB, at most 8
   lookups server-wide (`503` beyond).
