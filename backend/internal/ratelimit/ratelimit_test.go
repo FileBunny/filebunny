@@ -94,3 +94,57 @@ func TestRetryAfter(t *testing.T) {
 		t.Errorf("retry after %s", got)
 	}
 }
+
+func TestReserve(t *testing.T) {
+	l, now := newTest(map[Action]Limit{UploadBytes: {PerHour: 100, PerDay: 150}})
+	c := l.Client(netip.MustParseAddr("203.0.113.7"))
+
+	// A reservation holds its room until it is settled.
+	settle, err := l.Reserve(c, UploadBytes, 80)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := l.Reserve(c, UploadBytes, 30); err != ErrLimited {
+		t.Errorf("second reservation while the first is open: %v", err)
+	}
+	// Settling gives back what was not used, once.
+	settle(20)
+	settle(0)
+	if n := l.Count(c, UploadBytes); n != 20 {
+		t.Errorf("count after settling: %d, want 20", n)
+	}
+	// Used above the reservation counts only the reservation.
+	settle, _ = l.Reserve(c, UploadBytes, 10)
+	settle(1000)
+	if n := l.Count(c, UploadBytes); n != 30 {
+		t.Errorf("count after settling too much: %d, want 30", n)
+	}
+
+	// Settled in the next hour: the old hour is gone, the day is corrected.
+	settle, _ = l.Reserve(c, UploadBytes, 70)
+	*now = now.Add(time.Hour)
+	settle(0)
+	if n := l.Count(c, UploadBytes); n != 0 {
+		t.Errorf("new hour: %d", n)
+	}
+	if l.Allow(c, UploadBytes, 100) != nil {
+		t.Error("daily room not given back") // 30 of 150 used today, 0 of 100 this hour
+	}
+
+	// Settled on the next day: nothing changes, nothing breaks.
+	settle, _ = l.Reserve(c, UploadBytes, 0)
+	*now = now.Add(24 * time.Hour)
+	settle(0)
+
+	// Counting backwards is refused or ignored.
+	if l.Allow(c, UploadBytes, -1) == nil {
+		t.Error("negative count allowed")
+	}
+	if _, err := l.Reserve(c, UploadBytes, -1); err == nil {
+		t.Error("negative reservation allowed")
+	}
+	l.Add(c, UploadBytes, -50)
+	if n := l.Count(c, UploadBytes); n != 0 {
+		t.Errorf("negative Add counted: %d", n)
+	}
+}

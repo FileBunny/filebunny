@@ -156,11 +156,15 @@ func TestRateLimits(t *testing.T) {
 		return &httpResult{rec.Code, rec.Header().Get("Retry-After")}
 	}
 
-	if r := upload(a, "123456789012"); r.code != http.StatusCreated {
+	// More bytes than the limit is refused up front.
+	if r := upload(a, "12345678901"); r.code != http.StatusTooManyRequests || r.retry == "" {
+		t.Fatalf("upload over the byte limit: %+v", r)
+	}
+	if r := upload(a, "12345678"); r.code != http.StatusCreated {
 		t.Fatalf("first upload: %d", r.code)
 	}
-	// 12 bytes used of 10: no room for more, although one upload is left.
-	if r := upload(a, "x"); r.code != http.StatusTooManyRequests || r.retry == "" {
+	// 8 bytes used of 10: 3 more do not fit, although uploads are left.
+	if r := upload(a, "xxx"); r.code != http.StatusTooManyRequests || r.retry == "" {
 		t.Errorf("over the byte limit: %+v", r)
 	}
 	if r := upload(b, "x"); r.code != http.StatusCreated {
@@ -218,10 +222,10 @@ func TestRateLimitChunkBytes(t *testing.T) {
 	rec := e.do("POST", "/api/v1/uploads", nil)
 	var up createUploadResponse
 	json.Unmarshal(rec.Body.Bytes(), &up)
-	if rec := e.chunk(up, 0, "123456789012"); rec.Code != http.StatusOK {
+	if rec := e.chunk(up, 0, "12345678"); rec.Code != http.StatusOK {
 		t.Fatalf("chunk 1: %d", rec.Code)
 	}
-	if rec := e.chunk(up, 12, "x"); rec.Code != http.StatusTooManyRequests {
+	if rec := e.chunk(up, 8, "xxx"); rec.Code != http.StatusTooManyRequests {
 		t.Errorf("chunk over the byte limit: %d", rec.Code)
 	}
 }

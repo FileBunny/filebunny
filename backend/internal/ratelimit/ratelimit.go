@@ -145,6 +145,52 @@ func (l *Limiter) prune(hour int64) {
 func (l *Limiter) Allow(c Client, a Action, n int64) error {
 	l.mu.Lock()
 	defer l.mu.Unlock()
+	return l.allow(c, a, n)
+}
+
+// Reserve counts n of action a for c if that stays within the limits, like
+// Allow, for amounts that are only known afterwards, such as the bytes of
+// an upload: reserve the most it can be, then settle with what was used.
+// Concurrent requests cannot all pass a check for the same room this way.
+// settle must be called once; used above n counts only n. A reservation
+// made in an earlier hour no longer changes the hourly count (that hour's
+// count is gone), one from an earlier day changes nothing.
+func (l *Limiter) Reserve(c Client, a Action, n int64) (settle func(used int64), err error) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if err := l.allow(c, a, n); err != nil {
+		return nil, err
+	}
+	now := l.now()
+	day, hour := l.day, now.Unix()/3600
+	var once sync.Once
+	return func(used int64) {
+		once.Do(func() {
+			l.mu.Lock()
+			defer l.mu.Unlock()
+			l.rotate(l.now())
+			u := l.clients[c]
+			if l.day != day || u == nil {
+				return
+			}
+			back := n - min(max(used, 0), n)
+			if u.hour == hour {
+				u.hourly[a] = max(u.hourly[a]-back, 0)
+			}
+			u.daily[a] = max(u.daily[a]-back, 0)
+		})
+	}, nil
+}
+
+// errNegative guards against a caller counting backwards, which would
+// give a visitor room they did not have.
+var errNegative = errors.New("ratelimit: negative count")
+
+// allow is Allow with mu held.
+func (l *Limiter) allow(c Client, a Action, n int64) error {
+	if n < 0 {
+		return errNegative
+	}
 	u, err := l.usage(c, l.now())
 	if err != nil {
 		return err
@@ -158,14 +204,18 @@ func (l *Limiter) Allow(c Client, a Action, n int64) error {
 	return nil
 }
 
-// Room reports whether c has any of action a left, without counting. For
-// amounts only known afterwards, such as bytes: check with Room, then Add.
+// Room reports whether c has any of action a left, without counting. To
+// count an amount only known afterwards, use Reserve.
 func (l *Limiter) Room(c Client, a Action) error {
 	return l.Allow(c, a, 0)
 }
 
-// Add counts n of action a for c without checking the limits.
+// Add counts n of action a for c without checking the limits. A negative
+// n is ignored.
 func (l *Limiter) Add(c Client, a Action, n int64) {
+	if n < 0 {
+		return
+	}
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	if u, err := l.usage(c, l.now()); err == nil {

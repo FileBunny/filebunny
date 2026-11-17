@@ -97,9 +97,20 @@ func (s *Server) limitError(w http.ResponseWriter, err error) bool {
 	return false
 }
 
-// counted adds what an upload turned out to be, after it was stored.
-func (s *Server) counted(r *http.Request, a ratelimit.Action, n int64) {
-	s.limiter.Add(client(r), a, n)
+// reserveBytes counts n upload bytes for the visitor before they arrive
+// (the most the body may be), so concurrent uploads cannot all pass one
+// check for the same room. Over the limit it answers 429 (or 503) and
+// returns false. settle corrects the count to the bytes stored, 0 if the
+// upload failed; it must be called once.
+func (s *Server) reserveBytes(w http.ResponseWriter, r *http.Request, n int64) (settle func(stored int64), ok bool) {
+	if !s.cfg.RateLimits {
+		return func(int64) {}, true
+	}
+	settle, err := s.limiter.Reserve(client(r), ratelimit.UploadBytes, n)
+	if !s.limitError(w, err) {
+		return nil, false
+	}
+	return settle, true
 }
 
 // proven checks the proof of work for action. Without a valid one it

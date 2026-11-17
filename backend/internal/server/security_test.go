@@ -14,6 +14,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/FileBunny/filebunny/backend/internal/ratelimit"
 )
 
 // Tests for the findings in docs/security-review.md.
@@ -123,6 +125,46 @@ func TestStorageQuotaReservations(t *testing.T) {
 	}
 	if e.srv.reserved != 0 {
 		t.Errorf("reserved %d after release", e.srv.reserved)
+	}
+}
+
+// L-01 of the external review: an upload in progress holds its bytes of
+// the visitor's limit, so a second upload at the same time cannot pass a
+// check for the same room. Before, both passed and the limit was exceeded.
+func TestConcurrentUploadsShareByteLimit(t *testing.T) {
+	e := abuseEnv(t, 0, true)
+	e.srv.limiter = ratelimit.New(map[ratelimit.Action]ratelimit.Limit{ratelimit.UploadBytes: {PerHour: 10}},
+		func() time.Time { return e.clock })
+	const ip = "203.0.113.7"
+
+	pr, pw := io.Pipe()
+	req := httptest.NewRequest("POST", "/api/v1/files", pr)
+	req.ContentLength = 8
+	req.Header.Set(clientHeader, ip)
+	first := httptest.NewRecorder()
+	done := make(chan struct{})
+	go func() {
+		e.srv.ServeHTTP(first, req)
+		close(done)
+	}()
+	// The handler reads the first byte only after its checks.
+	if _, err := pw.Write([]byte("1")); err != nil {
+		t.Fatal(err)
+	}
+
+	if code := e.do("POST", "/api/v1/files", strings.NewReader("12345678"), clientHeader, ip).Code; code != http.StatusTooManyRequests {
+		t.Errorf("second upload during the first: %d, want 429", code)
+	}
+
+	pw.Write([]byte("2345678"))
+	pw.Close()
+	<-done
+	if first.Code != http.StatusCreated {
+		t.Fatalf("first upload: %d %s", first.Code, first.Body)
+	}
+	// The first counts the 8 bytes it stored, the refused one nothing.
+	if code := e.do("POST", "/api/v1/files", strings.NewReader("12"), clientHeader, ip).Code; code != http.StatusCreated {
+		t.Errorf("upload in the room left: %d", code)
 	}
 }
 

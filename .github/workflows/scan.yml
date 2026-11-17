@@ -62,18 +62,23 @@ jobs:
           docker pull -q "$TRIVY_IMAGE"
       # Fails on HIGH, CRITICAL and not yet rated (UNKNOWN: often new Go
       # advisories) findings that have a fix. Accepted ones are in
-      # .trivyignore, each with a reason and an expiry date.
+      # .trivyignore, each with a reason and an expiry date. Trivy gets the
+      # images as archives, not the Docker socket: ":ro" on a socket does
+      # not make the Docker API read-only, and the scanner has no need to
+      # start containers on the runner.
       - name: Trivy (images)
         env:
           TAG: ${{ steps.release.outputs.tag }}
         run: |
           status=0
+          mkdir -p "$RUNNER_TEMP/images"
           for name in backend web; do
-            docker run --rm -v /var/run/docker.sock:/var/run/docker.sock:ro \
+            docker save -o "$RUNNER_TEMP/images/$name.tar" "ghcr.io/filebunny/filebunny-$name:$TAG"
+            docker run --rm -v "$RUNNER_TEMP/images:/images:ro" \
               -v "$PWD/.trivyignore:/.trivyignore:ro" "$TRIVY_IMAGE" image \
               --quiet --scanners vuln --ignorefile /.trivyignore \
               --severity UNKNOWN,HIGH,CRITICAL --ignore-unfixed --exit-code 1 \
-              "ghcr.io/filebunny/filebunny-$name:$TAG" || status=1
+              --input "/images/$name.tar" || status=1
           done
           exit $status
       # Reports only vulnerable symbols that are in the binary, so it is

@@ -162,9 +162,12 @@ func (s *Server) handleChunk(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusRequestEntityTooLarge, "file exceeds "+strconv.FormatInt(u.maxSize, 10)+" bytes")
 		return
 	}
-	if !s.allow(w, r, ratelimit.UploadBytes, 0) {
+	settle, ok := s.reserveBytes(w, r, r.ContentLength)
+	if !ok {
 		return
 	}
+	var stored int64
+	defer func() { settle(stored) }()
 
 	release, err := s.reserve(r.Context(), r.ContentLength)
 	if errors.Is(err, errStorageFull) {
@@ -190,7 +193,7 @@ func (s *Server) handleChunk(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	u.releases = append(u.releases, release)
-	s.counted(r, ratelimit.UploadBytes, r.ContentLength)
+	stored = r.ContentLength
 	writeJSON(w, http.StatusOK, chunkResponse{Offset: u.p.Size()})
 }
 
