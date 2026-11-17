@@ -21,7 +21,7 @@ ARG VERSION=dev
 RUN GOOS=$TARGETOS GOARCH=$TARGETARCH go build -trimpath -buildvcs=false -ldflags="-s -w -buildid= -X github.com/FileBunny/filebunny/backend/internal/server.Version=${VERSION}" -o /out/filebunny ./cmd/filebunny \
  && mkdir /out/data
 
-FROM gcr.io/distroless/static-debian13:nonroot@sha256:25ac8f0c3b2334a9eb05452266bd4697864a8c8ef0ef71e5e6480d7f92868329 AS backend
+FROM gcr.io/distroless/static-debian13:nonroot@sha256:aafe993665bf6200db38a02c11a9351e782a84b6a45e7f33b6695638c88e3931 AS backend
 COPY --from=backend-build /out/filebunny /filebunny
 COPY --from=backend-build --chown=nonroot:nonroot /out/data /data
 ENV FILEBUNNY_LISTEN=:8080 FILEBUNNY_DATA_DIR=/data
