@@ -9,6 +9,13 @@ x-logging: &logging
     max-size: 10m
     max-file: "3"
 
+# Memory: each container is capped at 256 MiB, so a leak or a flood of
+# connections stops that container (restart: unless-stopped) instead of
+# making the kernel kill sshd or dockerd on a small server. Measured with
+# 8 parallel 100 MB uploads and 16 downloads: the backend's heap stayed
+# under 10 MiB and Caddy's under 30 MiB; the rest was page cache of the
+# blobs, which the cap only keeps from crowding out other processes.
+
 services:
   backend:
     build:
@@ -40,6 +47,7 @@ services:
       FILEBUNNY_POW_BITS: ${FILEBUNNY_POW_BITS:-18}
     secrets: [smtp]
     logging: *logging
+    mem_limit: 256m
     volumes:
       - data:/data
     read_only: true
@@ -69,6 +77,7 @@ services:
       - caddy_config:/config
     depends_on: [backend]
     logging: *logging
+    mem_limit: 256m
     read_only: true
     tmpfs: [/tmp]
     # Caddy runs as UID 65532 without any capability; this sysctl (for the

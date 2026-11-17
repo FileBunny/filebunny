@@ -14,6 +14,10 @@ plugin.
 - A domain whose A/AAAA record points to the server. Caddy requests the
   TLS certificate itself.
 - Disk space for `FILEBUNNY_MAX_TOTAL_SIZE` plus some headroom.
+- About 1 GB of RAM. `compose.yaml` caps each container at 256 MiB
+  (`mem_limit`), so a runaway container is stopped and restarted instead
+  of the kernel killing other processes; the backend and Caddy normally
+  use well under 50 MiB each, plus page cache.
 - Check your hoster's terms: anonymous file sharing must be allowed, and
   abuse reports will reach you.
 
