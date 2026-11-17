@@ -9,8 +9,8 @@ plugin.
 
 ## Requirements
 
-- A server with a public IP address, ports 80 and 443 open (TCP, and UDP
-  443 for HTTP/3).
+- A server with a public IP address, TCP ports 80 and 443 open (no UDP:
+  HTTP/3 is off, see the security review).
 - A domain whose A/AAAA record points to the server. Caddy requests the
   TLS certificate itself.
 - Disk space for `FILEBUNNY_MAX_TOTAL_SIZE` plus some headroom.
