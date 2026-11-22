@@ -220,6 +220,23 @@ textarea {
   border-radius: 1rem;
 }
 
+/* On a phone a tall message field pushes Next under the keyboard: start
+   small and grow with the text (where the browser can), up to a limit. */
+@media (pointer: coarse) {
+  textarea {
+    height: calc(4lh + 1.3rem);
+  }
+
+  @supports (field-sizing: content) {
+    textarea {
+      field-sizing: content;
+      height: auto;
+      min-height: calc(3lh + 1.3rem);
+      max-height: calc(10lh + 1.3rem);
+    }
+  }
+}
+
 /* A result heading gets the focus when a form is done (lib/reveal.ts);
    it is not a control, so no ring. */
 main h1[tabindex='-1']:focus {
