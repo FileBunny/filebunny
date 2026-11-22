@@ -661,10 +661,10 @@ fieldset.step:not(.open) {
   margin-top: 1rem;
 }
 
-/* A phone held upright: with the keyboard up there is no room below a
-   message field, so Next sits beside it (only in a step with Next alone,
-   as step 1; an error still spans the width). */
-@media (pointer: coarse) and (orientation: portrait) {
+/* A phone, upright or sideways: with the keyboard up there is no room
+   below a message field, so Next sits beside it (only in a step with
+   Next alone, as step 1; an error still spans the width). */
+@media (pointer: coarse) {
   .step > div:not([hidden]):has(> label.field > textarea):not(:has(> .step-nav > :nth-child(2))) {
     display: grid;
     grid-template-columns: minmax(0, 1fr) auto;
