@@ -308,11 +308,11 @@
     {/if}
     <p>
       {chosen.short} keeps it for about {chosen.keepsDays} days. Anyone with the link can download it as often as they
-      like, and delete it. FileBunny does not know about this file.
+      like, and delete it.
     </p>
     <p class="note">
-      FileBunny cannot e-mail this link, as it does not know about the file: send it yourself. Uploads through FileBunny
-      can be e-mailed from this page.
+      The link opens FileBunny to decrypt, but the file went straight to {chosen.short}: this server has no record of it
+      and cannot e-mail the link. Send it yourself. Uploads through FileBunny can be e-mailed from this page.
     </p>
     <button type="button" onclick={startOver}>Share something else</button>
   </section>

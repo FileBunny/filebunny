@@ -254,7 +254,7 @@
         </span>
       </label>
       <ErrorMessage error={keyError} />
-      <button type="button" class="primary" onclick={unlock}>Unlock</button>
+      <button type="button" class="primary" onclick={unlock}>Unlock key</button>
     </fieldset>
   {:else if privateKey}
     <p class="note">

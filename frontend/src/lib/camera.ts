@@ -95,7 +95,7 @@ export function cameraErrorText(name: string | undefined): string {
   switch (name) {
     case 'NotAllowedError':
     case 'SecurityError':
-      return 'The camera is blocked. Allow it for this site in your browser, or choose File.';
+      return 'The camera is blocked. Allow it for this site in your browser, or share something else.';
     case 'NotFoundError':
     case 'OverconstrainedError':
       return 'No camera found. Choose File to share a photo you already have.';
