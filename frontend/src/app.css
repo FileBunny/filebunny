@@ -563,9 +563,9 @@ header nav a[aria-current='page'] {
   color: var(--button-fg);
 }
 
-/* Low screens (a phone held sideways): the header on one line, without
+/* Low, wide screens (a phone held sideways): the header on one line, without
    the tagline, so a step of a form fits below it. */
-@media (max-height: 500px) {
+@media (max-height: 500px) and (orientation: landscape) {
   #app {
     padding-top: 0.5rem;
   }
