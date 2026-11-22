@@ -8,6 +8,7 @@
   import { formatBytes, formatDate } from '../lib/format.ts';
   import CopyField from '../components/CopyField.svelte';
   import ErrorMessage from '../components/ErrorMessage.svelte';
+  import WorkProgress from '../components/WorkProgress.svelte';
   import KeyPicker from '../components/KeyPicker.svelte';
   import MailLink from '../components/MailLink.svelte';
   import Info from '../components/Info.svelte';
@@ -95,6 +96,8 @@
 
   let busy = $state(false);
   let sent = $state(0);
+  /** Progress of the proof of work, null before it starts. */
+  let work = $state<number | null>(null);
   let error = $state('');
   let result = $state<Uploaded | null>(null);
   /** The bin of a direct upload to Filebin. */
@@ -226,6 +229,7 @@
     busy = true;
     error = '';
     sent = 0;
+    work = null;
     controller = new AbortController();
     try {
       const plaintext =
@@ -248,7 +252,7 @@
         directBin = bin;
       } else {
         const storage = chosen.name === 'local' ? undefined : chosen.name;
-        result = await upload(ciphertext, { expires, maxDownloads, storage }, (n) => (sent = n), controller.signal);
+        result = await upload(ciphertext, { expires, maxDownloads, storage }, (n) => (sent = n), controller.signal, (d) => (work = d));
       }
       // Sent: the photo or recording is not needed in this page any more.
       photo = null;
@@ -434,10 +438,14 @@
       <progress></progress>
       <button type="button" onclick={() => controller?.abort()}>Cancel</button>
     {:else if busy}
-      <!-- Until the first bytes go out: encrypting and the proof of work,
-           which takes a few seconds on older phones. -->
-      {#if sent === 0}<p class="note" role="status">Encrypting and preparing the upload…</p>{/if}
-      <progress max={total} value={Math.min(sent, total)}></progress>
+      <!-- Until the first bytes go out: encrypting, then the proof of work
+           (a few seconds on phones without a JavaScript JIT). -->
+      {#if work !== null && work < 1}
+        <WorkProgress done={work} />
+      {:else}
+        {#if sent === 0}<p class="note" role="status">Encrypting and preparing the upload…</p>{/if}
+        <progress max={total} value={Math.min(sent, total)}></progress>
+      {/if}
       <button type="button" onclick={() => controller?.abort()}>Cancel</button>
     {/if}
   </form>

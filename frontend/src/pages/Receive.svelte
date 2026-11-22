@@ -11,6 +11,7 @@
   import { storageChoices, storageLabel, throughServer } from '../lib/storage.ts';
   import CopyField from '../components/CopyField.svelte';
   import ErrorMessage from '../components/ErrorMessage.svelte';
+  import WorkProgress from '../components/WorkProgress.svelte';
   import Info from '../components/Info.svelte';
   import KeyGen from '../components/KeyGen.svelte';
   import KeyPicker from '../components/KeyPicker.svelte';
@@ -51,6 +52,8 @@
   const choices = $derived(storageChoices(offered, false));
   let statusOpen = $state(false);
   let busy = $state(false);
+  /** Progress of the proof of work, null when none runs. */
+  let work = $state<number | null>(null);
   let error = $state('');
   let missingKey = $state(false);
   let result = $state.raw<{ inbox: InboxCreated; fingerprint: string } | null>(null);
@@ -100,7 +103,7 @@
       const [check] = await readPublicKeys(armored);
       if (!check || check.fingerprint !== key.fingerprint) throw new Error('key changed');
       const storage = storageName === 'local' ? undefined : storageName;
-      const inbox = await createInbox(armored, { expires, maxUploads, storage });
+      const inbox = await createInbox(armored, { expires, maxUploads, storage }, (d) => (work = d));
       result = { inbox, fingerprint: key.fingerprint };
     } catch (err) {
       error =
@@ -113,6 +116,7 @@
             : 'Creating the upload link failed. Check your connection and try again.';
     } finally {
       busy = false;
+      work = null;
     }
   }
 </script>
@@ -237,6 +241,7 @@
   </fieldset>
 
   <ErrorMessage error={missingKey && !key ? 'Choose your key first: create a new key pair or use one you have.' : error} />
+  {#if work !== null && work < 1}<WorkProgress done={work} />{/if}
   <button type="button" class="primary" disabled={busy} onclick={create}>
     {busy ? 'Creating…' : 'Create upload link'}
   </button>
