@@ -18,7 +18,7 @@ func TestDefaults(t *testing.T) {
 		c.InboxDefaultExpiry != 7*24*time.Hour || c.InboxMaxExpiry != 30*24*time.Hour || c.InboxMaxUploads != 100 || c.InboxMaxSize != 100<<20 ||
 		c.Filebin || c.ProxyDailyBytes != 50<<30 ||
 		c.SMTPFile != "" || c.PublicURL != "" || c.MailDaily != 500 || c.MailPerRecipient != 3 || c.MailPerFile != 3 ||
-		c.ClientIPHeader != "" || !c.RateLimits || c.PowBits != 18 {
+		c.ClientIPHeader != "" || !c.RateLimits || c.PowBits != 16 {
 		t.Errorf("unexpected limits: %+v", c)
 	}
 	if c.MaxSize != 100<<20 || c.DefaultExpiry != 24*time.Hour || c.MaxExpiry != 7*24*time.Hour {

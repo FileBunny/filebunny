@@ -100,7 +100,7 @@ const (
 	DefaultMailDaily          = 500
 	DefaultMailPerRecipient   = 3
 	DefaultMailPerFile        = 3
-	DefaultPowBits            = 18
+	DefaultPowBits            = 16
 	MaxPowBits                = 24
 )
 

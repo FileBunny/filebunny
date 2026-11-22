@@ -342,8 +342,8 @@ strictly (plain ASCII, no line breaks) and only used as the recipient.
 - **Proof of work:** stateless challenges signed with an in-memory key,
   bound to the action and the visitor, valid 10 minutes, usable once
   (used ones remembered until they expire, at most 200,000). Difficulty
-  18 bits (about 0.2 s in a laptop browser, up to a few seconds on old
-  phones), one bit more per doubling of the visitor's activity this hour.
+  16 bits (well under a second in a laptop browser, about 3 to 7 s on a
+  phone without a JavaScript JIT, such as Vanadium), one bit more per doubling of the visitor's activity this hour.
   The work is split into 16 smaller proofs: the same average, but the
   time varies little, and the page can show real progress.
   The browser solves it with its own SHA-256 (`lib/sha256.ts`), in slices
@@ -513,7 +513,7 @@ after a crash).
 | E-mail | 3 addresses per link, 3 mails per address per day, 500 per day, each relay's own daily limit, 4 at a time, 30 s each | `FILEBUNNY_MAIL_*`, `daily_limit` per relay; off without relays |
 
 | Per visitor | 60 uploads, 1 GiB, 10 upload links, 10 mails, 60 WKD lookups, 600 downloads per hour; more per day (see api.md) | fixed; `FILEBUNNY_RATE_LIMITS` |
-| Proof of work | 18 bits, +1 per doubling of activity, max 28 | `FILEBUNNY_POW_BITS` |
+| Proof of work | 16 bits, +1 per doubling of activity, max 28 | `FILEBUNNY_POW_BITS` |
 
 ## Code layout
 

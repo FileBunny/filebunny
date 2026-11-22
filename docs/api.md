@@ -24,7 +24,7 @@ link and mailing a link need a **proof of work**:
 GET /api/v1/challenge?action=upload|inbox|mail
 ```
 
-**200 OK**: `{"challenge": "…", "bits": 14, "proofs": 16, "expires_at": "…"}`.
+**200 OK**: `{"challenge": "…", "bits": 12, "proofs": 16, "expires_at": "…"}`.
 Find `proofs` different counters `n1 < n2 < …` (decimal, no leading
 zeros) so that SHA-256 of the ASCII string `<challenge>.<n>` starts with
 `bits` zero bits for each, and send them in ascending order in the
@@ -37,7 +37,7 @@ FileBunny-PoW: <challenge>.<n1>.<n2>.….<n16>
 The work is split into 16 smaller puzzles so that the time varies
 little; on average it is 2^(`bits`+4) hashes. A challenge is bound to the
 action and to the visitor, expires after 10 minutes and works once. The
-difficulty (`bits` + 4) is `FILEBUNNY_POW_BITS` (18) plus one per
+difficulty (`bits` + 4) is `FILEBUNNY_POW_BITS` (16) plus one per
 doubling of what the visitor did this hour, from 4 on; below 4 there are
 fewer proofs. With proof of work off, the answer is
 `{"challenge": "", "bits": 0}` and no header is needed. [`scripts/pow.py`](../scripts/pow.py) solves one for curl:
