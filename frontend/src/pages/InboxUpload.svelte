@@ -2,7 +2,7 @@
   // Sending to an upload link. The key comes from the server, but the link
   // carries its fingerprint: if they differ, nothing is encrypted or sent,
   // so a server (or database) that swapped the key is caught.
-  import { onMount } from 'svelte';
+  import { onMount, tick } from 'svelte';
   import { ApiError, inboxInfo, uploadToInbox, type InboxInfo } from '../lib/api.ts';
   import { encrypt, readPublicKeys, unusableText, type KeyInfo } from '../lib/crypto.ts';
   import { linkFingerprint } from '../lib/route.ts';
@@ -115,6 +115,9 @@
     sent = 0;
     work = null;
     controller = new AbortController();
+    // The status shows below the button: on a phone that is often just
+    // off the screen.
+    tick().then(() => document.getElementById('inbox-busy')?.scrollIntoView({ block: 'nearest' }));
     try {
       const plaintext =
         what === 'text'
@@ -226,13 +229,15 @@
       </fieldset>
       <ErrorMessage error={missing || error} />
       {#if busy}
-        {#if work !== null && work < 1}
-          <WorkProgress done={work} />
-        {:else}
-          {#if sent === 0}<p class="note" role="status">Encrypting and preparing the upload…</p>{/if}
-          <progress max={size} value={Math.min(sent, size)}></progress>
-        {/if}
-        <button type="button" onclick={() => controller?.abort()}>Cancel</button>
+        <div id="inbox-busy">
+          {#if work !== null && work < 1}
+            <WorkProgress done={work} />
+          {:else}
+            {#if sent === 0}<p class="note" role="status">Encrypting and preparing the upload…</p>{/if}
+            <progress max={size} value={Math.min(sent, size)}></progress>
+          {/if}
+          <button type="button" onclick={() => controller?.abort()}>Cancel</button>
+        </div>
       {:else}
         <button type="submit" class="primary">Encrypt and send</button>
       {/if}

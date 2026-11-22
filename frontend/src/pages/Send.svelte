@@ -239,6 +239,9 @@
     sent = 0;
     work = null;
     controller = new AbortController();
+    // The status shows below the button: on a phone that is often just
+    // off the screen.
+    tick().then(() => document.getElementById('send-busy')?.scrollIntoView({ block: 'nearest' }));
     try {
       const plaintext =
         what === 'text'
@@ -443,18 +446,22 @@
 
     <ErrorMessage {error} />
     {#if busy && direct}
-      <progress></progress>
-      <button type="button" onclick={() => controller?.abort()}>Cancel</button>
+      <div id="send-busy">
+        <progress></progress>
+        <button type="button" onclick={() => controller?.abort()}>Cancel</button>
+      </div>
     {:else if busy}
       <!-- Until the first bytes go out: encrypting, then the proof of work
            (a few seconds on phones without a JavaScript JIT). -->
-      {#if work !== null && work < 1}
-        <WorkProgress done={work} />
-      {:else}
-        {#if sent === 0}<p class="note" role="status">Encrypting and preparing the upload…</p>{/if}
-        <progress max={total} value={Math.min(sent, total)}></progress>
-      {/if}
-      <button type="button" onclick={() => controller?.abort()}>Cancel</button>
+      <div id="send-busy">
+        {#if work !== null && work < 1}
+          <WorkProgress done={work} />
+        {:else}
+          {#if sent === 0}<p class="note" role="status">Encrypting and preparing the upload…</p>{/if}
+          <progress max={total} value={Math.min(sent, total)}></progress>
+        {/if}
+        <button type="button" onclick={() => controller?.abort()}>Cancel</button>
+      </div>
     {/if}
   </form>
 {/if}
