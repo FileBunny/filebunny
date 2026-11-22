@@ -358,3 +358,23 @@ func TestRemoteInboxFullAfterSend(t *testing.T) {
 		t.Errorf("%d blobs at the service, want 1", fake.count())
 	}
 }
+
+// A failed upload to a service that is in use is logged (without the
+// reference) and answered as a failed upload, not as "unavailable".
+func TestRemoteUploadFailureIsLogged(t *testing.T) {
+	e := newTestEnv(t)
+	fake := withRemote(t, e)
+	fake.fail = true
+	rec := e.do("POST", "/api/v1/files?storage=filebin", strings.NewReader("x"))
+	if rec.Code != http.StatusServiceUnavailable || !strings.Contains(rec.Body.String(), "did not accept the upload") {
+		t.Errorf("failed upload: %d %s, want 503 did not accept", rec.Code, rec.Body)
+	}
+	logs := e.logs.String()
+	if !strings.Contains(logs, "external storage upload failed") || !strings.Contains(logs, "storage=filebin") {
+		t.Errorf("failure not logged:\n%s", logs)
+	}
+	// One failure leaves the service in use.
+	if healthy, _ := e.srv.remotes["filebin"].status(); !healthy {
+		t.Error("out of use after one failure")
+	}
+}

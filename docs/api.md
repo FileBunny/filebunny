@@ -113,7 +113,7 @@ All parameters are optional:
 |---|---|
 | 400 | `expires`, `max_downloads` or `storage` invalid or out of range, or `storage` not offered; body aborted or stalled for 1 minute |
 | 413 | Body larger than `FILEBUNNY_MAX_SIZE` (checked on `Content-Length` and while streaming) |
-| 503 | External storage unavailable (checked before the body is read) or busy (8 transfers at a time, daily traffic cap); `Retry-After` is set. Store on this server instead |
+| 503 | External storage unavailable (checked before the body is read) or busy (8 transfers at a time, daily traffic cap), or it did not accept this upload (`Retry-After: 60`, try again); `Retry-After` is set. Store on this server instead |
 | 507 | Storage quota (`FILEBUNNY_MAX_TOTAL_SIZE`) reached; try later |
 
 ```sh
@@ -182,8 +182,8 @@ POST /api/v1/uploads/{id}/complete
 **201 Created** with the same body as a single upload (ID, delete token,
 size, expiry, download limit). The expiry starts now. `400` if no bytes
 were received; `401`/`403`/`404`/`409` as above. With external storage,
-the ciphertext is sent on now; `503` if the service is unavailable or
-busy (the upload is discarded).
+the ciphertext is sent on now; `503` if the service is unavailable,
+busy or did not accept the upload (the upload is discarded).
 
 ### Abort
 
@@ -392,7 +392,7 @@ the file, so parallel uploads cannot exceed the limits.
 | 404 | Unknown, expired or revoked link |
 | 409 | No uploads or bytes left |
 | 413 | Larger than what the link has left |
-| 503 | The link's external storage is unavailable, busy or no longer offered (checked before the body is read) |
+| 503 | The link's external storage is unavailable, busy or no longer offered (checked before the body is read), or it did not accept the upload |
 | 507 | Server storage full |
 
 ### Manage (management token)
