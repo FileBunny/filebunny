@@ -104,7 +104,10 @@ FILEBUNNY_ACTIVATE"
 	exit
 fi
 
-"$gh" attestation verify --help 2>/dev/null | grep -q -- --source-digest ||
+# Not "gh … | grep -q": grep stops at the first match, gh can then get
+# SIGPIPE, and with pipefail the check failed now and then on a good gh.
+gh_help=$("$gh" attestation verify --help 2>/dev/null) || gh_help=
+[[ $gh_help == *--source-digest* ]] ||
 	die "this gh cannot check attestations by tag and commit; install gh >= 2.49 or set GH=/path/to/gh"
 commit=$(git rev-parse --verify --quiet "refs/tags/$tag^{commit}") ||
 	die "no tag $tag in this checkout (git fetch --tags)"
