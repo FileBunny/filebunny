@@ -190,6 +190,14 @@
     await tick();
     // The first field to type in or choose from; not the choice buttons
     // above it, which already have a sensible value.
+    // On a touch screen that would bring up the keyboard and hide the
+    // rest of the step: focus the step itself, its start at the top.
+    if (!focus && matchMedia('(pointer: coarse)').matches) {
+      const fs = document.getElementById(`step-${step}`)?.closest('fieldset');
+      fs?.focus({ preventScroll: true });
+      fs?.scrollIntoView({ block: 'start' });
+      return;
+    }
     const field = 'input:not([type=radio]):not([type=checkbox]), textarea, select';
     const target = focus ?? field.split(', ').map((f) => `#step-${step} ${f}`).join(', ');
     document.querySelector<HTMLElement>(target)?.focus();

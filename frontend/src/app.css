@@ -532,6 +532,40 @@ header nav a[aria-current='page'] {
   color: var(--button-fg);
 }
 
+/* Low screens (a phone held sideways): the header on one line, without
+   the tagline, so a step of a form fits below it. */
+@media (max-height: 500px) {
+  #app {
+    padding-top: 0.5rem;
+  }
+
+  header {
+    flex-wrap: nowrap;
+    margin-bottom: 0.75rem;
+  }
+
+  .tagline {
+    display: none;
+  }
+
+  .brand {
+    font-size: 1.15rem;
+  }
+
+  .brand svg {
+    width: 2rem;
+    height: 2rem;
+  }
+
+  header nav {
+    margin: 0 0 0 auto;
+  }
+
+  header nav a {
+    padding: 0.35rem 0.9rem;
+  }
+}
+
 .keygen h3 {
   font-size: 1rem;
   margin: 1rem 0 0.25rem;
@@ -561,7 +595,13 @@ ul.status li.ok .mark {
   color: var(--ok);
 }
 
-/* Steps of a form (Step.svelte): a closed step is one line with Change. */
+/* Steps of a form (Step.svelte): a closed step is one line with Change.
+   On a touch screen Next focuses the step itself (no keyboard yet); that
+   focus needs no ring, the step is at the top of the screen. */
+fieldset.step:focus {
+  outline: none;
+}
+
 fieldset.step:not(.open) {
   padding-bottom: 0.5rem;
 }
