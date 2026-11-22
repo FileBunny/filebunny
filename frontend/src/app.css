@@ -661,6 +661,33 @@ fieldset.step:not(.open) {
   margin-top: 1rem;
 }
 
+/* A phone held upright: with the keyboard up there is no room below a
+   message field, so Next sits beside it (only in a step with Next alone,
+   as step 1; an error still spans the width). */
+@media (pointer: coarse) and (orientation: portrait) {
+  .step > div:not([hidden]):has(> label.field > textarea):not(:has(> .step-nav > :nth-child(2))) {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    column-gap: 0.5rem;
+  }
+
+  .step > div:not([hidden]):has(> label.field > textarea):not(:has(> .step-nav > :nth-child(2))) > * {
+    grid-column: 1 / -1;
+  }
+
+  .step > div:not([hidden]):has(> label.field > textarea):not(:has(> .step-nav > :nth-child(2))) > label.field:has(> textarea) {
+    grid-column: 1;
+  }
+
+  .step > div:not([hidden]):has(> label.field > textarea):not(:has(> .step-nav > :nth-child(2))) > .step-nav {
+    grid-column: 2;
+    /* Level with the top of the field (below its label): while typing,
+       the browser keeps the top of the field in sight, not its bottom. */
+    align-self: start;
+    margin-top: calc(0.5rem + 1.5em + 0.25rem);
+  }
+}
+
 .step-nav .primary:only-child {
   margin-left: auto;
 }
