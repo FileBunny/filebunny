@@ -183,6 +183,14 @@ legend + * {
   align-items: center;
 }
 
+/* A password field (SecretField) on a narrow screen: the field on its own
+   line, Show, Generate and Copy together below it. */
+@media (max-width: 34rem) {
+  .row.secret > input {
+    flex: 1 1 100%;
+  }
+}
+
 .row > input {
   flex: 1;
   min-width: 12rem;

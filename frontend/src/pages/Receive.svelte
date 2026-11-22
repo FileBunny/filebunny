@@ -177,7 +177,7 @@
             onclick={() => (keySource = t)}
             onkeydown={tabKey}
           >
-            {t === 'new' ? 'Create a new key pair' : 'Use my existing public key'}
+            {t === 'new' ? 'New key pair' : 'My public key'}
           </button>
         {/each}
       </div>
