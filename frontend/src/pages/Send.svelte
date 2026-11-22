@@ -20,6 +20,7 @@
   import AudioCapture, { type Recording } from '../components/AudioCapture.svelte';
   import { audioName, audioSummary } from '../lib/audio.ts';
   import { tick } from 'svelte';
+  import { revealResult } from '../lib/reveal.ts';
 
   // The server limit is 100 MiB of ciphertext; OpenPGP adds a little.
   const maxFileSize = 100_000_000;
@@ -267,8 +268,9 @@
       }
       // Sent: the photo or recording is not needed in this page any more.
       photo = null;
-    recording = null;
       recording = null;
+      await tick();
+      revealResult();
     } catch (err) {
       if (controller.signal.aborted) error = 'Upload canceled.';
       else if (err instanceof TooLarge) error = 'The encrypted file is larger than 100 MB.';

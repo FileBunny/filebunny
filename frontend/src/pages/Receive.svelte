@@ -4,6 +4,7 @@
   // key never leaves this browser.
   import { createInbox, ApiError, offeredStorage, siteBase, type InboxCreated } from '../lib/api.ts';
   import { tick } from 'svelte';
+  import { revealResult } from '../lib/reveal.ts';
   import { readPublicKeys, type KeyInfo, type NewKeyPair } from '../lib/crypto.ts';
   import type { Recipient } from '../lib/keylookup.ts';
   import { manageLink, uploadLink } from '../lib/route.ts';
@@ -105,6 +106,8 @@
       const storage = storageName === 'local' ? undefined : storageName;
       const inbox = await createInbox(armored, { expires, maxUploads, storage }, (d) => (work = d));
       result = { inbox, fingerprint: key.fingerprint };
+      await tick();
+      revealResult();
     } catch (err) {
       error =
         err instanceof ApiError && err.status === 503 && storageName !== 'local'

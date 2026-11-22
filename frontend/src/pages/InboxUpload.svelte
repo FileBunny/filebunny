@@ -3,6 +3,7 @@
   // carries its fingerprint: if they differ, nothing is encrypted or sent,
   // so a server (or database) that swapped the key is caught.
   import { onMount, tick } from 'svelte';
+  import { revealResult } from '../lib/reveal.ts';
   import { ApiError, inboxInfo, uploadToInbox, type InboxInfo } from '../lib/api.ts';
   import { encrypt, readPublicKeys, unusableText, type KeyInfo } from '../lib/crypto.ts';
   import { linkFingerprint } from '../lib/route.ts';
@@ -132,8 +133,9 @@
       done = { what: what === 'file' ? file!.name : what === 'photo' ? 'Your photo' : what === 'audio' ? 'Your recording' : 'Your message', size: stored };
       // Sent: the photo or recording is not needed in this page any more.
       photo = null;
-    recording = null;
       recording = null;
+      await tick();
+      revealResult();
     } catch (err) {
       if (controller.signal.aborted) error = 'Upload canceled.';
       else if (err instanceof ApiError && err.status === 409) error = 'This upload link is full.';

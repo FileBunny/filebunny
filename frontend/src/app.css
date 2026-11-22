@@ -220,6 +220,12 @@ textarea {
   border-radius: 1rem;
 }
 
+/* A result heading gets the focus when a form is done (lib/reveal.ts);
+   it is not a control, so no ring. */
+main h1[tabindex='-1']:focus {
+  outline: none;
+}
+
 input[type='radio'],
 input[type='checkbox'] {
   accent-color: var(--accent);
