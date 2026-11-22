@@ -32,7 +32,7 @@ func (e *testEnv) proof(t *testing.T, action, ip string) string {
 	if err := json.Unmarshal(rec.Body.Bytes(), &c); err != nil || rec.Code != http.StatusOK {
 		t.Fatalf("challenge: %d %s", rec.Code, rec.Body)
 	}
-	return pow.Solve(pow.Challenge{Token: c.Challenge, Bits: c.Bits})
+	return pow.Solve(pow.Challenge{Token: c.Challenge, Bits: c.Bits, Proofs: c.Proofs})
 }
 
 func TestProofOfWork(t *testing.T) {
@@ -115,21 +115,21 @@ func TestChallenge(t *testing.T) {
 		json.Unmarshal(e.do("GET", "/api/v1/challenge?action=upload", nil, clientHeader, ip).Body.Bytes(), &c)
 		return c
 	}
-	if c := challenge(); c.Bits != 10 || c.Challenge == "" || !c.ExpiresAt.Equal(e.clock.Add(pow.Lifetime)) {
+	if c := challenge(); c.Bits != 6 || c.Proofs != 16 || c.Challenge == "" || !c.ExpiresAt.Equal(e.clock.Add(pow.Lifetime)) {
 		t.Fatalf("challenge %+v", c)
 	}
 	// The difficulty rises with what the visitor did this hour.
 	for range 4 {
 		e.do("POST", "/api/v1/files", strings.NewReader("x"), clientHeader, ip, powHeader, e.proof(t, "upload", ip))
 	}
-	if c := challenge(); c.Bits != 11 {
-		t.Errorf("after 4 uploads: %d bits, want 11", c.Bits)
+	if c := challenge(); c.Bits != 7 {
+		t.Errorf("after 4 uploads: %d bits per proof, want 7 (11 in total)", c.Bits)
 	}
 	for range 4 {
 		e.do("POST", "/api/v1/files", strings.NewReader("x"), clientHeader, ip, powHeader, e.proof(t, "upload", ip))
 	}
-	if c := challenge(); c.Bits != 12 {
-		t.Errorf("after 8 uploads: %d bits, want 12", c.Bits)
+	if c := challenge(); c.Bits != 8 {
+		t.Errorf("after 8 uploads: %d bits per proof, want 8 (12 in total)", c.Bits)
 	}
 	if rec := e.do("GET", "/api/v1/challenge?action=delete", nil); rec.Code != http.StatusBadRequest {
 		t.Errorf("unknown action: %d", rec.Code)

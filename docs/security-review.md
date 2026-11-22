@@ -450,7 +450,9 @@ in memory only. Nothing about addresses is written to disk or logs.
 ### Residual risks
 
 - **Proof of work does not stop an attacker with many machines**; it
-  makes cheap mass use expensive. The per-visitor limits stop one
+  makes cheap mass use expensive. Splitting it into 16 smaller proofs
+  (v0.12) only makes the time predictable for visitors; the average work,
+  and so the cost for an attacker, is the same. The per-visitor limits stop one
   address; many addresses can still fill the server-wide limits.
 - **Shared addresses** (companies, mobile carriers, Tor) share one
   visitor's limits.

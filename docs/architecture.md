@@ -344,6 +344,8 @@ strictly (plain ASCII, no line breaks) and only used as the recipient.
   (used ones remembered until they expire, at most 200,000). Difficulty
   18 bits (about 0.2 s in a laptop browser, up to a few seconds on old
   phones), one bit more per doubling of the visitor's activity this hour.
+  The work is split into 16 smaller proofs: the same average, but the
+  time varies little, and the page can show real progress.
   The browser solves it with its own SHA-256 (`lib/sha256.ts`), in slices
   on the page.
 - Visitors behind one address (a company, mobile carrier, Tor exit)
