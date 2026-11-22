@@ -37,7 +37,13 @@
     FileBunny mailed a link to your address because it was entered when the file was shared. Here you can stop all
     e-mail from FileBunny to your address.
   </p>
-  <button type="button" class="primary" disabled={busy} onclick={() => set(true)}>Stop e-mail to my address</button>
+  <!-- The page cannot know whether the address is blocked (that would
+       need a lookup), so it offers both. -->
+  <div class="row">
+    <button type="button" class="primary" disabled={busy} onclick={() => set(true)}>Stop e-mail to my address</button>
+    <button type="button" disabled={busy} onclick={() => set(false)}>Allow e-mail again</button>
+  </div>
+  <p class="note">Stopped e-mail earlier and want links again? Choose Allow e-mail again.</p>
 {/if}
 <ErrorMessage {error} />
 <p class="note">FileBunny keeps no list of addresses: only a code derived from your address, to recognize it.</p>
