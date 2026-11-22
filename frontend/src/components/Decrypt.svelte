@@ -65,7 +65,7 @@
   function keyErrorMessage(err: unknown): string {
     switch (err instanceof KeyError ? err.reason : 'invalid') {
       case 'passphrase-needed':
-        return 'This private key is protected by a passphrase. Enter it below.';
+        return 'This private key is protected by a passphrase. Enter the passphrase and try again.';
       case 'wrong-passphrase':
         return 'The passphrase is not correct for this key.';
       default:

@@ -87,7 +87,7 @@
       const reason = err instanceof KeyError ? err.reason : 'invalid';
       keyError =
         reason === 'passphrase-needed'
-          ? 'This private key is protected by a passphrase. Enter it below.'
+          ? 'This private key is protected by a passphrase. Enter the passphrase and try again.'
           : reason === 'wrong-passphrase'
             ? 'The passphrase is not correct for this key.'
             : 'This is not a valid OpenPGP private key.';
