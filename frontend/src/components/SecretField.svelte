@@ -23,7 +23,7 @@
 
 <label class="field">
   <span>{label}</span>
-  <span class="row">
+  <span class="row secret">
     <input {id} type={show ? 'text' : 'password'} bind:value autocomplete="new-password" />
     <button type="button" onclick={() => (show = !show)}>{show ? 'Hide' : 'Show'}</button>
     <button type="button" onclick={() => (value = generatePassword())}>Generate</button>

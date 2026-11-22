@@ -5,12 +5,15 @@
   import { onMount } from 'svelte';
   import { ApiError, mailAvailable, mailLink } from '../lib/api.ts';
   import ErrorMessage from './ErrorMessage.svelte';
+  import WorkProgress from './WorkProgress.svelte';
 
   let { id, deleteToken }: { id: string; deleteToken: string } = $props();
 
   let available = $state(false);
   let email = $state('');
   let busy = $state(false);
+  /** Progress of the proof of work, null when none runs. */
+  let work = $state<number | null>(null);
   let error = $state('');
   let sent = $state<string[]>([]);
 
@@ -29,13 +32,14 @@
     busy = true;
     error = '';
     try {
-      await mailLink(id, deleteToken, to);
+      await mailLink(id, deleteToken, to, (d) => (work = d));
       sent = [...sent, to];
       email = '';
     } catch (err) {
       error = err instanceof ApiError ? `Not sent: ${err.message}.` : 'Not sent. Check your connection and try again.';
     } finally {
       busy = false;
+      work = null;
     }
   }
 </script>
@@ -49,6 +53,7 @@
         <button type="submit" disabled={busy}>{busy ? 'Sending…' : 'Send'}</button>
       </span>
     </label>
+    {#if work !== null && work < 1}<WorkProgress done={work} />{/if}
     <p class="note">
       FileBunny mails the link in a fixed text, never the password or the delete link. The address is used for this
       mail only and not stored.

@@ -12,14 +12,16 @@ import json
 import sys
 
 c = json.load(sys.stdin)
-token, bits = c["challenge"], c["bits"]
+token, bits, want = c["challenge"], c["bits"], c.get("proofs", 1)
 if not token:
     print("")
     sys.exit(0)
+# Find `want` counters (in ascending order), each giving `bits` zero bits.
+found = []
 n = 0
-while True:
-    proof = f"{token}.{n}"
-    if int.from_bytes(hashlib.sha256(proof.encode()).digest(), "big") >> (256 - bits) == 0:
-        print(proof)
-        break
+while len(found) < want:
+    digest = hashlib.sha256(f"{token}.{n}".encode()).digest()
+    if int.from_bytes(digest, "big") >> (256 - bits) == 0:
+        found.append(str(n))
     n += 1
+print(".".join([token] + found))

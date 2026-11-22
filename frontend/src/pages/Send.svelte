@@ -8,6 +8,7 @@
   import { formatBytes, formatDate } from '../lib/format.ts';
   import CopyField from '../components/CopyField.svelte';
   import ErrorMessage from '../components/ErrorMessage.svelte';
+  import WorkProgress from '../components/WorkProgress.svelte';
   import KeyPicker from '../components/KeyPicker.svelte';
   import MailLink from '../components/MailLink.svelte';
   import Info from '../components/Info.svelte';
@@ -19,6 +20,7 @@
   import AudioCapture, { type Recording } from '../components/AudioCapture.svelte';
   import { audioName, audioSummary } from '../lib/audio.ts';
   import { tick } from 'svelte';
+  import { revealResult } from '../lib/reveal.ts';
 
   // The server limit is 100 MiB of ciphertext; OpenPGP adds a little.
   const maxFileSize = 100_000_000;
@@ -95,6 +97,8 @@
 
   let busy = $state(false);
   let sent = $state(0);
+  /** Progress of the proof of work, null before it starts. */
+  let work = $state<number | null>(null);
   let error = $state('');
   let result = $state<Uploaded | null>(null);
   /** The bin of a direct upload to Filebin. */
@@ -187,6 +191,14 @@
     await tick();
     // The first field to type in or choose from; not the choice buttons
     // above it, which already have a sensible value.
+    // On a touch screen that would bring up the keyboard and hide the
+    // rest of the step: focus the step itself, its start at the top.
+    if (!focus && matchMedia('(pointer: coarse)').matches) {
+      const fs = document.getElementById(`step-${step}`)?.closest('fieldset');
+      fs?.focus({ preventScroll: true });
+      fs?.scrollIntoView({ block: 'start' });
+      return;
+    }
     const field = 'input:not([type=radio]):not([type=checkbox]), textarea, select';
     const target = focus ?? field.split(', ').map((f) => `#step-${step} ${f}`).join(', ');
     document.querySelector<HTMLElement>(target)?.focus();
@@ -226,7 +238,11 @@
     busy = true;
     error = '';
     sent = 0;
+    work = null;
     controller = new AbortController();
+    // The status shows below the button: on a phone that is often just
+    // off the screen.
+    tick().then(() => document.getElementById('send-busy')?.scrollIntoView({ block: 'nearest' }));
     try {
       const plaintext =
         what === 'text'
@@ -248,12 +264,13 @@
         directBin = bin;
       } else {
         const storage = chosen.name === 'local' ? undefined : chosen.name;
-        result = await upload(ciphertext, { expires, maxDownloads, storage }, (n) => (sent = n), controller.signal);
+        result = await upload(ciphertext, { expires, maxDownloads, storage }, (n) => (sent = n), controller.signal, (d) => (work = d));
       }
       // Sent: the photo or recording is not needed in this page any more.
       photo = null;
-    recording = null;
       recording = null;
+      await tick();
+      revealResult();
     } catch (err) {
       if (controller.signal.aborted) error = 'Upload canceled.';
       else if (err instanceof TooLarge) error = 'The encrypted file is larger than 100 MB.';
@@ -296,11 +313,11 @@
     {/if}
     <p>
       {chosen.short} keeps it for about {chosen.keepsDays} days. Anyone with the link can download it as often as they
-      like, and delete it. FileBunny does not know about this file.
+      like, and delete it.
     </p>
     <p class="note">
-      FileBunny cannot e-mail this link, as it does not know about the file: send it yourself. Uploads through FileBunny
-      can be e-mailed from this page.
+      The link opens FileBunny to decrypt, but the file went straight to {chosen.short}: this server has no record of it
+      and cannot e-mail the link. Send it yourself. Uploads through FileBunny can be e-mailed from this page.
     </p>
     <button type="button" onclick={startOver}>Share something else</button>
   </section>
@@ -431,14 +448,22 @@
 
     <ErrorMessage {error} />
     {#if busy && direct}
-      <progress></progress>
-      <button type="button" onclick={() => controller?.abort()}>Cancel</button>
+      <div id="send-busy">
+        <progress></progress>
+        <button type="button" onclick={() => controller?.abort()}>Cancel</button>
+      </div>
     {:else if busy}
-      <!-- Until the first bytes go out: encrypting and the proof of work,
-           which takes a few seconds on older phones. -->
-      {#if sent === 0}<p class="note" role="status">Encrypting and preparing the upload…</p>{/if}
-      <progress max={total} value={Math.min(sent, total)}></progress>
-      <button type="button" onclick={() => controller?.abort()}>Cancel</button>
+      <!-- Until the first bytes go out: encrypting, then the proof of work
+           (a few seconds on phones without a JavaScript JIT). -->
+      <div id="send-busy">
+        {#if work !== null && work < 1}
+          <WorkProgress done={work} />
+        {:else}
+          {#if sent === 0}<p class="note" role="status">Encrypting and preparing the upload…</p>{/if}
+          <progress max={total} value={Math.min(sent, total)}></progress>
+        {/if}
+        <button type="button" onclick={() => controller?.abort()}>Cancel</button>
+      </div>
     {/if}
   </form>
 {/if}

@@ -43,7 +43,7 @@
   const id = $derived(`step-${n}`);
 </script>
 
-<fieldset class="step" class:open hidden={n > current} {disabled}>
+<fieldset class="step" class:open hidden={n > current} {disabled} tabindex="-1">
   <legend>{n}. {title}</legend>
   {#if open}
     <div class="step-progress">

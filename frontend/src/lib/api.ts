@@ -66,6 +66,8 @@ export type FileInfo = {
 };
 
 type Progress = (bytesSent: number) => void;
+/** Progress of the proof of work, from 0 to 1 (see pow.ts). */
+type Work = (done: number) => void;
 
 /**
  * Uploads a ciphertext stream. Small messages go in one request; anything
@@ -77,9 +79,10 @@ export async function upload(
   limits: Limits,
   onProgress: Progress = () => {},
   signal?: AbortSignal,
+  onWork?: Work,
 ): Promise<Uploaded> {
   const query = limitsQuery(limits);
-  const done = await send(ciphertext, `/api/v1/files?${query}`, `/api/v1/uploads?${query}`, onProgress, signal);
+  const done = await send(ciphertext, `/api/v1/files?${query}`, `/api/v1/uploads?${query}`, onProgress, signal, onWork);
   return toUploaded(done as Parameters<typeof toUploaded>[0]);
 }
 
@@ -92,6 +95,7 @@ export async function uploadToInbox(
   ciphertext: ReadableStream<Uint8Array>,
   onProgress: Progress = () => {},
   signal?: AbortSignal,
+  onWork?: Work,
 ): Promise<number> {
   const done = await send(
     ciphertext,
@@ -99,6 +103,7 @@ export async function uploadToInbox(
     `/api/v1/uploads?inbox=${encodeURIComponent(inboxId)}`,
     onProgress,
     signal,
+    onWork,
   );
   return (done as { size: number }).size;
 }
@@ -107,7 +112,7 @@ export async function uploadToInbox(
  * The proof-of-work header for action (see pow.ts), or none when the
  * server has proof of work off or predates it.
  */
-async function proofHeader(action: PowAction, signal?: AbortSignal): Promise<Record<string, string>> {
+async function proofHeader(action: PowAction, signal?: AbortSignal, onWork?: Work): Promise<Record<string, string>> {
   let c: Challenge;
   try {
     c = await (await request('GET', `/api/v1/challenge?action=${action}`, { signal })).json();
@@ -116,7 +121,7 @@ async function proofHeader(action: PowAction, signal?: AbortSignal): Promise<Rec
     throw err;
   }
   if (!c.challenge) return {};
-  return { 'FileBunny-PoW': await solve(c, signal) };
+  return { 'FileBunny-PoW': await solve(c, signal, onWork) };
 }
 
 /** One request if the ciphertext fits in a chunk, a chunked upload otherwise. */
@@ -126,6 +131,7 @@ async function send(
   chunkedPath: string,
   onProgress: Progress,
   signal?: AbortSignal,
+  onWork?: Work,
 ): Promise<unknown> {
   const reader = ciphertext.getReader();
   const chunks = new Chunker(reader);
@@ -133,7 +139,7 @@ async function send(
     const first = await chunks.next();
     // After the first chunk: encrypting it gives a running start, and a
     // challenge expires in ten minutes.
-    const proof = await proofHeader('upload', signal);
+    const proof = await proofHeader('upload', signal, onWork);
     if (first.done) {
       const res = await request('POST', singlePath, { body: first.chunk, signal, headers: proof });
       onProgress(first.chunk.size);
@@ -308,8 +314,8 @@ export async function mailAvailable(): Promise<boolean> {
  * Has the server mail the share link to an address, in a fixed text. Only
  * the sender can: it needs the delete token.
  */
-export async function mailLink(id: string, deleteToken: string, email: string): Promise<void> {
-  const proof = await proofHeader('mail');
+export async function mailLink(id: string, deleteToken: string, email: string, onWork?: Work): Promise<void> {
+  const proof = await proofHeader('mail', undefined, onWork);
   await request('POST', `${filePath(id)}/notify`, {
     headers: { Authorization: `Bearer ${deleteToken}`, 'Content-Type': 'application/json', ...proof },
     body: new Blob([JSON.stringify({ email })]),
@@ -397,10 +403,11 @@ export type InboxStatus = {
 export async function createInbox(
   publicKey: string,
   opts: { expires: string; maxUploads: number; storage?: string },
+  onWork?: Work,
 ): Promise<InboxCreated> {
   const q = new URLSearchParams({ expires: opts.expires, max_uploads: String(opts.maxUploads) });
   if (opts.storage) q.set('storage', opts.storage);
-  const proof = await proofHeader('inbox');
+  const proof = await proofHeader('inbox', undefined, onWork);
   const res = await request('POST', `/api/v1/inboxes?${q}`, { body: new Blob([publicKey]), headers: proof });
   const r = (await res.json()) as {
     id: string;

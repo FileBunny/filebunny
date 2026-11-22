@@ -42,6 +42,8 @@
   type Opened = { result: Decrypted; url: string };
   let opened = $state.raw<Record<string, Opened>>({});
   let busyFile = $state('');
+  /** What the busy file is doing: fetching (share done, 0 to 1) or decrypting. */
+  let busyStep = $state<{ fetched: number } | 'decrypting'>({ fetched: 0 });
   let fileError = $state<Record<string, string>>({});
   let copied = $state('');
 
@@ -87,7 +89,7 @@
       const reason = err instanceof KeyError ? err.reason : 'invalid';
       keyError =
         reason === 'passphrase-needed'
-          ? 'This private key is protected by a passphrase. Enter it below.'
+          ? 'This private key is protected by a passphrase. Enter the passphrase and try again.'
           : reason === 'wrong-passphrase'
             ? 'The passphrase is not correct for this key.'
             : 'This is not a valid OpenPGP private key.';
@@ -97,9 +99,11 @@
   async function open(f: InboxFile) {
     if (!privateKey) return;
     busyFile = f.id;
+    busyStep = { fetched: 0 };
     fileError = { ...fileError, [f.id]: '' };
     try {
-      const ct = await fetchInboxFile(id, token, f.id);
+      const ct = await fetchInboxFile(id, token, f.id, (n) => (busyStep = { fetched: f.size ? n / f.size : 0 }));
+      busyStep = 'decrypting';
       const result = await decrypt(ct, { privateKeys: [privateKey] });
       const url =
         result.kind === 'file'
@@ -121,8 +125,9 @@
 
   async function saveEncrypted(f: InboxFile) {
     busyFile = f.id;
+    busyStep = { fetched: 0 };
     try {
-      const ct = await fetchInboxFile(id, token, f.id);
+      const ct = await fetchInboxFile(id, token, f.id, (n) => (busyStep = { fetched: f.size ? n / f.size : 0 }));
       const url = URL.createObjectURL(new Blob([ct as BlobPart], { type: 'application/octet-stream' }));
       const a = document.createElement('a');
       a.href = url;
@@ -214,12 +219,19 @@
           <div class="row actions">
             {#if privateKey && !o}
               <button type="button" class="small primary" disabled={busyFile === f.id} onclick={() => open(f)}>
-                {busyFile === f.id ? 'Opening…' : 'Open'}
+                Open
               </button>
             {/if}
             <button type="button" class="small" disabled={busyFile === f.id} onclick={() => saveEncrypted(f)}>
               Save encrypted (.gpg)
             </button>
+            {#if busyFile === f.id}
+              <!-- Large files take a while on a phone: first the download,
+                   then decrypting, without a JavaScript JIT even longer. -->
+              <span class="note" role="status">
+                {busyStep === 'decrypting' ? 'Decrypting…' : `Downloading… ${Math.min(100, Math.round(busyStep.fetched * 100))}%`}
+              </span>
+            {/if}
             {#if confirmDelete === f.id}
               <button type="button" class="small danger" onclick={() => remove(f)}>Yes, delete</button>
               <button type="button" class="small" onclick={() => (confirmDelete = '')}>Cancel</button>
@@ -254,7 +266,7 @@
         </span>
       </label>
       <ErrorMessage error={keyError} />
-      <button type="button" class="primary" onclick={unlock}>Unlock</button>
+      <button type="button" class="primary" onclick={unlock}>Unlock key</button>
     </fieldset>
   {:else if privateKey}
     <p class="note">

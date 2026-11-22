@@ -2,13 +2,15 @@
   // Sending to an upload link. The key comes from the server, but the link
   // carries its fingerprint: if they differ, nothing is encrypted or sent,
   // so a server (or database) that swapped the key is caught.
-  import { onMount } from 'svelte';
+  import { onMount, tick } from 'svelte';
+  import { revealResult } from '../lib/reveal.ts';
   import { ApiError, inboxInfo, uploadToInbox, type InboxInfo } from '../lib/api.ts';
   import { encrypt, readPublicKeys, unusableText, type KeyInfo } from '../lib/crypto.ts';
   import { linkFingerprint } from '../lib/route.ts';
   import { formatBytes, formatDate } from '../lib/format.ts';
   import { storageLabel } from '../lib/storage.ts';
   import ErrorMessage from '../components/ErrorMessage.svelte';
+  import WorkProgress from '../components/WorkProgress.svelte';
   import Info from '../components/Info.svelte';
   import FingerprintQR from '../components/FingerprintQR.svelte';
   import CameraCapture, { type Photo } from '../components/CameraCapture.svelte';
@@ -40,6 +42,8 @@
   });
   let busy = $state(false);
   let sent = $state(0);
+  /** Progress of the proof of work, null before it starts. */
+  let work = $state<number | null>(null);
   let error = $state('');
   let done = $state<{ what: string; size: number } | null>(null);
   let controller: AbortController | null = null;
@@ -110,7 +114,11 @@
     busy = true;
     error = '';
     sent = 0;
+    work = null;
     controller = new AbortController();
+    // The status shows below the button: on a phone that is often just
+    // off the screen.
+    tick().then(() => document.getElementById('inbox-busy')?.scrollIntoView({ block: 'nearest' }));
     try {
       const plaintext =
         what === 'text'
@@ -121,12 +129,13 @@
               ? { kind: 'file' as const, name: audioName(recording!.ext), data: recording!.blob.stream() }
             : { kind: 'file' as const, name: file!.name, data: file!.stream() };
       const ciphertext = await encrypt(plaintext, { publicKeys: [key.key] });
-      const stored = await uploadToInbox(id, ciphertext, (n) => (sent = n), controller.signal);
+      const stored = await uploadToInbox(id, ciphertext, (n) => (sent = n), controller.signal, (d) => (work = d));
       done = { what: what === 'file' ? file!.name : what === 'photo' ? 'Your photo' : what === 'audio' ? 'Your recording' : 'Your message', size: stored };
       // Sent: the photo or recording is not needed in this page any more.
       photo = null;
-    recording = null;
       recording = null;
+      await tick();
+      revealResult();
     } catch (err) {
       if (controller.signal.aborted) error = 'Upload canceled.';
       else if (err instanceof ApiError && err.status === 409) error = 'This upload link is full.';
@@ -222,9 +231,15 @@
       </fieldset>
       <ErrorMessage error={missing || error} />
       {#if busy}
-        {#if sent === 0}<p class="note" role="status">Encrypting and preparing the upload…</p>{/if}
-        <progress max={size} value={Math.min(sent, size)}></progress>
-        <button type="button" onclick={() => controller?.abort()}>Cancel</button>
+        <div id="inbox-busy">
+          {#if work !== null && work < 1}
+            <WorkProgress done={work} />
+          {:else}
+            {#if sent === 0}<p class="note" role="status">Encrypting and preparing the upload…</p>{/if}
+            <progress max={size} value={Math.min(sent, size)}></progress>
+          {/if}
+          <button type="button" onclick={() => controller?.abort()}>Cancel</button>
+        </div>
       {:else}
         <button type="submit" class="primary">Encrypt and send</button>
       {/if}

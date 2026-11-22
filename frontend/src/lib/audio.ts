@@ -86,7 +86,7 @@ export function micErrorText(name: string | undefined): string {
   switch (name) {
     case 'NotAllowedError':
     case 'SecurityError':
-      return 'The microphone is blocked. Allow it for this site in your browser, or choose File.';
+      return 'The microphone is blocked. Allow it for this site in your browser, or share something else.';
     case 'NotFoundError':
     case 'OverconstrainedError':
       return 'No microphone found. Choose File to share a recording you already have.';

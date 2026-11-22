@@ -1,8 +1,13 @@
 // Package pow is a proof-of-work check: before an expensive request, the
-// client gets a challenge and must find a counter so that
-// SHA-256(challenge "." counter) starts with the required number of zero
-// bits. This costs a browser a fraction of a second per request and makes
-// mass use expensive, without captchas or tracking.
+// client gets a challenge and must find a number of counters (Proofs) so
+// that SHA-256(challenge "." counter) starts with the required number of
+// zero bits for each. This costs a browser a few seconds at most per
+// request and makes mass use expensive, without captchas or tracking.
+//
+// The work is split into Proofs smaller puzzles instead of one: the
+// average is the same, but the time a client needs varies much less (a
+// single puzzle takes anywhere from a twentieth to three times the
+// average), and progress can be shown honestly.
 //
 // Challenges are stateless (signed with a key that exists only in memory)
 // and bound to an action and to the visitor (ratelimit.Client). A solved
@@ -29,6 +34,14 @@ const Lifetime = 10 * time.Minute
 // MaxBits caps the difficulty; 28 bits is about a minute in a browser.
 const MaxBits = 28
 
+// proofsLog2 sets the number of smaller puzzles: 1<<proofsLog2 = 16, each
+// with that many bits fewer than the difficulty, so the total work stays
+// 2^difficulty hashes on average.
+const proofsLog2 = 4
+
+// maxCounterLen caps one counter: up to 20 digits (uint64).
+const maxCounterLen = 20
+
 // maxUsed caps the used challenges remembered at once.
 const maxUsed = 200_000
 
@@ -42,10 +55,12 @@ var (
 	ErrBusy = errors.New("pow: too many proofs in use")
 )
 
-// Challenge is what the client gets.
+// Challenge is what the client gets: find Proofs counters, each giving
+// Bits leading zero bits.
 type Challenge struct {
 	Token   string
 	Bits    int
+	Proofs  int
 	Expires time.Time
 }
 
@@ -67,10 +82,12 @@ func New(now func() time.Time) *Issuer {
 	return i
 }
 
-// token layout: nonce (16) | expiry (8) | bits (1) | mac (32).
+// token layout: nonce (16) | expiry (8) | bits (1) | proofs (1) | mac (32).
 const (
 	nonceLen   = 16
-	payloadLen = nonceLen + 8 + 1
+	bitsAt     = nonceLen + 8
+	proofsAt   = bitsAt + 1
+	payloadLen = proofsAt + 1
 	tokenLen   = payloadLen + sha256.Size
 )
 
@@ -84,31 +101,39 @@ func (i *Issuer) mac(payload []byte, action string, client [16]byte) []byte {
 	return h.Sum(nil)
 }
 
-// Issue returns a challenge of the given difficulty for action and client.
+// Issue returns a challenge of the given difficulty (log2 of the average
+// number of hashes) for action and client.
 func (i *Issuer) Issue(action string, client [16]byte, difficulty int) Challenge {
 	difficulty = max(0, min(difficulty, MaxBits))
+	split := min(difficulty, proofsLog2)
+	bits, proofs := difficulty-split, 1<<split
 	exp := i.now().Add(Lifetime).Truncate(time.Second)
 	b := make([]byte, payloadLen, tokenLen)
 	rand.Read(b[:nonceLen])
 	binary.BigEndian.PutUint64(b[nonceLen:], uint64(exp.Unix()))
-	b[payloadLen-1] = byte(difficulty)
+	b[bitsAt] = byte(bits)
+	b[proofsAt] = byte(proofs)
 	b = append(b, i.mac(b, action, client)...)
-	return Challenge{Token: base64.RawURLEncoding.EncodeToString(b), Bits: difficulty, Expires: exp}
+	return Challenge{Token: base64.RawURLEncoding.EncodeToString(b), Bits: bits, Proofs: proofs, Expires: exp}
 }
 
-// Verify checks a proof ("token.counter") for action and client and marks
-// it used.
+// maxProofLen caps a proof: the token and 1<<proofsLog2 counters.
+var maxProofLen = base64.RawURLEncoding.EncodedLen(tokenLen) + (1<<proofsLog2)*(1+maxCounterLen)
+
+// Verify checks a proof ("token.counter1.counter2…", the counters in
+// ascending order) for action and client and marks it used.
 func (i *Issuer) Verify(proof, action string, client [16]byte) error {
 	if proof == "" {
 		return ErrMissing
 	}
-	token, counter, ok := strings.Cut(proof, ".")
-	if !ok || len(counter) == 0 || len(counter) > 20 || len(token) != base64.RawURLEncoding.EncodedLen(tokenLen) {
+	if len(proof) > maxProofLen {
 		return ErrInvalid
 	}
-	if _, err := strconv.ParseUint(counter, 10, 64); err != nil {
+	token, rest, ok := strings.Cut(proof, ".")
+	if !ok || len(token) != base64.RawURLEncoding.EncodedLen(tokenLen) {
 		return ErrInvalid
 	}
+	counters := strings.Split(rest, ".")
 	b, err := base64.RawURLEncoding.DecodeString(token)
 	if err != nil || len(b) != tokenLen {
 		return ErrInvalid
@@ -122,8 +147,22 @@ func (i *Issuer) Verify(proof, action string, client [16]byte) error {
 	if now >= exp {
 		return ErrInvalid
 	}
-	if LeadingZeroBits(sha256.Sum256([]byte(proof))) < int(payload[payloadLen-1]) {
+	if len(counters) != int(payload[proofsAt]) {
 		return ErrInvalid
+	}
+	bits := int(payload[bitsAt])
+	var prev uint64
+	for k, c := range counters {
+		n, err := strconv.ParseUint(c, 10, 64)
+		// Ascending, so one counter cannot count twice; canonical, so
+		// "07" is not another spelling of "7".
+		if err != nil || len(c) > maxCounterLen || c != strconv.FormatUint(n, 10) || (k > 0 && n <= prev) {
+			return ErrInvalid
+		}
+		if LeadingZeroBits(sha256.Sum256([]byte(token+"."+c))) < bits {
+			return ErrInvalid
+		}
+		prev = n
 	}
 
 	var nonce [16]byte
@@ -161,10 +200,13 @@ func LeadingZeroBits(sum [32]byte) int {
 
 // Solve finds a proof by brute force; for tests and tools, not the server.
 func Solve(c Challenge) string {
-	for n := uint64(0); ; n++ {
-		proof := c.Token + "." + strconv.FormatUint(n, 10)
-		if LeadingZeroBits(sha256.Sum256([]byte(proof))) >= c.Bits {
-			return proof
+	proof := c.Token
+	for n, found := uint64(0), 0; found < max(c.Proofs, 1); n++ {
+		counter := strconv.FormatUint(n, 10)
+		if LeadingZeroBits(sha256.Sum256([]byte(c.Token+"."+counter))) >= c.Bits {
+			proof += "." + counter
+			found++
 		}
 	}
+	return proof
 }

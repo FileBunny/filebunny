@@ -40,6 +40,8 @@ const (
 var (
 	errRemoteDown = errors.New("external storage unavailable")
 	errRemoteBusy = errors.New("external storage busy")
+	// errRemoteFailed: the service is in use, but this upload failed.
+	errRemoteFailed = errors.New("external storage upload failed")
 )
 
 // remote is a service with its health and traffic state.
@@ -260,7 +262,9 @@ func (s *Server) sendRemote(ctx context.Context, p *store.Pending, r *remote) (s
 	err = r.Upload(tctx, ref, content, p.Size(), sum)
 	r.report(err)
 	if err != nil {
-		return "", errors.Join(errRemoteDown, err)
+		// The adapters strip URLs (with the reference) from their errors.
+		s.log.Warn("external storage upload failed", "storage", r.Name(), "err", err)
+		return "", errors.Join(errRemoteFailed, err)
 	}
 	return ref, nil
 }
@@ -324,7 +328,8 @@ func (s *Server) handleStorage(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"storage": list})
 }
 
-// writeRemoteError answers for errRemoteDown and errRemoteBusy; it reports
+// writeRemoteError answers for errRemoteDown, errRemoteBusy and
+// errRemoteFailed; it reports
 // whether err was one of them.
 func writeRemoteError(w http.ResponseWriter, err error) bool {
 	switch {
@@ -334,6 +339,9 @@ func writeRemoteError(w http.ResponseWriter, err error) bool {
 	case errors.Is(err, errRemoteDown):
 		w.Header().Set("Retry-After", "3600")
 		writeError(w, http.StatusServiceUnavailable, "external storage is unavailable, store on this server instead")
+	case errors.Is(err, errRemoteFailed):
+		w.Header().Set("Retry-After", "60")
+		writeError(w, http.StatusServiceUnavailable, "external storage did not accept the upload; try again, or store on this server")
 	default:
 		return false
 	}

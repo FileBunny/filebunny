@@ -183,6 +183,14 @@ legend + * {
   align-items: center;
 }
 
+/* A password field (SecretField) on a narrow screen: the field on its own
+   line, Show, Generate and Copy together below it. */
+@media (max-width: 34rem) {
+  .row.secret > input {
+    flex: 1 1 100%;
+  }
+}
+
 .row > input {
   flex: 1;
   min-width: 12rem;
@@ -210,6 +218,29 @@ select {
 
 textarea {
   border-radius: 1rem;
+}
+
+/* On a phone a tall message field pushes Next under the keyboard: start
+   small and grow with the text (where the browser can), up to a limit. */
+@media (pointer: coarse) {
+  textarea {
+    height: calc(4lh + 1.3rem);
+  }
+
+  @supports (field-sizing: content) {
+    textarea {
+      field-sizing: content;
+      height: auto;
+      min-height: calc(3lh + 1.3rem);
+      max-height: calc(10lh + 1.3rem);
+    }
+  }
+}
+
+/* A result heading gets the focus when a form is done (lib/reveal.ts);
+   it is not a control, so no ring. */
+main h1[tabindex='-1']:focus {
+  outline: none;
 }
 
 input[type='radio'],
@@ -532,6 +563,40 @@ header nav a[aria-current='page'] {
   color: var(--button-fg);
 }
 
+/* Low, wide screens (a phone held sideways): the header on one line, without
+   the tagline, so a step of a form fits below it. */
+@media (max-height: 500px) and (orientation: landscape) {
+  #app {
+    padding-top: 0.5rem;
+  }
+
+  header {
+    flex-wrap: nowrap;
+    margin-bottom: 0.75rem;
+  }
+
+  .tagline {
+    display: none;
+  }
+
+  .brand {
+    font-size: 1.15rem;
+  }
+
+  .brand svg {
+    width: 2rem;
+    height: 2rem;
+  }
+
+  header nav {
+    margin: 0 0 0 auto;
+  }
+
+  header nav a {
+    padding: 0.35rem 0.9rem;
+  }
+}
+
 .keygen h3 {
   font-size: 1rem;
   margin: 1rem 0 0.25rem;
@@ -561,7 +626,13 @@ ul.status li.ok .mark {
   color: var(--ok);
 }
 
-/* Steps of a form (Step.svelte): a closed step is one line with Change. */
+/* Steps of a form (Step.svelte): a closed step is one line with Change.
+   On a touch screen Next focuses the step itself (no keyboard yet); that
+   focus needs no ring, the step is at the top of the screen. */
+fieldset.step:focus {
+  outline: none;
+}
+
 fieldset.step:not(.open) {
   padding-bottom: 0.5rem;
 }
@@ -588,6 +659,33 @@ fieldset.step:not(.open) {
   justify-content: space-between;
   gap: 1rem;
   margin-top: 1rem;
+}
+
+/* A phone held sideways: with the keyboard up there is no room below a
+   message field, so Next sits beside it (only in a step with Next alone,
+   as step 1; an error still spans the width). Upright, Next stays below. */
+@media (pointer: coarse) and (orientation: landscape) {
+  .step > div:not([hidden]):has(> label.field > textarea):not(:has(> .step-nav > :nth-child(2))) {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    column-gap: 0.5rem;
+  }
+
+  .step > div:not([hidden]):has(> label.field > textarea):not(:has(> .step-nav > :nth-child(2))) > * {
+    grid-column: 1 / -1;
+  }
+
+  .step > div:not([hidden]):has(> label.field > textarea):not(:has(> .step-nav > :nth-child(2))) > label.field:has(> textarea) {
+    grid-column: 1;
+  }
+
+  .step > div:not([hidden]):has(> label.field > textarea):not(:has(> .step-nav > :nth-child(2))) > .step-nav {
+    grid-column: 2;
+    /* Level with the top of the field (below its label): while typing,
+       the browser keeps the top of the field in sight, not its bottom. */
+    align-self: start;
+    margin-top: calc(0.5rem + 1.5em + 0.25rem);
+  }
 }
 
 .step-nav .primary:only-child {

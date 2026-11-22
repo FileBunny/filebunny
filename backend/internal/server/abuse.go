@@ -133,14 +133,17 @@ func (s *Server) proven(w http.ResponseWriter, r *http.Request, action string) b
 }
 
 // difficulty is the base difficulty plus one bit per doubling of what the
-// visitor did this hour (from 4 on).
+// visitor did this hour (from 4 on). It is the total: the challenge splits
+// it over smaller proofs (see package pow).
 func (s *Server) difficulty(c ratelimit.Client, a ratelimit.Action) int {
 	return s.cfg.PowBits + bits.Len64(uint64(s.limiter.Count(c, a)/4))
 }
 
 type challengeResponse struct {
-	Challenge string    `json:"challenge"`
+	Challenge string `json:"challenge"`
+	// Bits are the leading zero bits for each of Proofs counters.
 	Bits      int       `json:"bits"`
+	Proofs    int       `json:"proofs,omitzero"`
 	ExpiresAt time.Time `json:"expires_at,omitzero"`
 }
 
@@ -160,5 +163,5 @@ func (s *Server) handleChallenge(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	c := s.pow.Issue(action, client(r), s.difficulty(client(r), counter))
-	writeJSON(w, http.StatusOK, challengeResponse{Challenge: c.Token, Bits: c.Bits, ExpiresAt: c.Expires.UTC()})
+	writeJSON(w, http.StatusOK, challengeResponse{Challenge: c.Token, Bits: c.Bits, Proofs: c.Proofs, ExpiresAt: c.Expires.UTC()})
 }

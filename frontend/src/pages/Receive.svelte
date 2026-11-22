@@ -4,6 +4,7 @@
   // key never leaves this browser.
   import { createInbox, ApiError, offeredStorage, siteBase, type InboxCreated } from '../lib/api.ts';
   import { tick } from 'svelte';
+  import { revealResult } from '../lib/reveal.ts';
   import { readPublicKeys, type KeyInfo, type NewKeyPair } from '../lib/crypto.ts';
   import type { Recipient } from '../lib/keylookup.ts';
   import { manageLink, uploadLink } from '../lib/route.ts';
@@ -11,6 +12,7 @@
   import { storageChoices, storageLabel, throughServer } from '../lib/storage.ts';
   import CopyField from '../components/CopyField.svelte';
   import ErrorMessage from '../components/ErrorMessage.svelte';
+  import WorkProgress from '../components/WorkProgress.svelte';
   import Info from '../components/Info.svelte';
   import KeyGen from '../components/KeyGen.svelte';
   import KeyPicker from '../components/KeyPicker.svelte';
@@ -51,6 +53,8 @@
   const choices = $derived(storageChoices(offered, false));
   let statusOpen = $state(false);
   let busy = $state(false);
+  /** Progress of the proof of work, null when none runs. */
+  let work = $state<number | null>(null);
   let error = $state('');
   let missingKey = $state(false);
   let result = $state.raw<{ inbox: InboxCreated; fingerprint: string } | null>(null);
@@ -100,8 +104,10 @@
       const [check] = await readPublicKeys(armored);
       if (!check || check.fingerprint !== key.fingerprint) throw new Error('key changed');
       const storage = storageName === 'local' ? undefined : storageName;
-      const inbox = await createInbox(armored, { expires, maxUploads, storage });
+      const inbox = await createInbox(armored, { expires, maxUploads, storage }, (d) => (work = d));
       result = { inbox, fingerprint: key.fingerprint };
+      await tick();
+      revealResult();
     } catch (err) {
       error =
         err instanceof ApiError && err.status === 503 && storageName !== 'local'
@@ -113,6 +119,7 @@
             : 'Creating the upload link failed. Check your connection and try again.';
     } finally {
       busy = false;
+      work = null;
     }
   }
 </script>
@@ -173,7 +180,7 @@
             onclick={() => (keySource = t)}
             onkeydown={tabKey}
           >
-            {t === 'new' ? 'Create a new key pair' : 'Use my existing public key'}
+            {t === 'new' ? 'New key pair' : 'My public key'}
           </button>
         {/each}
       </div>
@@ -237,6 +244,7 @@
   </fieldset>
 
   <ErrorMessage error={missingKey && !key ? 'Choose your key first: create a new key pair or use one you have.' : error} />
+  {#if work !== null && work < 1}<WorkProgress done={work} />{/if}
   <button type="button" class="primary" disabled={busy} onclick={create}>
     {busy ? 'Creating…' : 'Create upload link'}
   </button>

@@ -24,20 +24,23 @@ link and mailing a link need a **proof of work**:
 GET /api/v1/challenge?action=upload|inbox|mail
 ```
 
-**200 OK**: `{"challenge": "…", "bits": 18, "expires_at": "…"}`. Find a
-counter `n` (decimal) so that SHA-256 of the ASCII string
-`<challenge>.<n>` starts with `bits` zero bits, and send that string in
-the request header:
+**200 OK**: `{"challenge": "…", "bits": 12, "proofs": 16, "expires_at": "…"}`.
+Find `proofs` different counters `n1 < n2 < …` (decimal, no leading
+zeros) so that SHA-256 of the ASCII string `<challenge>.<n>` starts with
+`bits` zero bits for each, and send them in ascending order in the
+request header:
 
 ```
-FileBunny-PoW: <challenge>.<n>
+FileBunny-PoW: <challenge>.<n1>.<n2>.….<n16>
 ```
 
-A challenge is bound to the action and to the visitor, expires after 10
-minutes and works once. `bits` is `FILEBUNNY_POW_BITS` (18) plus one per
-doubling of what the visitor did this hour, from 4 on. With proof of
-work off, the answer is `{"challenge": "", "bits": 0}` and no header is
-needed. [`scripts/pow.py`](../scripts/pow.py) solves one for curl:
+The work is split into 16 smaller puzzles so that the time varies
+little; on average it is 2^(`bits`+4) hashes. A challenge is bound to the
+action and to the visitor, expires after 10 minutes and works once. The
+difficulty (`bits` + 4) is `FILEBUNNY_POW_BITS` (16) plus one per
+doubling of what the visitor did this hour, from 4 on; below 4 there are
+fewer proofs. With proof of work off, the answer is
+`{"challenge": "", "bits": 0}` and no header is needed. [`scripts/pow.py`](../scripts/pow.py) solves one for curl:
 
 ```sh
 proof=$(curl -s https://filebunny.eu/api/v1/challenge?action=upload | python3 scripts/pow.py)
@@ -113,7 +116,7 @@ All parameters are optional:
 |---|---|
 | 400 | `expires`, `max_downloads` or `storage` invalid or out of range, or `storage` not offered; body aborted or stalled for 1 minute |
 | 413 | Body larger than `FILEBUNNY_MAX_SIZE` (checked on `Content-Length` and while streaming) |
-| 503 | External storage unavailable (checked before the body is read) or busy (8 transfers at a time, daily traffic cap); `Retry-After` is set. Store on this server instead |
+| 503 | External storage unavailable (checked before the body is read) or busy (8 transfers at a time, daily traffic cap), or it did not accept this upload (`Retry-After: 60`, try again); `Retry-After` is set. Store on this server instead |
 | 507 | Storage quota (`FILEBUNNY_MAX_TOTAL_SIZE`) reached; try later |
 
 ```sh
@@ -182,8 +185,8 @@ POST /api/v1/uploads/{id}/complete
 **201 Created** with the same body as a single upload (ID, delete token,
 size, expiry, download limit). The expiry starts now. `400` if no bytes
 were received; `401`/`403`/`404`/`409` as above. With external storage,
-the ciphertext is sent on now; `503` if the service is unavailable or
-busy (the upload is discarded).
+the ciphertext is sent on now; `503` if the service is unavailable,
+busy or did not accept the upload (the upload is discarded).
 
 ### Abort
 
@@ -392,7 +395,7 @@ the file, so parallel uploads cannot exceed the limits.
 | 404 | Unknown, expired or revoked link |
 | 409 | No uploads or bytes left |
 | 413 | Larger than what the link has left |
-| 503 | The link's external storage is unavailable, busy or no longer offered (checked before the body is read) |
+| 503 | The link's external storage is unavailable, busy or no longer offered (checked before the body is read), or it did not accept the upload |
 | 507 | Server storage full |
 
 ### Manage (management token)
