@@ -736,7 +736,8 @@ gets a 403 and has to try again; the frontend does not retry yet.
 
 No critical or medium findings; no authentication bypass, IDOR, SSRF or
 cryptographic flaw found in the reviewed code. Later changes (photo,
-audio, Filebin through the server, HTTP/3 off) were not in scope.
+audio, Filebin through the server, HTTP/3 off) were not in scope; see
+[Own review of v0.11](#own-review-of-v011-2026-11-23).
 
 | ID | Finding | Disposition |
 |---|---|---|
@@ -755,6 +756,33 @@ audio, Filebin through the server, HTTP/3 off) were not in scope.
 | – | A database row can remain when a blob rename and its cleanup both fail | **Accepted:** it gives no access to anything and expires like any file |
 | – | The challenge endpoint has no own rate limit | **Accepted:** challenges are stateless (HMAC); only used proofs are remembered, capped (503 beyond) |
 | – | SEIPDv1 instead of AEAD; keys not wiped from JavaScript memory | **Accepted:** SEIPDv1 for gpg compatibility (architecture.md, Algorithms); JavaScript gives no reliable way to wipe memory |
+
+## Own review of v0.11 (2026-11-23)
+
+| | |
+|---|---|
+| Date | 2026-11-23 |
+| Scope | Everything between `v0.10.0` (the external review) and `v0.11.0-rc.6`: photo and audio capture, Filebin through the server (adapter, proxy, upload links), proof of work in 16 proofs, reserved byte limits, the release-check fixes, Caddy, Compose and Ansible changes |
+| Reviewer | Claude Code (AI-assisted), reading the diff and the Filebin adapter as a whole |
+
+No critical or medium findings. Checked and found in order: no HTML
+sinks (`{@html}`, `innerHTML`, `eval`) and no browser storage in the
+frontend; every object URL is revoked; camera and microphone start only
+on a click and stop on leaving the page; `Permissions-Policy` allows only
+this site; the Filebin client keeps its fixed hosts, dial-time address
+checks, one redirect, limited replies and a cookie for the API host only;
+proof-of-work tokens are checked by HMAC before any hashing, the header
+length is capped, counters must ascend; byte limits are reserved before
+the body and settled after; a failed upload to a service is logged with
+the adapter's error, which carries no URL or reference.
+
+| ID | Finding | Disposition |
+|---|---|---|
+| O-1 | **A download through FileBunny is checked for size, not for content.** The server computes the SHA-256 of a blob when it sends it to Filebin (`Content-SHA256`) but does not keep it, so on download it cannot tell whether the service returns the same blob. OpenPGP catches changed or truncated data, but not a whole other message of the same size: with a public key, which is often public, the service could put in its own message for the same recipient, and the recipient would take it for the sender's. Needs a malicious or compromised service and the exact size; the bin name is known only to this server and the service | **Open (low).** Keep the SHA-256 with the file (new migration) and check it while streaming; hold back the last bytes until it matches, so a mismatch ends the response before the client has it all. Same for files of upload links |
+| O-2 | `compose.yaml` repeated the proof-of-work default (18) after the backend moved to 16, so production ran 18 bits | **Fixed** in `v0.11.0-rc.6`; `TestComposeDefaultsMatch` checks every default `compose.yaml` repeats |
+| O-3 | `deploy.sh` checked `gh` with `gh … \| grep -q` under `pipefail`; a SIGPIPE made the check fail now and then | **Fixed** (PR #57): the help is read whole |
+| O-4 | Audio from Safari (MP4) is still not inspected for metadata; MP4 can hold creation times | **Open (info):** check when a Safari device is available; only the recipient sees it, inside the encryption |
+| O-5 | Proof of work and limits count per IPv4 address or IPv6 /64: two devices behind one IPv4 address share a counter, a laptop on IPv4 and a phone on IPv6 in the same home do not | **Accepted:** by design (phase 7); noted for the test plan |
 
 ## How to re-run the checks
 
