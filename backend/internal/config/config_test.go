@@ -1,6 +1,9 @@
 package config
 
 import (
+	"os"
+	"reflect"
+	"regexp"
 	"testing"
 	"time"
 )
@@ -96,5 +99,38 @@ func TestInvalid(t *testing.T) {
 				t.Error("expected error")
 			}
 		})
+	}
+}
+
+// compose.yaml repeats defaults as ${FILEBUNNY_X:-value}; they must be
+// the defaults here, or a Compose install runs other limits than the docs
+// say (v0.11.0-rc.5 ran 18 bits of proof of work instead of 16).
+func TestComposeDefaultsMatch(t *testing.T) {
+	data, err := os.ReadFile("../../../compose.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want, err := FromEnv(env(nil))
+	if err != nil {
+		t.Fatal(err)
+	}
+	re := regexp.MustCompile(`(?m)^\s+(FILEBUNNY_\w+): \$\{(FILEBUNNY_\w+):-([^}]*)\}\s*$`)
+	found := 0
+	for _, m := range re.FindAllStringSubmatch(string(data), -1) {
+		if m[1] != m[2] {
+			continue
+		}
+		found++
+		got, err := FromEnv(env(map[string]string{m[1]: m[3]}))
+		if err != nil {
+			t.Errorf("%s=%s: %v", m[1], m[3], err)
+			continue
+		}
+		if !reflect.DeepEqual(got, want) {
+			t.Errorf("compose.yaml default %s=%s differs from the default in config.go", m[1], m[3])
+		}
+	}
+	if found < 10 {
+		t.Fatalf("found only %d defaults in compose.yaml; did its format change?", found)
 	}
 }
