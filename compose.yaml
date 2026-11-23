@@ -44,7 +44,7 @@ services:
       # through Caddy only, so clients cannot set the header themselves.
       FILEBUNNY_CLIENT_IP_HEADER: X-FileBunny-Client
       FILEBUNNY_RATE_LIMITS: ${FILEBUNNY_RATE_LIMITS:-true}
-      FILEBUNNY_POW_BITS: ${FILEBUNNY_POW_BITS:-18}
+      FILEBUNNY_POW_BITS: ${FILEBUNNY_POW_BITS:-16}
     secrets: [smtp]
     logging: *logging
     mem_limit: 256m
