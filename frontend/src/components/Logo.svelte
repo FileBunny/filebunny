@@ -2,7 +2,8 @@
 
 <!-- The FileBunny logo: ears, head and a tiny keyhole on an orange to pink
      circle. Decorative: the brand link's text names it. Inline, so the
-     single HTML file needs no extra asset. -->
+     single HTML file needs no extra asset. The favicon in index.html is a
+     copy as a data: URI; keep the two in sync. -->
 <svg viewBox="0 0 64 64" aria-hidden="true" focusable="false">
   <defs>
     <linearGradient id="filebunny-logo" x1="0" y1="0" x2="1" y2="1">

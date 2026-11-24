@@ -135,8 +135,9 @@ script and one stylesheet, without lazy-loaded chunks or workers, so
   nothing loaded.
 - **Look:** one stylesheet with color tokens, a light and a dark version
   that follow the system setting (`prefers-color-scheme`), system fonts
-  only. The logo is an inline SVG component, so the single HTML file needs
-  no extra asset and the CSP stays `style-src 'self'`, `img-src 'self' data:`.
+  only. The logo is an inline SVG component, and the favicon is the same
+  SVG as a `data:` URI in `index.html`, so the single HTML file needs no
+  extra asset and the CSP stays `style-src 'self'`, `img-src 'self' data:`.
 
 Runtime dependencies: `openpgp` and `qrcode-generator`, both pinned.
 
