@@ -3,10 +3,11 @@
 backend = systemd
 banaction = nftables[type=multiport]
 banaction_allports = nftables[type=allports]
-bantime = 1h
+bantime = 6h
 bantime.increment = true
+bantime.maxtime = 1w
 findtime = 10m
-maxretry = 5
+maxretry = 3
 
 [sshd]
 enabled = true
