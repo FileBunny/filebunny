@@ -253,8 +253,9 @@ A share link's ciphertext can be kept at an external service instead of
 on this server's disk (`backend/internal/storage`, step 3 on Send). There are
 several external adapters, each with its own page in
 [`docs/storage/`](storage/). The owner of an upload
-link can choose external storage too, through FileBunny only
-(`inboxes.storage`): uploads to the link are sent on like share links, and
+link can choose external storage too, through FileBunny only and only
+at adapters that allow it (`upload_links` in `GET /api/v1/storage`;
+not Uguu) (`inboxes.storage`): uploads to the link are sent on like share links, and
 the owner's downloads are streamed back. The sender of a share link
 chooses:
 
@@ -264,12 +265,14 @@ chooses:
   copy. Downloads are fetched from the service and streamed; download
   limit, expiry and delete link work as for local files. The service sees
   only this server. The blob is named by a server-generated random
-  reference; nothing from the client goes into a URL. When the file is
+  reference, or by the name the service returns (Uguu), checked against a
+  strict pattern; nothing from the client goes into a URL. When the file is
   deleted, expires or has its last download, the reference moves to a
   `remote_trash` table in the same transaction and is deleted at the
   service in the background (after the last download: right after the
   transfer, otherwise after an hour of grace for a running transfer),
-  retried until it succeeds.
+  retried until it succeeds. A service that cannot delete (Uguu) keeps
+  the ciphertext until its own expiry; FileBunny no longer hands it out.
 - **Directly:** the browser uploads to the service itself; the server
   knows nothing about the file. The link is `#/x/<adapter>/<reference>`, with the
   service's reference only in the fragment. No download limit or delete

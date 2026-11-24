@@ -151,7 +151,7 @@ can log in: set `ansible_user` to it.
 Then deploy a release with `scripts/deploy.sh --host admin@server vX.Y.Z`.
 
 The playbook writes `/opt/filebunny/.env` from the inventory. Its own
-variables are lowercase (`filebunny_max_total_size`, `filebunny_filebin`,
+variables are lowercase (`filebunny_max_total_size`, `filebunny_filebin`, `filebunny_uguu`,
 ...); any other `FILEBUNNY_*` setting goes under `filebunny_env` with its
 name as in the table below; the playbook refuses other names there, and
 the settings that have their own variable. A `FILEBUNNY_*` name directly
@@ -223,6 +223,7 @@ backend (and the two marked "Caddy only" to Caddy) with defaults.
 | `FILEBUNNY_INBOX_MAX_UPLOADS` | `100` | Highest number of uploads a link may allow (default per link: 10) |
 | `FILEBUNNY_INBOX_MAX_SIZE` | `104857600` | Max combined size of the uploads to one link, in bytes (100 MiB) |
 | `FILEBUNNY_FILEBIN` | `false` | Offer this storage adapter through this server; see [storage/filebin.md](storage/filebin.md). Each adapter has its own switch and page in [storage/](storage/) |
+| `FILEBUNNY_UGUU` | `false` | Offer Uguu through this server, for share links only (at most 2 hours; it cannot delete); see [storage/uguu.md](storage/uguu.md) |
 | `FILEBUNNY_PROXY_DAILY_BYTES` | `53687091200` (50 GiB) | Traffic to and from external storage per UTC day, per service; beyond it uploads and downloads there get `503` |
 | `FILEBUNNY_SMTP_FILE` | `/run/secrets/smtp` in Compose | JSON file with the sender address and the SMTP relays; see [E-mail](#e-mail). No file or no relays: no e-mail |
 | `FILEBUNNY_PUBLIC_URL` | `https://$FILEBUNNY_DOMAIN` in Compose | The site's address for links in mails; required when e-mail is on |

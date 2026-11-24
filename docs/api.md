@@ -329,7 +329,7 @@ Content-Type: text/plain
 |---|---|---|
 | `expires` | `168h` (`FILEBUNNY_INBOX_DEFAULT_EXPIRY`) | `1m` to `720h` (`FILEBUNNY_INBOX_MAX_EXPIRY`) |
 | `max_uploads` | 10 | 1 to 100 (`FILEBUNNY_INBOX_MAX_UPLOADS`) |
-| `storage` | `local` (this server) | a name from [Storage](#storage) |
+| `storage` | `local` (this server) | a name from [Storage](#storage) with `upload_links` |
 
 With `storage`, everything sent to the link goes on to that service
 through this server, as for share links: the service sees this server,
@@ -356,7 +356,7 @@ Only a SHA-256 of the management token is stored.
 
 | Status | When |
 |---|---|
-| 400 | Not an armored public key, a parameter out of range, or `storage` not offered |
+| 400 | Not an armored public key, a parameter out of range, or `storage` not offered (or not for upload links) |
 | 413 | Key over 64 KiB |
 | 503 | Too many open links on this server (`FILEBUNNY_MAX_INBOXES`, default 1000), or the external storage is unavailable |
 
@@ -437,7 +437,8 @@ work now. Empty when none is switched on.
       "name": "<adapter>",
       "available": true,
       "checked_at": "2026-10-31T16:51:03Z",
-      "max_expiry_seconds": 518400
+      "max_expiry_seconds": 518400,
+      "upload_links": true
     }
   ]
 }
@@ -447,6 +448,8 @@ work now. Empty when none is switched on.
   fail repeatedly. A health check runs every 12 hours.
 - `checked_at`: the last health check; omitted before the first.
 - `max_expiry_seconds`: the longest `expires` for uploads there.
+- `upload_links`: whether upload links may store there (`false` for
+  Uguu, which keeps files for 3 hours only).
 
 One page per adapter in [storage/](storage/). Files stored *directly* at a
 service from the browser never touch this API.
