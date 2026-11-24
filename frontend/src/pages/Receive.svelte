@@ -9,7 +9,7 @@
   import type { Recipient } from '../lib/keylookup.ts';
   import { manageLink, uploadLink } from '../lib/route.ts';
   import { formatBytes, formatDate } from '../lib/format.ts';
-  import { storageChoices, storageLabel, throughServer } from '../lib/storage.ts';
+  import { storageByName, storageLabel, throughServer, uploadLinkChoices } from '../lib/storage.ts';
   import CopyField from '../components/CopyField.svelte';
   import ErrorMessage from '../components/ErrorMessage.svelte';
   import WorkProgress from '../components/WorkProgress.svelte';
@@ -48,9 +48,9 @@
     if (storageName !== 'local') askOffered();
   });
   $effect(() => {
-    if (!throughServer(storageName, offered)) storageName = 'local';
+    if (!throughServer(storageName, offered) || !storageByName(storageName)?.uploadLinks) storageName = 'local';
   });
-  const choices = $derived(storageChoices(offered, false));
+  const choices = $derived(uploadLinkChoices(offered));
   let statusOpen = $state(false);
   let busy = $state(false);
   /** Progress of the proof of work, null when none runs. */
@@ -229,7 +229,7 @@
       </select>
     </label>
     {#if choices.length === 1}
-      <p class="note">This server keeps uploads itself; it offers no external storage.</p>
+      <p class="note">This server keeps uploads itself; it offers no external storage for upload links.</p>
     {/if}
     {#if storageName !== 'local'}
       <p class="note">

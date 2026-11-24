@@ -3,7 +3,7 @@
   import type { Recipient } from '../lib/keylookup.ts';
   import { ApiError, maxCiphertext, offeredStorage, siteBase, upload, type Uploaded } from '../lib/api.ts';
   import { filebinUpload, newBin } from '../lib/filebin.ts';
-  import { storageByName, storageChoices, throughServer } from '../lib/storage.ts';
+  import { expiryChoices, storageByName, storageChoices, throughServer } from '../lib/storage.ts';
   import { deleteLink, filebinLink, shareLink } from '../lib/route.ts';
   import { formatBytes, formatDate } from '../lib/format.ts';
   import CopyField from '../components/CopyField.svelte';
@@ -30,11 +30,6 @@
   // the server offers is asked when the choice is first used, not on load;
   // whether one works right now is up to the server, which refuses with
   // 503 before any data is sent.
-  const shortExpiry = [
-    { value: '1h', label: '1 hour' },
-    { value: '24h', label: '1 day' },
-    { value: '72h', label: '3 days' },
-  ];
   const downloadOptions = [
     { value: 1, label: 'Once' },
     { value: 5, label: '5 times' },
@@ -87,10 +82,7 @@
   const direct = $derived(chosen.direct && via === 'direct');
   let expires = $state('24h');
   let maxDownloads = $state(0);
-  const expiries = $derived([
-    ...shortExpiry,
-    { value: `${chosen.maxExpiryHours}h`, label: `${chosen.maxExpiryHours / 24} days` },
-  ]);
+  const expiries = $derived(expiryChoices(chosen));
   $effect(() => {
     if (!expiries.some((o) => o.value === expires)) expires = expiries.at(-1)!.value;
   });
@@ -416,6 +408,13 @@
         {/if}
       {:else if chosen.name !== 'local'}
         <p class="note">Sent through FileBunny: {chosen.short} sees this server instead of you.</p>
+      {/if}
+      {#if chosen.keepsHours && !direct}
+        <p class="note">
+          {chosen.short} keeps every file for {chosen.keepsHours} hours after the upload and cannot delete it earlier.
+          After the expiry or the last download FileBunny no longer hands it out, but the encrypted file stays at
+          {chosen.short} until then; only this server knows where.
+        </p>
       {/if}
       <details class="more" bind:open={statusOpen}>
         <summary>Storage status</summary>
