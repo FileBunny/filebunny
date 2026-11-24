@@ -1,14 +1,10 @@
 package storage
 
 import (
-	"context"
 	"crypto/sha256"
-	"crypto/tls"
-	"crypto/x509"
 	"encoding/hex"
 	"errors"
 	"io"
-	"net"
 	"net/http"
 	"net/http/httptest"
 	"net/netip"
@@ -96,19 +92,9 @@ func newTestFilebin(t *testing.T, change ...func(*filebinOptions)) (*Filebin, *f
 	fake := &fakeFilebin{blobs: map[string][]byte{}}
 	srv := httptest.NewTLSServer(fake)
 	t.Cleanup(srv.Close)
-	_, port, _ := net.SplitHostPort(srv.Listener.Addr().String())
-	pool := x509.NewCertPool()
-	pool.AddCert(srv.Certificate())
 	o := filebinOptions{
-		base:  "https://filebin.net",
-		hosts: map[string]bool{"filebin.net": true, "storage.filebin.net": true},
-		lookup: func(context.Context, string) ([]netip.Addr, error) {
-			return []netip.Addr{netip.MustParseAddr("127.0.0.1")}, nil
-		},
-		port:    port,
-		allowed: func(netip.Addr) bool { return true },
-		// The test certificate is for example.com; check against that name.
-		tls: &tls.Config{RootCAs: pool, ServerName: "example.com"},
+		base:          "https://filebin.net",
+		clientOptions: testClient(srv, "filebin.net", "storage.filebin.net"),
 	}
 	for _, c := range change {
 		c(&o)
