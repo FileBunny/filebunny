@@ -14,14 +14,16 @@ import (
 	"testing"
 )
 
-// fakeUguu imitates uguu.se (uploads) and n.uguu.se (files) on one test
-// server.
+// fakeUguu imitates uguu.se (uploads) and its one-letter file hosts on
+// one test server; like the real one, it spreads files over several hosts.
 type fakeUguu struct {
 	mu    sync.Mutex
 	blobs map[string][]byte
 	next  int
 	// url overrides the file URL in the reply ("%s" is the name).
 	url string
+	// hosts counts the file hosts used.
+	hosts map[string]int
 	// size overrides the size in the reply.
 	size int64
 	// fail answers uploads with success false.
@@ -55,12 +57,13 @@ func (f *fakeUguu) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		data, _ := io.ReadAll(part)
 		f.next++
 		name := fmt.Sprintf("AbCdEf%06d.bin", f.next)
-		f.blobs[name] = data
+		host := []string{"d", "h", "n"}[f.next%3] + ".uguu.se"
+		f.blobs[host+"/"+name] = data
 		size := int64(len(data))
 		if f.size != 0 {
 			size = f.size
 		}
-		u := "https://n.uguu.se/" + name
+		u := "https://" + host + "/" + name
 		if f.url != "" {
 			u = fmt.Sprintf(f.url, name)
 		}
@@ -73,13 +76,14 @@ func (f *fakeUguu) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			"success": !f.fail,
 			"files":   []map[string]any{{"hash": "0123456789abcdef", "filename": name, "url": u, "size": size, "dupe": false}},
 		})
-	case r.Host == "n.uguu.se" && r.Method == http.MethodGet:
+	case strings.HasSuffix(r.Host, ".uguu.se") && r.Method == http.MethodGet:
+		f.hosts[r.Host]++
 		if f.html {
 			w.Header().Set("Content-Type", "text/html; charset=utf-8")
 			io.WriteString(w, "<html>gone</html>")
 			return
 		}
-		blob, ok := f.blobs[strings.TrimPrefix(r.URL.Path, "/")]
+		blob, ok := f.blobs[r.Host+r.URL.Path]
 		if !ok {
 			http.NotFound(w, r)
 			return
@@ -93,13 +97,12 @@ func (f *fakeUguu) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 func newTestUguu(t *testing.T, change ...func(*uguuOptions)) (*Uguu, *fakeUguu) {
 	t.Helper()
-	fake := &fakeUguu{blobs: map[string][]byte{}}
+	fake := &fakeUguu{blobs: map[string][]byte{}, hosts: map[string]int{}}
 	srv := httptest.NewTLSServer(fake)
 	t.Cleanup(srv.Close)
 	o := uguuOptions{
-		base:          "https://uguu.se",
-		files:         "https://n.uguu.se",
-		clientOptions: testClient(srv, "uguu.se", "n.uguu.se"),
+		domain:        "uguu.se",
+		clientOptions: testClient(srv, uguuHosts("uguu.se")...),
 	}
 	for _, c := range change {
 		c(&o)
@@ -117,7 +120,7 @@ func TestUguuRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !uguuName.MatchString(ref) {
+	if !uguuRef.MatchString(ref) {
 		t.Errorf("ref %q", ref)
 	}
 	if fake.field != "files[]" || fake.filename != "data.bin" {
@@ -141,17 +144,47 @@ func TestUguuRoundTrip(t *testing.T) {
 	if err := u.Delete(t.Context(), ref); err != nil {
 		t.Fatal(err)
 	}
-	delete(fake.blobs, ref) // as when it expires
+	clear(fake.blobs) // as when it expires
 	if _, err := u.Download(t.Context(), ref, 10); !errors.Is(err, ErrNotFound) {
 		t.Errorf("after expiry: %v, want ErrNotFound", err)
 	}
 }
 
+// Files on different hosts all come back.
+func TestUguuFileHosts(t *testing.T) {
+	u, fake := newTestUguu(t)
+	for i := range 3 {
+		body := fmt.Sprintf("ciphertext %d", i)
+		ref, err := uguuUpload(t, u, body)
+		if err != nil {
+			t.Fatal(err)
+		}
+		rc, err := u.Download(t.Context(), ref, int64(len(body)))
+		if err != nil {
+			t.Fatal(err)
+		}
+		data, _ := io.ReadAll(rc)
+		rc.Close()
+		if string(data) != body {
+			t.Errorf("download %q, want %q", data, body)
+		}
+	}
+	if len(fake.hosts) != 3 {
+		t.Errorf("file hosts used: %v, want 3", fake.hosts)
+	}
+}
+
 // The reply decides the reference, so it is checked strictly: only a file
-// of the right size, as https://n.uguu.se/<name>.
+// of the right size, as https://<letter>.uguu.se/<name>.
 func TestUguuReplyChecked(t *testing.T) {
 	cases := map[string]func(*fakeUguu){
 		"other host":     func(f *fakeUguu) { f.url = "https://attacker.example/%s" },
+		"other domain":   func(f *fakeUguu) { f.url = "https://n.uguu.se.attacker.example/%s" },
+		"two letters":    func(f *fakeUguu) { f.url = "https://nn.uguu.se/%s" },
+		"deeper host":    func(f *fakeUguu) { f.url = "https://a.n.uguu.se/%s" },
+		"upload host":    func(f *fakeUguu) { f.url = "https://uguu.se/%s" },
+		"port":           func(f *fakeUguu) { f.url = "https://n.uguu.se:8443/%s" },
+		"empty query":    func(f *fakeUguu) { f.url = "https://n.uguu.se/%s?" },
 		"http":           func(f *fakeUguu) { f.url = "http://n.uguu.se/%s" },
 		"user info":      func(f *fakeUguu) { f.url = "https://x@n.uguu.se/%s" },
 		"query":          func(f *fakeUguu) { f.url = "https://n.uguu.se/%s?a=b" },
@@ -176,7 +209,8 @@ func TestUguuReplyChecked(t *testing.T) {
 // A stored reference that is not a Uguu name never becomes a URL.
 func TestUguuInvalidReference(t *testing.T) {
 	u, _ := newTestUguu(t)
-	for _, ref := range []string{"", "../x.bin", "a/b.bin", "abcdef.html", "abcdefgh.bin?x", strings.Repeat("a", 40) + ".bin"} {
+	for _, ref := range []string{"", "abcdefgh.bin", "../x.bin", "n/../abcdefgh.bin", "nn/abcdefgh.bin", "N/abcdefgh.bin",
+		"n/abcdef.html", "n/abcdefgh.bin?x", "n/" + strings.Repeat("a", 40) + ".bin"} {
 		if _, err := u.Download(t.Context(), ref, 1); !errors.Is(err, ErrNotFound) {
 			t.Errorf("ref %q: %v, want ErrNotFound", ref, err)
 		}

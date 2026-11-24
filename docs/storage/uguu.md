@@ -30,14 +30,18 @@ From [uguu.se/api](https://uguu.se/api):
 
 | Request | Used for | Expected |
 |---|---|---|
-| `POST https://uguu.se/upload`, multipart field `files[]`, file name `data.bin` | upload | `200`, JSON `{"success": true, "files": [{"url": "https://n.uguu.se/<name>", "size": <n>, ...}]}` |
-| `GET https://n.uguu.se/<name>` | download | `200`, `application/octet-stream`; `404` when it is gone |
+| `POST https://uguu.se/upload`, multipart field `files[]`, file name `data.bin` | upload | `200`, JSON `{"success": true, "files": [{"url": "https://<letter>.uguu.se/<name>", "size": <n>, ...}]}` |
+| `GET https://<letter>.uguu.se/<name>` | download | `200`, `application/octet-stream`; `404` when it is gone |
+
+Uguu spreads files over one-letter subdomains (seen on 2026-11-24: `d`,
+`h`, `n`), so the reference stored is `<letter>/<name>`.
 
 - One file per upload, always named `data.bin`, so the original file name
   never reaches Uguu.
 - Uguu chooses the file name. The reply is checked strictly: exactly one
-  file, of the uploaded size, at `https://n.uguu.se/<name>` with no user,
-  query or fragment, and a name of 6 to 32 letters and digits plus `.bin`.
+  file, of the uploaded size, at `https://<letter>.uguu.se/<name>` (one
+  lowercase letter, no port, user, query or fragment), and a name of 6 to
+  32 letters and digits plus `.bin`.
   Only such a name is stored, and it is checked again before every
   download. Nothing the client sends ends up in a URL.
 - The upload has a fixed `Content-Length` (no chunked encoding).
@@ -61,9 +65,10 @@ creating an upload link with `storage=uguu` answers `400`.
 
 ## Outgoing requests
 
-- Only `https://uguu.se` and `https://n.uguu.se`, port 443.
+- Only `https://uguu.se` and its one-letter subdomains (`a.uguu.se` to
+  `z.uguu.se`), port 443.
 - Every resolved address is checked as for WKD (`wkd.Allowed`).
-- At most one redirect, only over https and only to those two hosts.
+- At most one redirect, only over https and only to those hosts.
 - No proxy from the environment, no compression, limited header and reply
   size, time limits on dial, TLS and response headers.
 - Downloads must be exactly the recorded size; a web page instead of the
@@ -92,4 +97,4 @@ to Uguu. Read Uguu's [FAQ](https://uguu.se/faq) before you offer it.
 - `GET /api/v1/storage` shows `available: false`; the log says why
   (`external storage check failed`).
 - Check the upload reply (`curl -F 'files[]=@file' https://uguu.se/upload`):
-  field names, the file host and the form of the names.
+  field names, the file hosts and the form of the names.

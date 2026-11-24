@@ -10,45 +10,57 @@ import (
 	"net/http"
 	"net/url"
 	"regexp"
+	"strings"
 	"time"
 )
 
-// uguuFileHost serves the uploaded files.
-const uguuFileHost = "n.uguu.se"
+// uguuDomain is Uguu's domain. Uploads go to the domain itself; files are
+// served from one-letter subdomains (seen: d, h, n), so the reference
+// keeps the letter: "<letter>/<name>".
+const uguuDomain = "uguu.se"
 
-// uguuName is the form of the file names Uguu gives out (random letters
-// and digits, plus the extension of the name we upload under). Only names
-// of this form are stored or turned into a URL.
-var uguuName = regexp.MustCompile(`^[A-Za-z0-9]{6,32}\.bin$`)
+// uguuRef is the form of a reference: the file host's letter and the file
+// name Uguu gave out (random letters and digits, plus the extension of the
+// name we upload under). Only references of this form are stored or turned
+// into a URL.
+var uguuRef = regexp.MustCompile(`^[a-z]/[A-Za-z0-9]{6,32}\.bin$`)
 
-// Uguu stores blobs at uguu.se, which chooses the file name itself and
-// keeps every file for 3 hours. It has no way to delete a file: Delete does
+// uguuHosts are the only hosts the adapter talks to: the domain and its
+// one-letter subdomains.
+func uguuHosts(domain string) []string {
+	hosts := []string{domain}
+	for c := 'a'; c <= 'z'; c++ {
+		hosts = append(hosts, string(c)+"."+domain)
+	}
+	return hosts
+}
+
+// Uguu stores blobs at uguu.se, which chooses the file name and host
+// itself and keeps every file for 3 hours. It has no way to delete a file: Delete does
 // nothing, and a blob stays there until it expires. Anyone who knows the
 // file name can read it; the names are random and only this server knows
 // them.
 type Uguu struct {
-	base  string // the upload host
-	files string // the file host
-	http  *http.Client
+	domain string
+	http   *http.Client
 }
 
 // uguuOptions are seams for tests; production uses the defaults.
 type uguuOptions struct {
-	base, files string
+	domain string
 	clientOptions
 }
 
 // NewUguu returns the adapter for uguu.se.
 func NewUguu() *Uguu {
 	return newUguu(uguuOptions{
-		base:          "https://uguu.se",
-		files:         "https://" + uguuFileHost,
-		clientOptions: publicClient("uguu.se", uguuFileHost),
+		domain:        uguuDomain,
+		clientOptions: publicClient(uguuHosts(uguuDomain)...),
 	})
 }
 
 func newUguu(o uguuOptions) *Uguu {
-	return &Uguu{base: o.base, files: o.files, http: newClient(o.clientOptions, nil)}
+	return &Uguu{domain: o.domain, http: newClient(o.clientOptions, nil)}
 }
 
 // Name implements Remote.
@@ -69,7 +81,7 @@ type uguuReply struct {
 
 // Upload implements Remote: one multipart field "files[]" named data.bin.
 // Uguu takes no checksum; the reply must name a file of the right size on
-// the file host.
+// one of the file hosts.
 func (u *Uguu) Upload(ctx context.Context, r io.Reader, size int64, _ [32]byte) (string, error) {
 	var head bytes.Buffer
 	mw := multipart.NewWriter(&head)
@@ -83,7 +95,7 @@ func (u *Uguu) Upload(ctx context.Context, r io.Reader, size int64, _ [32]byte) 
 	}
 	body := io.MultiReader(bytes.NewReader(prefix), io.LimitReader(r, size), &head)
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, u.base+"/upload", body)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, "https://"+u.domain+"/upload", body)
 	if err != nil {
 		return "", err
 	}
@@ -115,31 +127,37 @@ func (u *Uguu) Upload(ctx context.Context, r io.Reader, size int64, _ [32]byte) 
 	return ref, nil
 }
 
-// refFromURL accepts only https://<file host>/<name> with a name of the
-// expected form, nothing more.
+// refFromURL accepts only https://<letter>.<domain>/<name> with a name of
+// the expected form, nothing more, and returns "<letter>/<name>".
 func (u *Uguu) refFromURL(raw string) (string, bool) {
-	want, err := url.Parse(u.files)
-	if err != nil {
-		return "", false
-	}
 	got, err := url.Parse(raw)
-	if err != nil || got.Scheme != "https" || got.Host != want.Host || got.User != nil ||
-		got.RawQuery != "" || got.Fragment != "" || got.Opaque != "" || len(got.Path) < 2 || got.Path[0] != '/' {
+	if err != nil || got.Scheme != "https" || got.User != nil || got.RawQuery != "" || got.ForceQuery ||
+		got.Fragment != "" || got.Opaque != "" || len(got.Path) < 2 || got.Path[0] != '/' {
 		return "", false
 	}
-	name := got.Path[1:]
-	if !uguuName.MatchString(name) {
+	letter, ok := strings.CutSuffix(got.Host, "."+u.domain)
+	if !ok {
 		return "", false
 	}
-	return name, true
+	ref := letter + got.Path
+	if !uguuRef.MatchString(ref) {
+		return "", false
+	}
+	return ref, true
+}
+
+// fileURL turns a checked reference into its URL.
+func (u *Uguu) fileURL(ref string) string {
+	letter, name, _ := strings.Cut(ref, "/")
+	return "https://" + letter + "." + u.domain + "/" + name
 }
 
 // Download implements Remote.
 func (u *Uguu) Download(ctx context.Context, ref string, size int64) (io.ReadCloser, error) {
-	if !uguuName.MatchString(ref) {
+	if !uguuRef.MatchString(ref) {
 		return nil, ErrNotFound
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u.files+"/"+ref, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u.fileURL(ref), nil)
 	if err != nil {
 		return nil, err
 	}
