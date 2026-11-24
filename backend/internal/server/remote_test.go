@@ -29,21 +29,22 @@ type fakeRemote struct {
 func (f *fakeRemote) Name() string             { return "filebin" }
 func (f *fakeRemote) MaxExpiry() time.Duration { return 6 * 24 * time.Hour }
 
-func (f *fakeRemote) Upload(_ context.Context, ref string, r io.Reader, size int64, sum [32]byte) error {
+func (f *fakeRemote) Upload(_ context.Context, r io.Reader, size int64, sum [32]byte) (string, error) {
 	data, err := io.ReadAll(r)
 	if err != nil {
-		return err
+		return "", err
 	}
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if f.fail {
-		return storage.ErrUnavailable
+		return "", storage.ErrUnavailable
 	}
 	if int64(len(data)) != size || sha256.Sum256(data) != sum {
-		return fmt.Errorf("%w: checksum", storage.ErrUnavailable)
+		return "", fmt.Errorf("%w: checksum", storage.ErrUnavailable)
 	}
+	ref := storage.NewRef()
 	f.blobs[ref] = data
-	return nil
+	return ref, nil
 }
 
 func (f *fakeRemote) Download(_ context.Context, ref string, size int64) (io.ReadCloser, error) {

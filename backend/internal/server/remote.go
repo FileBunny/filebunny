@@ -113,10 +113,9 @@ func (r *remote) report(err error) {
 func (r *remote) check(ctx context.Context, now time.Time) error {
 	probe := make([]byte, healthProbeSize)
 	rand.Read(probe)
-	ref := storage.NewRef()
 	ctx, cancel := context.WithTimeout(ctx, time.Minute)
 	defer cancel()
-	err := r.Upload(ctx, ref, bytes.NewReader(probe), int64(len(probe)), sha256.Sum256(probe))
+	ref, err := r.Upload(ctx, bytes.NewReader(probe), int64(len(probe)), sha256.Sum256(probe))
 	if err == nil {
 		var rc io.ReadCloser
 		if rc, err = r.Download(ctx, ref, int64(len(probe))); err == nil {
@@ -127,7 +126,7 @@ func (r *remote) check(ctx context.Context, now time.Time) error {
 				err = errors.New("downloaded blob differs")
 			}
 		}
-		// Delete whatever happened; Filebin expires it anyway.
+		// Delete whatever happened; the services expire it anyway.
 		if derr := r.Delete(ctx, ref); err == nil {
 			err = derr
 		}
@@ -232,7 +231,7 @@ func (s *Server) commitRemoteToInbox(ctx context.Context, p *store.Pending, rem 
 	return f, nil
 }
 
-// sendRemote uploads p to r under a new ref, within r's transfer slots and
+// sendRemote uploads p to r and returns its ref, within r's transfer slots and
 // the daily traffic cap; p is aborted afterwards in every case.
 func (s *Server) sendRemote(ctx context.Context, p *store.Pending, r *remote) (string, error) {
 	defer p.Abort()
@@ -256,10 +255,9 @@ func (s *Server) sendRemote(ctx context.Context, p *store.Pending, r *remote) (s
 	var sum [32]byte
 	h.Sum(sum[:0])
 
-	ref := storage.NewRef()
 	tctx, cancel := context.WithTimeout(ctx, remoteTransferTimeout)
 	defer cancel()
-	err = r.Upload(tctx, ref, content, p.Size(), sum)
+	ref, err := r.Upload(tctx, content, p.Size(), sum)
 	r.report(err)
 	if err != nil {
 		// The adapters strip URLs (with the reference) from their errors.

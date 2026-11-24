@@ -102,17 +102,18 @@ func newTestFilebin(t *testing.T, change ...func(*filebinOptions)) (*Filebin, *f
 	return newFilebin(o), fake
 }
 
-func upload(t *testing.T, fb *Filebin, ref, body string) {
+func upload(t *testing.T, fb *Filebin, body string) string {
 	t.Helper()
-	if err := fb.Upload(t.Context(), ref, strings.NewReader(body), int64(len(body)), sha256.Sum256([]byte(body))); err != nil {
+	ref, err := fb.Upload(t.Context(), strings.NewReader(body), int64(len(body)), sha256.Sum256([]byte(body)))
+	if err != nil {
 		t.Fatal(err)
 	}
+	return ref
 }
 
 func TestFilebinRoundTrip(t *testing.T) {
 	fb, fake := newTestFilebin(t)
-	ref := NewRef()
-	upload(t, fb, ref, "ciphertext")
+	ref := upload(t, fb, "ciphertext")
 	if len(fake.sums) != 1 {
 		t.Fatal("no checksum sent")
 	}
@@ -141,7 +142,7 @@ func TestFilebinRoundTrip(t *testing.T) {
 
 func TestFilebinChecksumMismatch(t *testing.T) {
 	fb, _ := newTestFilebin(t)
-	err := fb.Upload(t.Context(), NewRef(), strings.NewReader("data"), 4, sha256.Sum256([]byte("other")))
+	_, err := fb.Upload(t.Context(), strings.NewReader("data"), 4, sha256.Sum256([]byte("other")))
 	if !errors.Is(err, ErrUnavailable) {
 		t.Errorf("err %v, want ErrUnavailable", err)
 	}
@@ -151,8 +152,7 @@ func TestFilebinChecksumMismatch(t *testing.T) {
 // as the API documentation says; the cookie never goes to the storage host.
 func TestFilebinVerificationCookie(t *testing.T) {
 	fb, fake := newTestFilebin(t)
-	ref := NewRef()
-	upload(t, fb, ref, "ciphertext")
+	ref := upload(t, fb, "ciphertext")
 	fake.verify = true
 	for i := range 2 {
 		rc, err := fb.Download(t.Context(), ref, 10)
@@ -177,8 +177,7 @@ func TestFilebinVerificationCookie(t *testing.T) {
 // A page after the repeat makes the service unavailable; no further tries.
 func TestFilebinVerificationPage(t *testing.T) {
 	fb, fake := newTestFilebin(t)
-	ref := NewRef()
-	upload(t, fb, ref, "ciphertext")
+	ref := upload(t, fb, "ciphertext")
 	fake.html = true
 	if _, err := fb.Download(t.Context(), ref, 10); !errors.Is(err, ErrUnavailable) {
 		t.Errorf("err %v, want ErrUnavailable", err)
@@ -190,8 +189,7 @@ func TestFilebinVerificationPage(t *testing.T) {
 
 func TestFilebinWrongSize(t *testing.T) {
 	fb, fake := newTestFilebin(t)
-	ref := NewRef()
-	upload(t, fb, ref, "ciphertext")
+	ref := upload(t, fb, "ciphertext")
 
 	// Longer than stored: refused before streaming (Content-Length).
 	fake.extra = "padding"
@@ -208,8 +206,7 @@ func TestFilebinWrongSize(t *testing.T) {
 // Redirects only go to the fixed hosts, never anywhere the service says.
 func TestFilebinRedirectToOtherHostRefused(t *testing.T) {
 	fb, fake := newTestFilebin(t)
-	ref := NewRef()
-	upload(t, fb, ref, "ciphertext")
+	ref := upload(t, fb, "ciphertext")
 	fake.redirectTo = "attacker.example"
 	_, err := fb.Download(t.Context(), ref, 10)
 	if !errors.Is(err, ErrUnavailable) || !errors.Is(err, errRedirect) {
@@ -221,7 +218,7 @@ func TestFilebinBlockedAddress(t *testing.T) {
 	fb, _ := newTestFilebin(t, func(o *filebinOptions) {
 		o.allowed = func(a netip.Addr) bool { return !a.IsLoopback() }
 	})
-	err := fb.Upload(t.Context(), NewRef(), strings.NewReader("x"), 1, sha256.Sum256([]byte("x")))
+	_, err := fb.Upload(t.Context(), strings.NewReader("x"), 1, sha256.Sum256([]byte("x")))
 	if !errors.Is(err, errBlocked) {
 		t.Errorf("err %v, want errBlocked", err)
 	}
@@ -230,8 +227,7 @@ func TestFilebinBlockedAddress(t *testing.T) {
 // Errors never contain the blob's reference (it ends up in logs).
 func TestFilebinErrorsHideTheReference(t *testing.T) {
 	fb, fake := newTestFilebin(t)
-	ref := NewRef()
-	upload(t, fb, ref, "ciphertext")
+	ref := upload(t, fb, "ciphertext")
 	fake.redirectTo = "attacker.example"
 	_, err := fb.Download(t.Context(), ref, 10)
 	if err == nil || strings.Contains(err.Error(), ref) {

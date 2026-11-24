@@ -63,24 +63,25 @@ func (f *Filebin) fileURL(ref string) string {
 	return f.base + "/" + url.PathEscape(ref) + "/" + filebinFile
 }
 
-// Upload implements Remote.
-func (f *Filebin) Upload(ctx context.Context, ref string, r io.Reader, size int64, sum [32]byte) error {
+// Upload implements Remote. The reference is a new random bin name.
+func (f *Filebin) Upload(ctx context.Context, r io.Reader, size int64, sum [32]byte) (string, error) {
+	ref := NewRef()
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, f.fileURL(ref), r)
 	if err != nil {
-		return err
+		return "", err
 	}
 	req.ContentLength = size
 	req.Header.Set("Content-Type", "application/octet-stream")
 	req.Header.Set("Content-SHA256", hex.EncodeToString(sum[:]))
 	resp, err := f.http.Do(req)
 	if err != nil {
-		return unavailable(err)
+		return "", unavailable(err)
 	}
 	defer drain(resp.Body)
 	if resp.StatusCode != http.StatusCreated {
-		return fmt.Errorf("%w: upload status %d", ErrUnavailable, resp.StatusCode)
+		return "", fmt.Errorf("%w: upload status %d", ErrUnavailable, resp.StatusCode)
 	}
-	return nil
+	return ref, nil
 }
 
 // Download implements Remote.
