@@ -148,12 +148,14 @@ code=$("${curl[@]}" -o /dev/null -w '%{http_code}' "${mauth[@]}" -X DELETE "$bas
 code=$("${curl[@]}" -o /dev/null -w '%{http_code}' "$base/api/v1/inboxes/$inbox")
 [[ $code == 404 ]] || fail "revoked link still there: $code"
 
-echo "external storage (off by default; CI never talks to Filebin)"
+echo "external storage (off by default; CI never talks to Filebin or Uguu)"
 [[ $("${curl[@]}" "$base/api/v1/storage") == '{"storage":[]}' ]] || fail "storage status"
 code=$("${curl[@]}" -o /dev/null -w '%{http_code}' --data-binary 'x' "$base/api/v1/files?storage=filebin")
 [[ $code == 400 ]] || fail "storage not offered: $code"
 code=$("${curl[@]}" -o /dev/null -w '%{http_code}' --data-binary "$key" "$base/api/v1/inboxes?storage=filebin")
 [[ $code == 400 ]] || fail "upload link storage not offered: $code"
+code=$("${curl[@]}" -o /dev/null -w '%{http_code}' --data-binary 'x' "$base/api/v1/files?storage=uguu")
+[[ $code == 400 ]] || fail "uguu not offered: $code"
 
 echo "e-mail (off by default; CI never sends mail)"
 "${curl[@]}" "$base/api/v1/features" | grep -q '"mail":false' || fail "features: mail not off"

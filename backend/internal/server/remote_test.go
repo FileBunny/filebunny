@@ -81,7 +81,7 @@ func (f *fakeRemote) count() int {
 func withRemote(t *testing.T, e *testEnv) *fakeRemote {
 	t.Helper()
 	fake := &fakeRemote{blobs: map[string][]byte{}}
-	e.srv.addRemote(fake)
+	e.srv.addRemote(fake, true)
 	if err := e.srv.remotes["filebin"].check(t.Context(), e.clock); err != nil {
 		t.Fatal(err)
 	}
@@ -251,7 +251,8 @@ func TestStorageStatus(t *testing.T) {
 	var resp struct{ Storage []storageStatus }
 	json.Unmarshal(rec.Body.Bytes(), &resp)
 	if len(resp.Storage) != 1 || resp.Storage[0].Name != "filebin" || !resp.Storage[0].Available ||
-		resp.Storage[0].MaxExpirySeconds != int64(6*24*time.Hour/time.Second) || !resp.Storage[0].CheckedAt.Equal(e.clock) {
+		resp.Storage[0].MaxExpirySeconds != int64(6*24*time.Hour/time.Second) || !resp.Storage[0].CheckedAt.Equal(e.clock) ||
+		!resp.Storage[0].UploadLinks {
 		t.Errorf("status %s", rec.Body)
 	}
 }
@@ -377,5 +378,28 @@ func TestRemoteUploadFailureIsLogged(t *testing.T) {
 	// One failure leaves the service in use.
 	if healthy, _ := e.srv.remotes["filebin"].status(); !healthy {
 		t.Error("out of use after one failure")
+	}
+}
+
+// A service that is not for upload links (Uguu) is refused when a link is
+// created, says so in GET /api/v1/storage, and still takes share links.
+func TestRemoteNotForUploadLinks(t *testing.T) {
+	e := newTestEnv(t)
+	fake := &fakeRemote{blobs: map[string][]byte{}}
+	e.srv.addRemote(fake, false)
+	if err := e.srv.remotes["filebin"].check(t.Context(), e.clock); err != nil {
+		t.Fatal(err)
+	}
+	if rec := e.do("POST", "/api/v1/inboxes?storage=filebin", strings.NewReader(testPublicKey)); rec.Code != http.StatusBadRequest ||
+		!strings.Contains(rec.Body.String(), "upload_links") {
+		t.Errorf("upload link: %d %s, want 400", rec.Code, rec.Body)
+	}
+	rec := e.do("GET", "/api/v1/storage", nil)
+	if !strings.Contains(rec.Body.String(), `"upload_links":false`) {
+		t.Errorf("status %s", rec.Body)
+	}
+	e.upload(t, "ciphertext", "?storage=filebin")
+	if fake.count() != 1 {
+		t.Errorf("%d blobs at the service, want 1", fake.count())
 	}
 }

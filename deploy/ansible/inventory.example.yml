@@ -18,6 +18,7 @@ all:
       # filebunny_www_redirect: true       # needs a DNS record for www
       # filebunny_max_total_size: 10737418240   # 10 GiB on a 25 GB disk
       # filebunny_filebin: true             # Filebin through this server; read docs/storage/filebin.md
+      # filebunny_uguu: true                # Uguu through this server; read docs/storage/uguu.md
       # filebunny_env: {FILEBUNNY_MAX_DOWNLOADS: "50"}   # other FILEBUNNY_* settings, names as in docs/self-hosting.md
       # During a closed test: only these addresses reach the site (80/443).
       # Empty (the default): open to everyone.

@@ -86,7 +86,11 @@ func New(cfg config.Config, st *store.Store, log *slog.Logger) *Server {
 	}
 	s.remotes = make(map[string]*remote)
 	if cfg.Filebin {
-		s.addRemote(storage.NewFilebin())
+		s.addRemote(storage.NewFilebin(), true)
+	}
+	if cfg.Uguu {
+		// Not for upload links: Uguu keeps files for 3 hours only.
+		s.addRemote(storage.NewUguu(), false)
 	}
 	s.mux.HandleFunc("GET /healthz", s.handleHealth)
 	s.mux.HandleFunc("POST /api/v1/files", s.handleUpload)

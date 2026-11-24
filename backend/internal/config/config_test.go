@@ -19,7 +19,7 @@ func TestDefaults(t *testing.T) {
 	}
 	if c.MaxDownloads != 100 || c.MaxPendingUploads != 50 || !c.WKDProxy || c.MaxInboxes != 1000 ||
 		c.InboxDefaultExpiry != 7*24*time.Hour || c.InboxMaxExpiry != 30*24*time.Hour || c.InboxMaxUploads != 100 || c.InboxMaxSize != 100<<20 ||
-		c.Filebin || c.ProxyDailyBytes != 50<<30 ||
+		c.Filebin || c.Uguu || c.ProxyDailyBytes != 50<<30 ||
 		c.SMTPFile != "" || c.PublicURL != "" || c.MailDaily != 500 || c.MailPerRecipient != 3 || c.MailPerFile != 3 ||
 		c.ClientIPHeader != "" || !c.RateLimits || c.PowBits != 16 {
 		t.Errorf("unexpected limits: %+v", c)
@@ -46,6 +46,7 @@ func TestOverrides(t *testing.T) {
 		"FILEBUNNY_INBOX_MAX_UPLOADS":    "8",
 		"FILEBUNNY_INBOX_MAX_SIZE":       "2048",
 		"FILEBUNNY_FILEBIN":              "true",
+		"FILEBUNNY_UGUU":                 "true",
 		"FILEBUNNY_PROXY_DAILY_BYTES":    "512",
 		"FILEBUNNY_SMTP_FILE":            "/run/secrets/smtp",
 		"FILEBUNNY_PUBLIC_URL":           "https://filebunny.example/",
@@ -62,7 +63,7 @@ func TestOverrides(t *testing.T) {
 	if c.Listen != "127.0.0.1:9000" || c.DataDir != "/srv/fb" || c.MaxSize != 1024 || c.MaxTotalSize != 4096 ||
 		c.DefaultExpiry != time.Hour || c.MaxExpiry != 2*time.Hour || c.MaxDownloads != 5 || c.MaxPendingUploads != 6 || c.WKDProxy ||
 		c.MaxInboxes != 7 || c.InboxDefaultExpiry != time.Hour || c.InboxMaxExpiry != 3*time.Hour || c.InboxMaxUploads != 8 || c.InboxMaxSize != 2048 ||
-		!c.Filebin || c.ProxyDailyBytes != 512 ||
+		!c.Filebin || !c.Uguu || c.ProxyDailyBytes != 512 ||
 		c.SMTPFile != "/run/secrets/smtp" || c.PublicURL != "https://filebunny.example" || c.MailDaily != 9 || c.MailPerRecipient != 2 || c.MailPerFile != 1 ||
 		c.ClientIPHeader != "X-FileBunny-Client" || c.RateLimits || c.PowBits != 0 {
 		t.Errorf("overrides not applied: %+v", c)

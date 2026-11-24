@@ -33,6 +33,9 @@ services:
       FILEBUNNY_WKD_PROXY: ${FILEBUNNY_WKD_PROXY:-true}
       # External storage at filebin.net through this server (docs/storage/filebin.md).
       FILEBUNNY_FILEBIN: ${FILEBUNNY_FILEBIN:-false}
+      # External storage at uguu.se through this server, share links only
+      # (docs/storage/uguu.md).
+      FILEBUNNY_UGUU: ${FILEBUNNY_UGUU:-false}
       FILEBUNNY_PROXY_DAILY_BYTES: ${FILEBUNNY_PROXY_DAILY_BYTES:-53687091200}
       # E-mail: relays and passwords come from the smtp secret, never from
       # the environment. The default file has no relays: mail off.

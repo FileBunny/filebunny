@@ -48,6 +48,8 @@ var (
 type remote struct {
 	storage.Remote
 	slots chan struct{}
+	// uploadLinks: upload links may store there.
+	uploadLinks bool
 
 	mu        sync.Mutex
 	healthy   bool
@@ -58,8 +60,8 @@ type remote struct {
 	dayBytes int64
 }
 
-func newRemote(r storage.Remote) *remote {
-	return &remote{Remote: r, slots: make(chan struct{}, maxRemoteTransfers)}
+func newRemote(r storage.Remote, uploadLinks bool) *remote {
+	return &remote{Remote: r, slots: make(chan struct{}, maxRemoteTransfers), uploadLinks: uploadLinks}
 }
 
 // status reports whether the service is offered and when it was checked.
@@ -284,9 +286,10 @@ func (s *Server) remoteFor(w http.ResponseWriter, name string) *remote {
 	return rem
 }
 
-// addRemote offers r as external storage.
-func (s *Server) addRemote(r storage.Remote) {
-	s.remotes[r.Name()] = newRemote(r)
+// addRemote offers r as external storage, with uploadLinks also for
+// upload links.
+func (s *Server) addRemote(r storage.Remote, uploadLinks bool) {
+	s.remotes[r.Name()] = newRemote(r, uploadLinks)
 }
 
 // putRemote receives an upload body into a temp file and sends it on.
@@ -308,6 +311,8 @@ type storageStatus struct {
 	CheckedAt time.Time `json:"checked_at,omitzero"`
 	// MaxExpirySeconds is the longest expiry an upload there may ask for.
 	MaxExpirySeconds int64 `json:"max_expiry_seconds"`
+	// UploadLinks tells whether upload links may store there.
+	UploadLinks bool `json:"upload_links"`
 }
 
 // handleStorage lists the external services this server offers.
@@ -316,7 +321,7 @@ func (s *Server) handleStorage(w http.ResponseWriter, _ *http.Request) {
 	for _, r := range s.remotes {
 		healthy, checked := r.status()
 		st := storageStatus{Name: r.Name(), Available: healthy,
-			MaxExpirySeconds: int64(min(s.cfg.MaxExpiry, r.MaxExpiry()) / time.Second)}
+			MaxExpirySeconds: int64(min(s.cfg.MaxExpiry, r.MaxExpiry()) / time.Second), UploadLinks: r.uploadLinks}
 		if !checked.IsZero() {
 			st.CheckedAt = checked.UTC()
 		}
