@@ -100,7 +100,7 @@ table inet filebunny {
 		iifname "docker0" jump container_egress
 	}
 
-	# What the containers may open: HTTPS (WKD, Filebin, certificates),
+	# What the containers may open: HTTPS (WKD, Filebin, Uguu, certificates),
 	# the SMTP relays, DNS to the provider. The rest is logged and dropped.
 	chain container_egress {
 		meta l4proto { icmp, ipv6-icmp } accept

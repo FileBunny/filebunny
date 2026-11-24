@@ -14,14 +14,30 @@ export type Storage = {
   direct: boolean;
   /** The longest expiry through FileBunny, in hours. */
   maxExpiryHours: number;
+  /** Whether upload links may store there. */
+  uploadLinks: boolean;
   /** About how long the service keeps a direct upload, in days. */
   keepsDays?: number;
+  /**
+   * For a service that cannot delete: how long it keeps a file after the
+   * upload, in hours, whatever FileBunny's expiry or download limit.
+   */
+  keepsHours?: number;
 };
 
 export const storages: Storage[] = [
-  { name: 'local', label: 'FileBunny', short: 'FileBunny', direct: false, maxExpiryHours: 168 },
+  { name: 'local', label: 'FileBunny', short: 'FileBunny', direct: false, maxExpiryHours: 168, uploadLinks: true },
   // The server allows a day less than Filebin keeps a bin.
-  { name: 'filebin', label: 'Filebin (filebin.net)', short: 'Filebin', direct: true, maxExpiryHours: 144, keepsDays: filebinKeepsDays },
+  {
+    name: 'filebin', label: 'Filebin (filebin.net)', short: 'Filebin', direct: true, maxExpiryHours: 144, uploadLinks: true,
+    keepsDays: filebinKeepsDays,
+  },
+  // Uguu keeps every file for 3 hours and cannot delete it; the server
+  // allows 2 hours. No CORS, so never directly; too short for upload links.
+  {
+    name: 'uguu', label: 'Uguu (uguu.se)', short: 'Uguu', direct: false, maxExpiryHours: 2, uploadLinks: false,
+    keepsHours: 3,
+  },
 ];
 
 export function storageByName(name: string | undefined): Storage | undefined {
@@ -49,4 +65,24 @@ export function throughServer(name: string, offered: ReadonlySet<string> | null)
  */
 export function storageChoices(offered: ReadonlySet<string> | null, withDirect: boolean): Storage[] {
   return storages.filter((s) => throughServer(s.name, offered) || (withDirect && s.direct));
+}
+
+/** The choices for an upload link: through this server, and only where links may store. */
+export function uploadLinkChoices(offered: ReadonlySet<string> | null): Storage[] {
+  return storageChoices(offered, false).filter((s) => s.uploadLinks);
+}
+
+const expiryOptions = [1, 2, 24, 72];
+
+/** "1 hour", "2 hours", "1 day", "6 days". */
+export function hoursLabel(hours: number): string {
+  if (hours < 24) return hours === 1 ? '1 hour' : `${hours} hours`;
+  const days = hours / 24;
+  return days === 1 ? '1 day' : `${days} days`;
+}
+
+/** The expiries to choose from at s: the usual ones up to its maximum, and the maximum. */
+export function expiryChoices(s: Storage): { value: string; label: string }[] {
+  const hours = expiryOptions.filter((h) => h < s.maxExpiryHours && (h !== 2 || s.maxExpiryHours < 24));
+  return [...hours, s.maxExpiryHours].map((h) => ({ value: `${h}h`, label: hoursLabel(h) }));
 }

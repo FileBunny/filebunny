@@ -51,6 +51,9 @@ type Config struct {
 	// Filebin offers filebin.net as external storage for share links.
 	// Off by default: a self-hoster decides whether to use a third party.
 	Filebin bool
+	// Uguu offers uguu.se as external storage for share links (not for
+	// upload links: it keeps files for 3 hours). Off by default.
+	Uguu bool
 	// ProxyDailyBytes caps the bytes sent to and fetched from external
 	// storage per day (UTC), server-wide: the server carries that traffic
 	// twice, and the VPS has a traffic budget.
@@ -240,6 +243,7 @@ func FromEnv(getenv func(string) string) (Config, error) {
 	}{
 		{"FILEBUNNY_WKD_PROXY", &c.WKDProxy},
 		{"FILEBUNNY_FILEBIN", &c.Filebin},
+		{"FILEBUNNY_UGUU", &c.Uguu},
 		{"FILEBUNNY_RATE_LIMITS", &c.RateLimits},
 	}
 	for _, b := range bools {

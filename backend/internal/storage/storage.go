@@ -3,8 +3,10 @@
 // fetches it back; the service sees this server's address, never the
 // client's.
 //
-// Remote blobs are named by a server-generated random reference; nothing
-// from the client ends up in a URL. Hosts are fixed per service.
+// Remote blobs are named by a reference that the adapter returns on upload:
+// a server-generated random one, or the name the service chose, checked
+// against a strict pattern. Nothing from the client ends up in a URL. Hosts
+// are fixed per service.
 package storage
 
 import (
@@ -30,8 +32,9 @@ type Remote interface {
 	Name() string
 	// MaxExpiry is how long a blob may be kept there at most.
 	MaxExpiry() time.Duration
-	// Upload stores size bytes from r under ref; sum is their SHA-256.
-	Upload(ctx context.Context, ref string, r io.Reader, size int64, sum [32]byte) error
+	// Upload stores size bytes from r and returns the reference to them;
+	// sum is their SHA-256.
+	Upload(ctx context.Context, r io.Reader, size int64, sum [32]byte) (ref string, err error)
 	// Download returns the blob, which must be exactly size bytes: the
 	// reader fails if it is longer or shorter.
 	Download(ctx context.Context, ref string, size int64) (io.ReadCloser, error)

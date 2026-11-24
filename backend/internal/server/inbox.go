@@ -88,6 +88,10 @@ func (s *Server) handleCreateInbox(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusBadRequest, msgStorageNotOffered)
 			return
 		}
+		if !rem.uploadLinks {
+			writeError(w, http.StatusBadRequest, "upload links cannot store there; see upload_links in GET /api/v1/storage")
+			return
+		}
 		if healthy, _ := rem.status(); !healthy {
 			writeRemoteError(w, errRemoteDown)
 			return

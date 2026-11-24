@@ -48,6 +48,8 @@ var (
 type remote struct {
 	storage.Remote
 	slots chan struct{}
+	// uploadLinks: upload links may store there.
+	uploadLinks bool
 
 	mu        sync.Mutex
 	healthy   bool
@@ -58,8 +60,8 @@ type remote struct {
 	dayBytes int64
 }
 
-func newRemote(r storage.Remote) *remote {
-	return &remote{Remote: r, slots: make(chan struct{}, maxRemoteTransfers)}
+func newRemote(r storage.Remote, uploadLinks bool) *remote {
+	return &remote{Remote: r, slots: make(chan struct{}, maxRemoteTransfers), uploadLinks: uploadLinks}
 }
 
 // status reports whether the service is offered and when it was checked.
@@ -113,10 +115,9 @@ func (r *remote) report(err error) {
 func (r *remote) check(ctx context.Context, now time.Time) error {
 	probe := make([]byte, healthProbeSize)
 	rand.Read(probe)
-	ref := storage.NewRef()
 	ctx, cancel := context.WithTimeout(ctx, time.Minute)
 	defer cancel()
-	err := r.Upload(ctx, ref, bytes.NewReader(probe), int64(len(probe)), sha256.Sum256(probe))
+	ref, err := r.Upload(ctx, bytes.NewReader(probe), int64(len(probe)), sha256.Sum256(probe))
 	if err == nil {
 		var rc io.ReadCloser
 		if rc, err = r.Download(ctx, ref, int64(len(probe))); err == nil {
@@ -127,7 +128,7 @@ func (r *remote) check(ctx context.Context, now time.Time) error {
 				err = errors.New("downloaded blob differs")
 			}
 		}
-		// Delete whatever happened; Filebin expires it anyway.
+		// Delete whatever happened; the services expire it anyway.
 		if derr := r.Delete(ctx, ref); err == nil {
 			err = derr
 		}
@@ -232,7 +233,7 @@ func (s *Server) commitRemoteToInbox(ctx context.Context, p *store.Pending, rem 
 	return f, nil
 }
 
-// sendRemote uploads p to r under a new ref, within r's transfer slots and
+// sendRemote uploads p to r and returns its ref, within r's transfer slots and
 // the daily traffic cap; p is aborted afterwards in every case.
 func (s *Server) sendRemote(ctx context.Context, p *store.Pending, r *remote) (string, error) {
 	defer p.Abort()
@@ -256,10 +257,9 @@ func (s *Server) sendRemote(ctx context.Context, p *store.Pending, r *remote) (s
 	var sum [32]byte
 	h.Sum(sum[:0])
 
-	ref := storage.NewRef()
 	tctx, cancel := context.WithTimeout(ctx, remoteTransferTimeout)
 	defer cancel()
-	err = r.Upload(tctx, ref, content, p.Size(), sum)
+	ref, err := r.Upload(tctx, content, p.Size(), sum)
 	r.report(err)
 	if err != nil {
 		// The adapters strip URLs (with the reference) from their errors.
@@ -286,9 +286,10 @@ func (s *Server) remoteFor(w http.ResponseWriter, name string) *remote {
 	return rem
 }
 
-// addRemote offers r as external storage.
-func (s *Server) addRemote(r storage.Remote) {
-	s.remotes[r.Name()] = newRemote(r)
+// addRemote offers r as external storage, with uploadLinks also for
+// upload links.
+func (s *Server) addRemote(r storage.Remote, uploadLinks bool) {
+	s.remotes[r.Name()] = newRemote(r, uploadLinks)
 }
 
 // putRemote receives an upload body into a temp file and sends it on.
@@ -310,6 +311,8 @@ type storageStatus struct {
 	CheckedAt time.Time `json:"checked_at,omitzero"`
 	// MaxExpirySeconds is the longest expiry an upload there may ask for.
 	MaxExpirySeconds int64 `json:"max_expiry_seconds"`
+	// UploadLinks tells whether upload links may store there.
+	UploadLinks bool `json:"upload_links"`
 }
 
 // handleStorage lists the external services this server offers.
@@ -318,7 +321,7 @@ func (s *Server) handleStorage(w http.ResponseWriter, _ *http.Request) {
 	for _, r := range s.remotes {
 		healthy, checked := r.status()
 		st := storageStatus{Name: r.Name(), Available: healthy,
-			MaxExpirySeconds: int64(min(s.cfg.MaxExpiry, r.MaxExpiry()) / time.Second)}
+			MaxExpirySeconds: int64(min(s.cfg.MaxExpiry, r.MaxExpiry()) / time.Second), UploadLinks: r.uploadLinks}
 		if !checked.IsZero() {
 			st.CheckedAt = checked.UTC()
 		}
