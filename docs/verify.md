@@ -24,7 +24,8 @@ scripts/verify-site.sh https://filebunny.eu
 From a clone of this repository. It fetches that release's
 `frontend-SHA256SUMS`, checks its signature (with [`gh`](https://cli.github.com)
 installed), downloads every file the site serves and compares the hashes,
-checks that the page loads nothing else, and checks the security headers
+checks that the page loads nothing else (an inline `data:` image, such as
+the favicon, is part of `index.html` and covered by its hash), and checks the security headers
 and the certificate. An external watcher on GitHub does the same every
 hour; its runs are public:
 <https://github.com/FileBunny/filebunny/actions/workflows/watch.yml>.
