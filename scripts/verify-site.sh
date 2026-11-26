@@ -69,12 +69,16 @@ done <"$manifest"
 index=$(grep '  index.html$' "$manifest" | cut -d' ' -f1)
 fetch "$site/" >"$work/root.html"
 [[ $(sha256sum <"$work/root.html" | cut -d' ' -f1) == "$index" ]] && ok "/ is the published index.html" || fail "/ differs from index.html"
-for ref in $(grep -oE '(src|href)="[^"]*"' "$work/root.html" | sed -E 's/^(src|href)="\/?//; s/"$//'); do
+# One ref per line: a value may contain spaces (an inline SVG). A data:
+# image is part of index.html, so its hash above already covers it.
+while IFS= read -r ref; do
 	case $ref in
+	data:image/*) ;;
+	data:*) fail "page embeds non-image data: ${ref:0:40}..." ;;
 	http*://* | //*) fail "page loads from elsewhere: $ref" ;;
 	*) grep -q "  ${ref}$" "$manifest" || fail "page loads a file that is not published: $ref" ;;
 	esac
-done
+done < <(grep -oE '(src|href)="[^"]*"' "$work/root.html" | sed -E 's/^(src|href)="\/?//; s/"$//')
 
 headers=$(fetch -o /dev/null -D - "$site/" | tr -d '\r')
 csp=$(grep -i '^content-security-policy:' <<<"$headers" | cut -d' ' -f2-)
