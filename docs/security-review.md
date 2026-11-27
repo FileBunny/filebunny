@@ -788,6 +788,48 @@ the adapter's error, which carries no URL or reference.
 | O-5 | Proof of work and limits count per IPv4 address or IPv6 /64: two devices behind one IPv4 address share a counter, a laptop on IPv4 and a phone on IPv6 in the same home do not | **Accepted:** by design (phase 7); noted for the test plan |
 | O-6 | **Direct route: whoever sees a share link can replace the file at Filebin.** The bin name is in the link (`#/x/filebin/<bin>`), and a bin takes uploads from anyone until it is locked: a second upload of `data.bin` replaces it (live test, 2026-11-27). With a public key, someone who sees the link (in a chat, a mail box) can put in their own message for the same recipient; with a password the file only breaks. Locking needs a `PUT`, which Filebin's CORS answer does not allow from a browser. Deleting the bin stays possible for anyone with the name, also after a lock | **Fixed:** the link carries the SHA-256 of the ciphertext (`#/x/filebin/<bin>/<sha256>`) and the page decrypts nothing that does not match; `filebin.test.ts`, `route.test.ts`. Left: anyone with the link can still delete the file, and whoever can change the link can change the hash too |
 
+## Own review of v0.11.0-rc.6 → rc.9 (2026-11-27)
+
+| | |
+|---|---|
+| Date | 2026-11-27 |
+| Scope | Everything between `v0.11.0-rc.6` and `v0.11.0-rc.9`, which the review above did not cover: the Uguu adapter (share links only), the SSRF-safe client moved out of the Filebin adapter (`storage/client.go`), the adapter choosing the reference, the SHA-256 in direct Filebin links (O-6), the favicon as a `data:` URI, `verify-site.sh`, stricter fail2ban |
+| Reviewer | Claude Code (AI-assisted), reading the diff and the Uguu adapter as a whole |
+
+No critical or medium findings. Checked and found in order: the moved
+client keeps every check (fixed hosts, address check at dial time and on
+the dialed address, port 443, one redirect over https to a fixed host,
+no proxy, limited headers and replies); Filebin keeps its own hosts and
+cookie jar. Uguu's reply must name one file of the uploaded size at
+`https://<letter>.uguu.se/<name>` with a name of the strict pattern,
+checked again before every download; nothing the client sends reaches a
+URL. Uguu is refused for upload links (400) and limited to 2 hours. The
+direct Filebin route checks the hash pattern and decrypts nothing that
+does not match. The favicon falls under `img-src 'self' data:` and is
+part of the hashed `index.html`; `verify-site.sh` accepts only
+`data:image/*`. The fail2ban change keeps the ban action (`nftables`),
+so the IPv6 result of L-02 still holds.
+
+| ID | Finding | Disposition |
+|---|---|---|
+| R-1 | **Texts promised deletion that Uguu cannot do.** The delete page said the file is deleted right away, the download page that it is deleted after the last download; at Uguu the ciphertext stays until 3 hours after the upload (only the send page said so) | **Fixed:** the download page says the file is no longer available; the delete page names each offered service that cannot delete and how long it keeps a copy |
+| R-2 | `TestUguuErrorsHideTheReference` looked for `<letter>/<name>`, which a leaked URL (`https://<letter>.uguu.se/<name>`) does not contain, and only covered the web-page case, not a client error (`*url.Error`, which names the URL). The code was right (`unavailable` strips the URL); the test did not prove it | **Fixed:** the test looks for the name and covers a refused redirect; it fails without `unavailable` |
+| R-3 | The comment on `File.RemoteRef` still said the server generates the name | **Fixed** |
+
+**Residual risks** (no change):
+
+- **O-1 applies to Uguu too:** a download through FileBunny is checked
+  for size, not content, and Uguu takes no checksum on upload. Only Uguu,
+  or whoever controls it, could return another message of the same size.
+- **Uguu chooses the name**, so its randomness is Uguu's (the pattern
+  allows 6 to 32 letters and digits), not this server's 128 bits.
+  Whoever guesses or learns a name gets only ciphertext, for at most 3
+  hours; with a password that allows guessing the password offline, as a
+  leaked direct Filebin link does.
+- **Uguu sees this server's address** for every upload; misuse reported
+  to Uguu points at this server, and Uguu may block it. The health check
+  then takes Uguu out of use.
+
 ## How to re-run the checks
 
 ```sh

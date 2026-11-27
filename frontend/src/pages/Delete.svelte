@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { ApiError, deleteFile } from '../lib/api.ts';
+  import { ApiError, deleteFile, offeredStorage } from '../lib/api.ts';
+  import { storages } from '../lib/storage.ts';
   import ErrorMessage from '../components/ErrorMessage.svelte';
 
   let { id, token }: { id: string; token: string } = $props();
@@ -9,6 +10,17 @@
   // it does not linger in this tab's history entry, session restore or a
   // shared screen. (The browser's history list may still have the visit.)
   onMount(() => history.replaceState(null, '', `${location.pathname}${location.search}#/`));
+
+  // Services that cannot delete a file before they expire it themselves.
+  // This page does not know where the file is, so it names each one this
+  // server offers (all of them if it does not say; none until it answers).
+  let offered = $state<ReadonlySet<string> | null | undefined>(undefined);
+  onMount(() => {
+    offeredStorage().then((o) => (offered = o));
+  });
+  const keeping = $derived(
+    storages.filter((s) => s.keepsHours && offered !== undefined && (offered === null || offered.has(s.name))),
+  );
 
   let status = $state<'ready' | 'busy' | 'deleted'>('ready');
   let error = $state('');
@@ -30,10 +42,16 @@
 
 <h1>Delete file</h1>
 {#if status === 'deleted'}
-  <p>The file has been deleted from the server.</p>
+  <p>Deleted: the share link no longer works.</p>
   <p><a href="#/">Share something new</a></p>
 {:else}
   <p>This deletes the encrypted file right away. The share link stops working.</p>
+  {#each keeping as s (s.name)}
+    <p class="note">
+      If it was stored at {s.short}, which cannot delete files, FileBunny stops handing it out right away, but the
+      encrypted copy stays at {s.short} until {s.keepsHours} hours after the upload; only this server knows where.
+    </p>
+  {/each}
   <p class="note">The delete link was removed from the address bar; keep your own copy if you need it later.</p>
   <ErrorMessage {error} />
   <button type="button" class="danger" onclick={remove} disabled={status === 'busy'}>Delete now</button>

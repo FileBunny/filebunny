@@ -30,6 +30,8 @@ type fakeUguu struct {
 	fail bool
 	// html makes downloads answer with a web page.
 	html bool
+	// redirect makes downloads redirect to this origin, same path.
+	redirect string
 	// big makes the upload reply larger than any reply may be.
 	big bool
 	// field and filename of the last upload, and its Content-Length.
@@ -78,6 +80,10 @@ func (f *fakeUguu) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		})
 	case strings.HasSuffix(r.Host, ".uguu.se") && r.Method == http.MethodGet:
 		f.hosts[r.Host]++
+		if f.redirect != "" {
+			http.Redirect(w, r, f.redirect+r.URL.Path, http.StatusFound)
+			return
+		}
 		if f.html {
 			w.Header().Set("Content-Type", "text/html; charset=utf-8")
 			io.WriteString(w, "<html>gone</html>")
@@ -241,17 +247,26 @@ func TestUguuBlockedAddress(t *testing.T) {
 	}
 }
 
-// Errors never contain the file name (it ends up in logs).
+// Errors never contain the file name (it ends up in logs), also when the
+// HTTP client fails with a *url.Error, which names the URL.
 func TestUguuErrorsHideTheReference(t *testing.T) {
 	u, fake := newTestUguu(t)
 	ref, err := uguuUpload(t, u, "ciphertext")
 	if err != nil {
 		t.Fatal(err)
 	}
+	// The URL is https://<letter>.uguu.se/<name>: look for the name.
+	_, name, _ := strings.Cut(ref, "/")
 	fake.html = true
-	if _, err := u.Download(t.Context(), ref, 10); err == nil || strings.Contains(err.Error(), ref) {
-		t.Errorf("error %q contains the reference", err)
+	if _, err := u.Download(t.Context(), ref, 10); err == nil || strings.Contains(err.Error(), name) {
+		t.Errorf("web page: error %q contains the name", err)
 	}
+	fake.html = false
+	fake.redirect = "https://attacker.example"
+	if _, err := u.Download(t.Context(), ref, 10); !errors.Is(err, errRedirect) || strings.Contains(err.Error(), name) {
+		t.Errorf("refused redirect: error %q, want errRedirect without the name", err)
+	}
+	fake.redirect = ""
 	fake.url = "https://attacker.example/%s"
 	if _, err := uguuUpload(t, u, "ciphertext"); err == nil || strings.Contains(err.Error(), "AbCdEf") {
 		t.Errorf("error %q contains the name", err)
