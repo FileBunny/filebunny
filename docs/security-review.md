@@ -560,6 +560,8 @@ Frontend only: no backend, API, CSP or deploy changes.
   yet) through `@sveltejs/vite-plugin-svelte`. Build time only: it merges
   this repository's own Vite config, never input from visitors, and is not
   in the built page (`npm audit --omit=dev`: 0). Update when a fix lands.
+  No longer reported since 2026-11-27 (deepmerge 4.3.1 unchanged); see
+  [Scanner reconciliation](#scanner-reconciliation-2026-11-27).
 
 ## Phase 10 (test and launch, in progress)
 
@@ -637,6 +639,7 @@ Frontend only: no backend, API, CSP or deploy changes.
 - **deepmerge 4.3.1** (GHSA-gcqx-w48m-w2h4, low, no fix yet): prototype
   poisoning, pulled in by `@sveltejs/vite-plugin-svelte`. Only a build
   dependency that merges the plugin's own options; it is not in the site.
+  No longer reported since 2026-11-27.
 - **The admin user is root in practice** (sudo without a password, and
   the `docker` group). Protect its SSH key.
 - **Debian's cloud image sums** (used only by `scripts/test-vm.sh`) come
@@ -830,6 +833,47 @@ so the IPv6 result of L-02 still holds.
   to Uguu points at this server, and Uguu may block it. The health check
   then takes Uguu out of use.
 
+## Scanner reconciliation (2026-11-27)
+
+| | |
+|---|---|
+| Date | 2026-11-27 |
+| Scope | Why advisories named in the reviews are or are not reported by the weekly scan, the `.trivyignore` and `.npmauditignore` entries, against `v0.11.0-rc.9` |
+| Reviewer | Claude Code (AI-assisted): Trivy 0.76.2 without severity filter and `govulncheck -mode=binary` on Caddy from the rc.9 web image, `npm audit` |
+
+`scan.yml` fails only on `UNKNOWN`, `HIGH` and `CRITICAL` findings that
+have a fix (`--ignore-unfixed`), and its binary `govulncheck` step runs on
+the backend only. An advisory below that bar, or without a fixed version,
+is therefore not in `.trivyignore` because it never fails the scan, not
+because it was accepted. Everything Trivy reports without the filter, and
+everything `govulncheck` finds in Caddy:
+
+| Advisory | Where | Trivy | Why not in the weekly failure | Reachable here |
+|---|---|---|---|---|
+| CVE-2026-97054 / GO-2026-6859 | Go 1.27.3 in Caddy | medium | in `.trivyignore` (V-01) | yes: HTTP/1 crash, accepted until 2026-12-15 |
+| CVE-2026-78661 / GO-2026-6860 | `x/net/html` in Caddy, `html.Parse` | high | in `.trivyignore` | no: only Caddy's templates and markdown parse HTML; the Caddyfile uses neither |
+| CVE-2026-97045 / GO-2026-6866 | `x/net/html` in Caddy, `html.Render` | medium | below the bar | no: same as above |
+| GO-2026-6865 (CVE-2026-116591) | `klauspost/compress` in Caddy: panic on two-block frames; `govulncheck` lists encoder and decoder symbols | not reported | Trivy's database has no entry | no visitor input: `encode zstd gzip` is only on the static site (`/srv`), not on `/api`, so no uploaded ciphertext is compressed; Caddy decompresses no request bodies |
+| GO-2026-5932 | `x/crypto/openpgp` in Caddy | unknown | in `.trivyignore` | no: an unmaintained-package notice; FileBunny's OpenPGP is OpenPGP.js in the browser |
+| CVE-2026-116587, -116585, -116586 | `go-jose/v3` 3.0.5 in Caddy: CPU on crafted RSA JWKs (high), JWE and deep JSON panics | high, medium | no fixed v3 release (`--ignore-unfixed`); not in Go's database | no, by configuration: Caddy parses untrusted JWKs and JWE only in its ACME server and PKI (smallstep), which the Caddyfile does not enable; the admin API is off. Not proven by a call trace: the code is in the binary |
+| GO-2026-6974, GO-2026-6975 (CVE-2026-128085) | OpenTelemetry in Caddy | medium | below the bar | no: only Caddy's `tracing` directive uses it; the Caddyfile has none |
+| CVE-2026-107496, -95691, -95692, -88822, -88823 | OpenSSL 3.5.9-r0 in Alpine | medium, low | below the bar | no: Caddy is a static Go binary; only curl, `apk` and `ssl_client` link OpenSSL, none of them serves visitors. The flaws are in CMS encryption, the QUIC client and AES-GCM-SIV |
+| CVE-2026-4738 | zlib 1.3.2-r1 in Alpine | medium | below the bar | no: the flaw is in GDAL's copy of zlib's `infback9` contrib code, not in the zlib library |
+
+The newest `caddy:2.11.9-alpine` digest (Dependabot #51) has the same
+Caddy binary (Go 1.27.3) and the same Alpine packages, so it fixes none
+of these. Caddy 2.11.9 is still the newest release.
+
+`npm audit` reports nothing: GHSA-fc5q-39xc-vjpf (`picomatch` 4.0.7,
+unchanged) and GHSA-gcqx-w48m-w2h4 (`deepmerge` 4.3.1, unchanged) are no
+longer reported, so the `picomatch` entry is gone from `.npmauditignore`.
+
+**Residual risk.** The weekly scan does not see medium findings or ones
+without a fix, and does not run `govulncheck` on Caddy. They are looked
+at by hand when the `.trivyignore` entries expire (2026-12-15), when
+Caddy is updated, and in reviews; the table above is the state of
+2026-11-27.
+
 ## How to re-run the checks
 
 ```sh
@@ -842,10 +886,14 @@ docker compose up -d --build && scripts/smoke-test.sh   # end to end
 Against a release (also weekly in `.github/workflows/scan.yml`):
 
 ```sh
-img=ghcr.io/filebunny/filebunny-web:v0.10.0
-docker run --rm -v /var/run/docker.sock:/var/run/docker.sock:ro \
-  -v "$PWD/.trivyignore:/.trivyignore:ro" aquasec/trivy:0.76.2 image \
-  --ignorefile /.trivyignore --severity UNKNOWN,HIGH,CRITICAL --ignore-unfixed "$img"
+img=ghcr.io/filebunny/filebunny-web:v0.11.0-rc.9
+mkdir -p /tmp/images && docker pull -q "$img" && docker save -o /tmp/images/web.tar "$img"
+# As the weekly scan (an archive, not the Docker socket):
+docker run --rm -v /tmp/images:/images:ro -v "$PWD/.trivyignore:/.trivyignore:ro" \
+  aquasec/trivy:0.76.2 image --ignorefile /.trivyignore \
+  --severity UNKNOWN,HIGH,CRITICAL --ignore-unfixed --input /images/web.tar
+# Everything, for the reconciliation above:
+docker run --rm -v /tmp/images:/images:ro aquasec/trivy:0.76.2 image --input /images/web.tar
 id=$(docker create "$img") && docker cp "$id:/usr/bin/caddy" /tmp/caddy && docker rm "$id"
 (cd backend && go run golang.org/x/vuln/cmd/govulncheck@v1.9.0 -mode=binary /tmp/caddy)
 ```
