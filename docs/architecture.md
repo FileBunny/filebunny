@@ -275,8 +275,9 @@ chooses:
   retried until it succeeds. A service that cannot delete (Uguu) keeps
   the ciphertext until its own expiry; FileBunny no longer hands it out.
 - **Directly:** the browser uploads to the service itself; the server
-  knows nothing about the file. The link is `#/x/<adapter>/<reference>`, with the
-  service's reference only in the fragment. No download limit or delete
+  knows nothing about the file. The link is `#/x/<adapter>/<reference>/<sha256>`, with the
+  service's reference and the SHA-256 of the ciphertext only in the fragment; nothing that does not
+  match is decrypted, because anyone with the reference may be able to replace the file. No download limit or delete
   link; the service's own expiry applies, and it sees the sender's and
   recipients' IP addresses. If the browser cannot fetch the file (the
   service wants to check the browser first), the page sends the recipient
