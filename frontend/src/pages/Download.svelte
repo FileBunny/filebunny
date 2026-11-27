@@ -55,7 +55,7 @@
     <p>
       {formatBytes(info.size)} of encrypted data, available until {formatDate(info.expiresAt)}.
       {#if info.downloadsLeft === 1}
-        <strong>This is the last download: afterwards the file is deleted.</strong>
+        <strong>This is the last download: afterwards the file is no longer available.</strong>
       {:else if info.downloadsLeft !== null}
         {info.downloadsLeft} downloads left.
       {/if}
