@@ -874,6 +874,22 @@ at by hand when the `.trivyignore` entries expire (2026-12-15), when
 Caddy is updated, and in reviews; the table above is the state of
 2026-11-27.
 
+## Production checks of v0.11.0-rc.9 (2026-11-27)
+
+| | |
+|---|---|
+| Date | 2026-11-27 |
+| Scope | The open production checks of the external assessment update for `v0.11.0-rc.9`: release identity (REL-01), UDP 443 and HTTP/3 (DEP-01), fail2ban for IPv6 (DEP-02) |
+| Reviewer | The operator ran the commands on filebunny.eu (read-only, except a test ban that was lifted again); Claude Code (AI-assisted) verified the attestations from outside and assessed the output |
+
+| Check | Result |
+|---|---|
+| Release identity (REL-01) | `/opt/filebunny/current` points to `releases/v0.11.0-rc.9`; its `release.env` names `filebunny-backend@sha256:c7c835b2…` and `filebunny-web@sha256:05cb3deb…`. Each running container's image has exactly that registry digest in `RepoDigests`, and its image ID is the same digest (Docker's containerd image store names an image by its manifest digest), so the image IDs in the assessment are the registry digests. `gh attestation verify` on both digests, outside the server: built by `release.yml@refs/tags/v0.11.0-rc.9` from commit `35fb470` on a GitHub-hosted runner, the checks `scripts/deploy.sh` makes before every deploy |
+| UDP 443 and HTTP/3 (DEP-01) | `PortBindings` of the web container: only `80/tcp` and `443/tcp`. `443/udp` and `2019/tcp` appear in `NetworkSettings.Ports` with `null`: exposed by the Caddy image, not published. `ss -lnup` on the host: no UDP listener. `https://filebunny.eu/` answers over HTTP/2 without `Alt-Svc` |
+| fail2ban for IPv6 (DEP-02) | A test ban of `2001:db8::dead` (documentation range) landed in `addr6-set-sshd` with the rule `tcp dport 22 ip6 saddr @addr6-set-sshd reject`, and was lifted. Same result as L-02, now with the stricter jail of 2026-11-24 |
+
+All three are closed.
+
 ## How to re-run the checks
 
 ```sh
