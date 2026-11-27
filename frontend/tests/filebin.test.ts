@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { maxCiphertext } from '../src/lib/api.ts';
-import { binPattern, filebinFetch, filebinFileUrl, filebinUpload, newBin } from '../src/lib/filebin.ts';
+import { createHash } from 'node:crypto';
+import { binPattern, filebinFetch, filebinFileUrl, filebinUpload, matchesSum, newBin, sha256Hex, sumPattern } from '../src/lib/filebin.ts';
 
 const bin = '0123456789abcdef0123456789abcdef';
 
@@ -19,7 +20,9 @@ test('upload is a CORS simple request', async () => {
     seen = { url: String(url), init: init! };
     return new Response('{}', { status: 201 });
   };
-  await filebinUpload(bin, new Blob([new Uint8Array([1, 2, 3])], { type: 'application/pgp-encrypted' }), undefined, { fetch });
+  const sum = await filebinUpload(bin, new Blob([new Uint8Array([1, 2, 3])], { type: 'application/pgp-encrypted' }), undefined, { fetch });
+  // The SHA-256 of what was sent, for the link.
+  assert.equal(sum, createHash('sha256').update(new Uint8Array([1, 2, 3])).digest('hex'));
   assert.equal(seen!.url, `https://filebin.net/${bin}/data.bin`);
   assert.equal(seen!.init.method, 'POST');
   assert.equal(seen!.init.headers, undefined);
@@ -49,6 +52,18 @@ test('download: data, verification page, gone, blocked', async () => {
   assert.deepEqual(await filebinFetch(bin, undefined, undefined, { fetch: answer(new Response('', { status: 404 })) }), {
     kind: 'gone',
   });
+});
+
+test('only the file of the link matches its SHA-256', async () => {
+  const data = new Uint8Array([1, 2, 3]);
+  const sum = await sha256Hex(data);
+  assert.match(sum, sumPattern);
+  assert.equal(await sha256Hex(new Blob([data])), sum);
+  assert.equal(await matchesSum(data, sum), true);
+  // Replaced at Filebin: same size, other content.
+  assert.equal(await matchesSum(new Uint8Array([1, 2, 4]), sum), false);
+  assert.equal(await matchesSum(data, sum.toUpperCase()), false);
+  assert.equal(await matchesSum(data, ''), false);
 });
 
 test('download refuses more than a share link can hold', async () => {

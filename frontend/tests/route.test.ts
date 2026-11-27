@@ -50,9 +50,20 @@ test('upload link routes', () => {
 test('external storage routes', () => {
   const bin = '0123456789abcdef0123456789abcdef';
   const base = 'https://filebunny.eu';
-  assert.deepEqual(parseRoute(new URL(filebinLink(base, bin)).hash), { page: 'external', service: 'filebin', bin });
+  const sum = 'ab'.repeat(32);
+  assert.deepEqual(parseRoute(new URL(filebinLink(base, bin, sum)).hash), { page: 'external', service: 'filebin', bin, sum });
   assert.deepEqual(parseRoute('#/status'), { page: 'status' });
-  for (const bad of [`#/x/filebin/${bin.toUpperCase()}`, `#/x/filebin/${bin}0`, '#/x/filebin/../api', `#/x/other/${bin}`]) {
+  for (const bad of [
+    // Without the SHA-256, as the first direct links were: refused.
+    `#/x/filebin/${bin}`,
+    `#/x/filebin/${bin.toUpperCase()}/${sum}`,
+    `#/x/filebin/${bin}0/${sum}`,
+    `#/x/filebin/${bin}/${sum.toUpperCase()}`,
+    `#/x/filebin/${bin}/${sum.slice(1)}`,
+    `#/x/filebin/${bin}/${sum}/`,
+    '#/x/filebin/../api',
+    `#/x/other/${bin}/${sum}`,
+  ]) {
     assert.deepEqual(parseRoute(bad), { page: 'not-found' }, bad);
   }
 });

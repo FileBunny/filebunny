@@ -23,7 +23,7 @@ The sender chooses in step 3 of Send.
 | E-mail the link | yes, if the server mails | no: the server only mails its own share links |
 | Recipient | downloads and decrypts in one step | may have to save the file at Filebin first (data.bin, encrypted) and load it in FileBunny (Filebin's browser check) |
 | Kept for | as chosen, at most 6 days | about 7 days (Filebin's own limit) |
-| Link | `#/d/<id>` | `#/x/filebin/<bin>` (the bin name only in the fragment) |
+| Link | `#/d/<id>` | `#/x/filebin/<bin>/<sha256>` (bin name and SHA-256 of the ciphertext, only in the fragment) |
 | Traffic on this server | twice the file size | none |
 | Needs | `FILEBUNNY_FILEBIN=true` and a passing health check | nothing on the server |
 
@@ -36,7 +36,14 @@ the file expires or when the sender deletes it.
 **Directly**, the browser uploads to Filebin itself and FileBunny's server
 is not involved at all. The link carries the bin name in the fragment, which
 is never sent to FileBunny. Anyone with the link can download the file, and
-Filebin also lets them delete it. The recipient's browser first tries to
+Filebin also lets them delete it, or upload a new `data.bin` in its place:
+a bin takes uploads until it is locked, and locking needs a `PUT`, which
+Filebin's CORS answer does not allow from a browser. So the link also
+carries the SHA-256 of the ciphertext, and the page decrypts nothing that
+does not match (the `gpg` instructions check it with `sha256sum`). A
+replaced file is caught, a deleted one is gone: the hash protects the
+content, not its availability. Someone who can change the link itself can
+also change the hash. The recipient's browser first tries to
 fetch the file; if Filebin answers with its verification page, the page
 offers to open the file at Filebin in a new tab and decrypt the downloaded
 file in FileBunny.
