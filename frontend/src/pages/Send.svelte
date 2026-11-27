@@ -93,8 +93,8 @@
   let work = $state<number | null>(null);
   let error = $state('');
   let result = $state<Uploaded | null>(null);
-  /** The bin of a direct upload to Filebin. */
-  let directBin = $state('');
+  /** A direct upload to Filebin: its bin and the SHA-256 for the link. */
+  let directUpload = $state<{ bin: string; sum: string } | null>(null);
   let controller: AbortController | null = null;
 
   const total = $derived(
@@ -252,8 +252,8 @@
         const blob = await new Response(ciphertext).blob();
         if (blob.size > maxCiphertext) throw new TooLarge();
         const bin = newBin();
-        await filebinUpload(bin, blob, controller.signal);
-        directBin = bin;
+        const sum = await filebinUpload(bin, blob, controller.signal);
+        directUpload = { bin, sum };
       } else {
         const storage = chosen.name === 'local' ? undefined : chosen.name;
         result = await upload(ciphertext, { expires, maxDownloads, storage }, (n) => (sent = n), controller.signal, (d) => (work = d));
@@ -279,7 +279,7 @@
 
   function startOver() {
     result = null;
-    directBin = '';
+    directUpload = null;
     tried = false;
     text = '';
     file = null;
@@ -291,10 +291,10 @@
   }
 </script>
 
-{#if directBin}
+{#if directUpload}
   <section class="card done">
     <h1>Encrypted and uploaded to {chosen.short}</h1>
-    <CopyField primary label="Share link" value={filebinLink(siteBase(), directBin)} />
+    <CopyField primary label="Share link" value={filebinLink(siteBase(), directUpload.bin, directUpload.sum)} />
     {#if mode === 'password'}
       <p class="note">
         The link does not contain the password. Send the password through a different channel, for example by phone or

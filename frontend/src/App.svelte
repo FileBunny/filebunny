@@ -68,8 +68,8 @@
       <InboxManage id={route.id} token={route.token} />
     {/key}
   {:else if route.page === 'external'}
-    {#key route.bin}
-      <External bin={route.bin} />
+    {#key route.bin + route.sum}
+      <External bin={route.bin} sum={route.sum} />
     {/key}
   {:else if route.page === 'status'}
     <Status />

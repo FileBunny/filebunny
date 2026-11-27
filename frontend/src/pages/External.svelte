@@ -2,14 +2,16 @@
   // A file stored directly at Filebin (docs/storage/filebin.md). FileBunny's
   // server knows nothing about it: the browser fetches it from Filebin, or,
   // when Filebin wants to check the browser first, the visitor opens it in a
-  // tab and loads the saved file here.
+  // tab and loads the saved file here. Either way, nothing is decrypted
+  // unless it matches the SHA-256 in the link: anyone who knows the bin can
+  // replace the file at Filebin.
   import { messageInfo } from '../lib/crypto.ts';
   import { formatBytes } from '../lib/format.ts';
-  import { filebinFetch, filebinFileUrl, filebinKeepsDays } from '../lib/filebin.ts';
+  import { filebinFetch, filebinFileUrl, filebinKeepsDays, matchesSum } from '../lib/filebin.ts';
   import Decrypt from '../components/Decrypt.svelte';
   import ErrorMessage from '../components/ErrorMessage.svelte';
 
-  let { bin }: { bin: string } = $props();
+  let { bin, sum }: { bin: string; sum: string } = $props();
 
   let ciphertext = $state.raw<Uint8Array | null>(null);
   let opensWith = $state({ password: false, key: false });
@@ -35,6 +37,12 @@
 
   /** Takes ciphertext from Filebin or from a saved file. */
   async function use(data: Uint8Array, back: typeof step) {
+    if (!(await matchesSum(data, sum))) {
+      step = back;
+      error =
+        'This is not the file of this link: it was changed at Filebin after it was sent, or another file was loaded. It was not decrypted.';
+      return;
+    }
     try {
       opensWith = await messageInfo(data);
       ciphertext = data;
@@ -110,6 +118,8 @@
   <details>
     <summary>Download and decrypt with gpg instead</summary>
     <pre>curl -fLo message.gpg {url}
+echo "{sum}  message.gpg" | sha256sum -c
 gpg --decrypt message.gpg > decrypted</pre>
+    <p class="note">Only decrypt if sha256sum says OK: otherwise the file was changed at Filebin.</p>
   </details>
 {/if}

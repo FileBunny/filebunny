@@ -12,7 +12,8 @@ export type Route =
   | { page: 'inbox-upload'; id: string; fingerprint: string }
   | { page: 'inbox-manage'; id: string; token: string }
   /** A file stored directly at an external service; the server knows nothing of it. */
-  | { page: 'external'; service: 'filebin'; bin: string }
+  /** sum: SHA-256 of the ciphertext (lowercase hex), checked before decrypting. */
+  | { page: 'external'; service: 'filebin'; bin: string; sum: string }
   | { page: 'status' }
   | { page: 'about' }
   | { page: 'terms' }
@@ -28,6 +29,7 @@ const token = '([A-Za-z0-9_-]{43})';
 const fingerprint = '([0-9a-f]{40}|[0-9a-f]{64})';
 // Filebin bin names as made by FileBunny (see filebin.ts).
 const bin = '([0-9a-f]{32})';
+const sha256 = '([0-9a-f]{64})';
 
 export function parseRoute(hash: string): Route {
   const path = hash.replace(/^#/, '');
@@ -42,8 +44,8 @@ export function parseRoute(hash: string): Route {
   if (m) return { page: 'inbox-upload', id: m[1]!, fingerprint: m[2]! };
   m = path.match(new RegExp(`^/m/${id}/${token}$`));
   if (m) return { page: 'inbox-manage', id: m[1]!, token: m[2]! };
-  m = path.match(new RegExp(`^/x/filebin/${bin}$`));
-  if (m) return { page: 'external', service: 'filebin', bin: m[1]! };
+  m = path.match(new RegExp(`^/x/filebin/${bin}/${sha256}$`));
+  if (m) return { page: 'external', service: 'filebin', bin: m[1]!, sum: m[2]! };
   if (path === '/status') return { page: 'status' };
   for (const page of ['about', 'terms', 'privacy', 'contact'] as const) if (path === `/${page}`) return { page };
   m = path.match(new RegExp(`^/block/${token}$`));
@@ -77,7 +79,10 @@ export function manageLink(base: string, inboxId: string, manageToken: string): 
   return `${base}/#/m/${inboxId}/${manageToken}`;
 }
 
-/** The share link of a file stored directly at Filebin. */
-export function filebinLink(base: string, bin: string): string {
-  return `${base}/#/x/filebin/${bin}`;
+/**
+ * The share link of a file stored directly at Filebin, with the SHA-256 of
+ * the ciphertext: anyone who knows the bin can replace the file there.
+ */
+export function filebinLink(base: string, bin: string, sum: string): string {
+  return `${base}/#/x/filebin/${bin}/${sum}`;
 }
