@@ -1,6 +1,10 @@
 # Findings that .github/workflows/scan.yml accepts, each with a reason and
 # an expiry date: after it the finding fails the scan again, so an accepted
 # risk is looked at again instead of staying forever.
+#
+# The scan fails only on UNKNOWN, HIGH and CRITICAL findings with a fix, so
+# medium ones and ones without a fix are not listed here; why each is
+# harmless here is in docs/security-review.md, "Scanner reconciliation".
 
 # golang.org/x/net/html in Caddy (2.11.9): denial of service through
 # crafted HTML. Caddy parses HTML only in its templates and markdown
